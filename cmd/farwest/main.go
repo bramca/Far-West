@@ -18,7 +18,6 @@ func main() {
 	ebiten.SetWindowTitle("Far West")
 	ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
-
 	// Call ebiten.RunGame to start your game loop.
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)

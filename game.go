@@ -4,8 +4,12 @@ import (
 	"embed"
 	"image/color"
 
+	"github.com/bramca/Far-West/actors"
+	"github.com/bramca/Far-West/helpers"
+	"github.com/bramca/Far-West/world"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -24,6 +28,9 @@ const (
 	ScreenWidth  = 1280
 	ScreenHeight = 860
 )
+
+//go:embed assets/*
+var assets embed.FS
 
 // Game implements ebiten.Game interface.
 type Game struct {
@@ -64,6 +71,18 @@ type Game struct {
 	titleTextExtraDrawOptions *text.DrawOptions
 	gameOverDrawOptions       *text.DrawOptions
 	pauseDrawOptions          *text.DrawOptions
+
+	// actors
+	player *actors.Player
+
+	// world
+	recticle      *world.Recticle
+	cactusSprites []*ebiten.Image
+	cacti         []*world.Cactus
+
+	// gameplay
+	frameCount   int
+	maxFramCount int
 }
 
 func NewGame() *Game {
@@ -79,6 +98,10 @@ func NewGame() *Game {
 		camY:            0.0,
 		newlinePadding:  20,
 		framesPerSecond: 60,
+		recticle:        &world.Recticle{Size: 6},
+		assets:          assets,
+		frameCount:      1,
+		maxFramCount:    60,
 	}
 
 	dpi := 72.0
@@ -127,6 +150,29 @@ func NewGame() *Game {
 		},
 	}
 
+	playerSprites := helpers.LoadSprites(assets, []string{
+		"assets/player-no-gun.png",
+		"assets/player-revolver.png",
+	}, 32, 32)
+
+	game.player = &actors.Player{
+		X:              0.0,
+		Y:              0.0,
+		W:              float64(playerSprites[0].Bounds().Dx()),
+		H:              float64(playerSprites[0].Bounds().Dy()),
+		Sprites:        playerSprites,
+		Scale:          2,
+		Speed:          2.0,
+		AnimationSpeed: 20,
+		DrawOptions:    &ebiten.DrawImageOptions{},
+	}
+
+	game.cactusSprites = helpers.LoadSprites(assets, []string{
+		"assets/cactus.png",
+	}, 32, 32)
+
+	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites)
+
 	return game
 }
 
@@ -141,7 +187,9 @@ func (g *Game) Initialize() {
 func (g *Game) Update() error {
 	switch g.mode {
 	case ModeTitle:
-	// TODO: implement
+		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+			g.mode = ModeGame
+		}
 	case ModeGameOver:
 		if ebiten.IsKeyPressed(ebiten.KeySpace) {
 			g.Initialize()
@@ -153,11 +201,52 @@ func (g *Game) Update() error {
 		}
 	case ModeGame:
 		// Calculate the position of the screen center based on the player's position
-		// camX = player.x + player.w/2 - ScreenWidth/2
-		// camY = player.y + player.h/2 - ScreenHeight/2
+		g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
+		g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
+
+		g.frameCount += 1
+
+		if inpututil.IsKeyJustPressed(ebiten.Key1) {
+			g.player.UpdateCurrentState(actors.PlayerRevolver)
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.Key0) {
+			g.player.UpdateCurrentState(actors.PlayerNoGun)
+		}
+
+		directionKeyPressed := false
+		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+			g.player.Y += g.player.Speed
+			directionKeyPressed = true
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
+			g.player.Y -= g.player.Speed
+			directionKeyPressed = true
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+			g.player.X += g.player.Speed
+			directionKeyPressed = true
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) {
+			g.player.X -= g.player.Speed
+			directionKeyPressed = true
+		}
+
+		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
+			g.player.Animate()
+		}
+
+		if !directionKeyPressed {
+			g.player.StopAnimation()
+		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyP) {
 			g.mode = ModePause
+		}
+
+		if g.frameCount%g.maxFramCount == 0 {
+			g.frameCount = 1
 		}
 	}
 	return nil
@@ -170,6 +259,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(g.backgroundColor)
 	switch g.mode {
 	case ModeTitle:
+		for _, cactus := range g.cacti {
+			cactus.Draw(screen, g.camX, g.camY)
+		}
 		for i, l := range g.titleTexts {
 			tx := 0
 			if i-1 > -1 {
@@ -189,6 +281,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.titleTextExtraDrawOptions)
 		}
 		g.titleTextExtraDrawOptions.GeoM = g.titleExtraGeoMatrix
+
+		g.recticle.Draw(screen)
 
 	case ModeGameOver:
 		for i, l := range g.gameOverTexts {
@@ -213,9 +307,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.pauseDrawOptions.GeoM = g.pauseGeoMatrix
 
 	case ModeGame:
-		// Translate the screen to center it on the player
-		// op := &ebiten.DrawImageOptions{}
-		// op.GeoM.Translate(-float64(camX), -float64(camY))
+		for _, cactus := range g.cacti {
+			cactus.Draw(screen, g.camX, g.camY)
+		}
+		g.recticle.Draw(screen)
+		g.player.Draw(screen, float64(g.player.X-g.camX), float64(g.player.Y-g.camY))
 	}
 }
 
