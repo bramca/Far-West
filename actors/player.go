@@ -2,9 +2,11 @@ package actors
 
 import "github.com/hajimehoshi/ebiten/v2"
 
-type PlayerState int
-type Direction int
-type Weapon int
+type (
+	PlayerState int
+	Direction   int
+	Weapon      int
+)
 
 const (
 	Right Direction = iota
@@ -48,8 +50,8 @@ type Player struct {
 	Speed          float64
 	AnimationSpeed int
 	DrawOptions    *ebiten.DrawImageOptions
-	VisualDir Direction
-	CurrentWeapon Weapon
+	VisualDir      Direction
+	CurrentWeapon  Weapon
 }
 
 func (p *Player) Draw(screen *ebiten.Image, x float64, y float64) {
@@ -100,8 +102,16 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerRevolverLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerRevolverLeftUp)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerRevolverLeftDown)
 		case Right:
 			p.UpdateCurrentState(PlayerRevolverRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerRevolverRightUp)
+		case RightDown:
+			p.UpdateCurrentState(PlayerRevolverRightDown)
 		}
 	case Fists:
 		p.CurrentWeapon = Fists

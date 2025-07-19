@@ -215,7 +215,7 @@ func (g *Game) Update() error {
 		}
 
 		directionKeyPressed := false
-		if  ebiten.IsKeyPressed(ebiten.KeyS) {
+		if ebiten.IsKeyPressed(ebiten.KeyS) {
 			g.player.Y += g.player.Speed
 			directionKeyPressed = true
 		}
@@ -233,7 +233,7 @@ func (g *Game) Update() error {
 			}
 		}
 
-		if  ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
+		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
 			g.player.Y -= g.player.Speed
 			directionKeyPressed = true
 		}
@@ -251,7 +251,7 @@ func (g *Game) Update() error {
 			}
 		}
 
-		if  ebiten.IsKeyPressed(ebiten.KeyD) {
+		if ebiten.IsKeyPressed(ebiten.KeyD) {
 			g.player.X += g.player.Speed
 			directionKeyPressed = true
 		}
