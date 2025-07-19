@@ -3,12 +3,40 @@ package actors
 import "github.com/hajimehoshi/ebiten/v2"
 
 type PlayerState int
+type Direction int
+type Weapon int
 
 const (
-	PlayerNoGun PlayerState = iota
-	PlayerNoGunRun
-	PlayerRevolver
-	PlayerRevolverRun
+	Right Direction = iota
+	RightUp
+	RightDown
+	Left
+	LeftUp
+	LeftDown
+)
+
+const (
+	Fists Weapon = iota
+	Revolver
+)
+
+const (
+	PlayerNoGunRight PlayerState = iota
+	PlayerNoGunLeft
+	PlayerNoGunRunRight
+	PlayerNoGunRunLeft
+	PlayerRevolverRight
+	PlayerRevolverRightUp
+	PlayerRevolverRightDown
+	PlayerRevolverLeft
+	PlayerRevolverLeftUp
+	PlayerRevolverLeftDown
+	PlayerRevolverRunRight
+	PlayerRevolverRunRightUp
+	PlayerRevolverRunRightDown
+	PlayerRevolverRunLeft
+	PlayerRevolverRunLeftUp
+	PlayerRevolverRunLeftDown
 )
 
 type Player struct {
@@ -20,6 +48,8 @@ type Player struct {
 	Speed          float64
 	AnimationSpeed int
 	DrawOptions    *ebiten.DrawImageOptions
+	VisualDir Direction
+	CurrentWeapon Weapon
 }
 
 func (p *Player) Draw(screen *ebiten.Image, x float64, y float64) {
@@ -35,24 +65,109 @@ func (p *Player) UpdateCurrentState(newState PlayerState) {
 	p.CurrentState = newState
 }
 
+func (p *Player) ChangeVisualDirection(newDir Direction) {
+	p.VisualDir = newDir
+	switch p.CurrentWeapon {
+	case Revolver:
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerRevolverLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerRevolverLeftUp)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerRevolverLeftDown)
+		case Right:
+			p.UpdateCurrentState(PlayerRevolverRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerRevolverRightUp)
+		case RightDown:
+			p.UpdateCurrentState(PlayerRevolverRightDown)
+		}
+	case Fists:
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerNoGunLeft)
+		case Right:
+			p.UpdateCurrentState(PlayerNoGunRight)
+		}
+	}
+}
+
+func (p *Player) DrawWeapon(weapon Weapon) {
+	switch weapon {
+	case Revolver:
+		p.CurrentWeapon = Revolver
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerRevolverLeft)
+		case Right:
+			p.UpdateCurrentState(PlayerRevolverRight)
+		}
+	case Fists:
+		p.CurrentWeapon = Fists
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerNoGunLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerNoGunLeft)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerNoGunLeft)
+		case Right:
+			p.UpdateCurrentState(PlayerNoGunRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerNoGunRight)
+		case RightDown:
+			p.UpdateCurrentState(PlayerNoGunRight)
+		}
+	}
+}
+
 func (p *Player) Animate() {
 	switch p.CurrentState {
-	case PlayerNoGun:
-		p.UpdateCurrentState(PlayerNoGunRun)
-	case PlayerNoGunRun:
-		p.UpdateCurrentState(PlayerNoGun)
-	case PlayerRevolver:
-		p.UpdateCurrentState(PlayerRevolverRun)
-	case PlayerRevolverRun:
-		p.UpdateCurrentState(PlayerRevolver)
+	case PlayerNoGunRight:
+		p.UpdateCurrentState(PlayerNoGunRunRight)
+	case PlayerNoGunLeft:
+		p.UpdateCurrentState(PlayerNoGunRunLeft)
+	case PlayerNoGunRunRight:
+		p.UpdateCurrentState(PlayerNoGunRight)
+	case PlayerNoGunRunLeft:
+		p.UpdateCurrentState(PlayerNoGunLeft)
+	case PlayerRevolverRight:
+		p.UpdateCurrentState(PlayerRevolverRunRight)
+	case PlayerRevolverRightUp:
+		p.UpdateCurrentState(PlayerRevolverRunRightUp)
+	case PlayerRevolverRightDown:
+		p.UpdateCurrentState(PlayerRevolverRunRightDown)
+	case PlayerRevolverLeft:
+		p.UpdateCurrentState(PlayerRevolverRunLeft)
+	case PlayerRevolverLeftUp:
+		p.UpdateCurrentState(PlayerRevolverRunLeftUp)
+	case PlayerRevolverLeftDown:
+		p.UpdateCurrentState(PlayerRevolverRunLeftDown)
+	case PlayerRevolverRunRight:
+		p.UpdateCurrentState(PlayerRevolverRight)
+	case PlayerRevolverRunRightUp:
+		p.UpdateCurrentState(PlayerRevolverRightUp)
+	case PlayerRevolverRunRightDown:
+		p.UpdateCurrentState(PlayerRevolverRightDown)
+	case PlayerRevolverRunLeft:
+		p.UpdateCurrentState(PlayerRevolverLeft)
+	case PlayerRevolverRunLeftUp:
+		p.UpdateCurrentState(PlayerRevolverLeftUp)
+	case PlayerRevolverRunLeftDown:
+		p.UpdateCurrentState(PlayerRevolverLeftDown)
 	}
 }
 
 func (p *Player) StopAnimation() {
 	switch p.CurrentState {
-	case PlayerRevolverRun:
-		p.UpdateCurrentState(PlayerRevolver)
-	case PlayerNoGunRun:
-		p.UpdateCurrentState(PlayerNoGun)
+	case PlayerRevolverRunRight:
+		p.UpdateCurrentState(PlayerRevolverRight)
+	case PlayerRevolverRunLeft:
+		p.UpdateCurrentState(PlayerRevolverLeft)
+	case PlayerNoGunRunRight:
+		p.UpdateCurrentState(PlayerNoGunRight)
+	case PlayerNoGunRunLeft:
+		p.UpdateCurrentState(PlayerNoGunLeft)
 	}
 }

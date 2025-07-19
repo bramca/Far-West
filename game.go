@@ -163,7 +163,7 @@ func NewGame() *Game {
 		Sprites:        playerSprites,
 		Scale:          2,
 		Speed:          2.0,
-		AnimationSpeed: 20,
+		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 	}
 
@@ -207,30 +207,66 @@ func (g *Game) Update() error {
 		g.frameCount += 1
 
 		if inpututil.IsKeyJustPressed(ebiten.Key1) {
-			g.player.UpdateCurrentState(actors.PlayerRevolver)
+			g.player.DrawWeapon(actors.Revolver)
 		}
 
 		if inpututil.IsKeyJustPressed(ebiten.Key0) {
-			g.player.UpdateCurrentState(actors.PlayerNoGun)
+			g.player.DrawWeapon(actors.Fists)
 		}
 
 		directionKeyPressed := false
-		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+		if  ebiten.IsKeyPressed(ebiten.KeyS) {
 			g.player.Y += g.player.Speed
 			directionKeyPressed = true
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
+
+		if ebiten.IsKeyPressed(ebiten.KeyDown) {
+			switch g.player.VisualDir {
+			case actors.Left:
+				g.player.ChangeVisualDirection(actors.LeftDown)
+			case actors.LeftUp:
+				g.player.ChangeVisualDirection(actors.LeftDown)
+			case actors.Right:
+				g.player.ChangeVisualDirection(actors.RightDown)
+			case actors.RightUp:
+				g.player.ChangeVisualDirection(actors.RightDown)
+			}
+		}
+
+		if  ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
 			g.player.Y -= g.player.Speed
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+		if ebiten.IsKeyPressed(ebiten.KeyUp) {
+			switch g.player.VisualDir {
+			case actors.Left:
+				g.player.ChangeVisualDirection(actors.LeftUp)
+			case actors.LeftDown:
+				g.player.ChangeVisualDirection(actors.LeftUp)
+			case actors.Right:
+				g.player.ChangeVisualDirection(actors.RightUp)
+			case actors.RightDown:
+				g.player.ChangeVisualDirection(actors.RightUp)
+			}
+		}
+
+		if  ebiten.IsKeyPressed(ebiten.KeyD) {
 			g.player.X += g.player.Speed
 			directionKeyPressed = true
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) {
+
+		if ebiten.IsKeyPressed(ebiten.KeyRight) {
+			g.player.ChangeVisualDirection(actors.Right)
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) {
 			g.player.X -= g.player.Speed
 			directionKeyPressed = true
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+			g.player.ChangeVisualDirection(actors.Left)
 		}
 
 		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
@@ -282,7 +318,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		g.titleTextExtraDrawOptions.GeoM = g.titleExtraGeoMatrix
 
-		g.recticle.Draw(screen)
+		// g.recticle.Draw(screen)
 
 	case ModeGameOver:
 		for i, l := range g.gameOverTexts {
@@ -296,6 +332,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.gameOverDrawOptions.GeoM = g.gameOverGeoMatrix
 
 	case ModePause:
+		for _, cactus := range g.cacti {
+			cactus.Draw(screen, g.camX, g.camY)
+		}
+
 		for i, l := range g.pauseTexts {
 			tx := 0
 			if i-1 > -1 {
@@ -310,7 +350,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
 		}
-		g.recticle.Draw(screen)
+		// g.recticle.Draw(screen)
 		g.player.Draw(screen, float64(g.player.X-g.camX), float64(g.player.Y-g.camY))
 	}
 }

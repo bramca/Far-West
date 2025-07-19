@@ -9,7 +9,26 @@ You get thrown into a region with a `town` and a `big bounty target`:
 
 In the town there are `shops` were you can by stuff:
 - **Grocery store**: consumables for health, stamina, bonus stats etc
-- **Gunshop**: random weapons / upgrades each region)
 - **Stable**: horses
+- **Gunshop**: weapons / upgrades / ammo
 - **Saloon**: for recruiting extra gang members
 - **clothing**: for increasing charisma
+
+## TODO
+
+- [X] animate player
+- [X] spawn some cacti
+- [X] player revolver
+- [ ] hitboxes
+- [ ] collision detection
+- [ ] shoot mechanics
+- [ ] environment destructable?
+- [ ] enemies
+- [ ] minimap
+- [ ] healthbar
+- [ ] dash mechanics / animation
+- [ ] stamina bar
+- [ ] ammunition
+- [ ] reload
+- [ ] town buildings
+- [ ] spawn random town
