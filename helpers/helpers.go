@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 
+	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/world"
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -34,6 +35,49 @@ func DistanceBetweenPoints(x1, y1, x2, y2 float64) float64 {
 	return math.Sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
 }
 
+func InitializeCactusHitboxes() []*actors.HitBox {
+	result := []*actors.HitBox{
+		{
+			X: 11,
+			Y: 12,
+			W: 7,
+			H: 13,
+		},
+		{
+			X: 10,
+			Y: 12,
+			W: 9,
+			H: 13,
+		},
+		{
+			X: 11,
+			Y: 9,
+			W: 8,
+			H: 16,
+		},
+		{
+			X: 11,
+			Y: 6,
+			W: 8,
+			H: 19,
+		},
+		{
+			X: 11,
+			Y: 16,
+			W: 7,
+			H: 9,
+		},
+		{
+			X: 11,
+			Y: 12,
+			W: 8,
+			H: 13,
+		},
+	}
+
+	return result
+}
+
 func LoadSprites(assets embed.FS, fileNames []string, xFrameSize int, yFrameSize int) []*ebiten.Image {
 	result := []*ebiten.Image{}
 	for _, fileName := range fileNames {
@@ -47,7 +91,8 @@ func LoadSprites(assets embed.FS, fileNames []string, xFrameSize int, yFrameSize
 
 		for i := range verticalFrames {
 			for j := range horizontalFrames {
-				result = append(result, img.SubImage(image.Rect(j*xFrameSize, i*yFrameSize, (j+1)*xFrameSize, (i+1)*yFrameSize)).(*ebiten.Image))
+				subImg := img.SubImage(image.Rect(j*xFrameSize, i*yFrameSize, (j+1)*xFrameSize, (i+1)*yFrameSize)).(*ebiten.Image)
+				result = append(result, subImg)
 			}
 		}
 	}
@@ -55,12 +100,14 @@ func LoadSprites(assets embed.FS, fileNames []string, xFrameSize int, yFrameSize
 	return result
 }
 
-func SpawnCacti(xBound, yBound int, amount int, spriteScale float64, cactusSprites []*ebiten.Image) []*world.Cactus {
+func SpawnCacti(xBound, yBound int, amount int, spriteScale float64, cactusSprites []*ebiten.Image, hitboxes []*actors.HitBox) []*world.Cactus {
 	cacti := []*world.Cactus{}
 	for range amount {
 		x := float64(rand.Intn(xBound))
 		y := float64(rand.Intn(yBound))
-		sprite := cactusSprites[rand.Intn(len(cactusSprites))]
+		i := rand.Intn(len(cactusSprites))
+		sprite := cactusSprites[i]
+		hitbox := hitboxes[i]
 		cactus := &world.Cactus{
 			X:           x,
 			Y:           y,
@@ -69,6 +116,12 @@ func SpawnCacti(xBound, yBound int, amount int, spriteScale float64, cactusSprit
 			Sprite:      sprite,
 			DrawOptions: &ebiten.DrawImageOptions{},
 			Scale:       spriteScale,
+			Hitbox: &actors.HitBox{
+				X: float32(x + float64(hitbox.X*float32(spriteScale))),
+				Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+				W: hitbox.W * float32(spriteScale),
+				H: hitbox.H * float32(spriteScale),
+			},
 		}
 		cacti = append(cacti, cactus)
 	}

@@ -52,15 +52,25 @@ type Player struct {
 	DrawOptions    *ebiten.DrawImageOptions
 	VisualDir      Direction
 	CurrentWeapon  Weapon
+	Hitbox         *HitBox
 }
 
-func (p *Player) Draw(screen *ebiten.Image, x float64, y float64) {
+func (p *Player) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	// Draw the player
 	p.DrawOptions.GeoM.Reset()
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
-	p.DrawOptions.GeoM.Translate(x, y)
+	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
+}
+
+func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
+	p.Hitbox.Draw(screen, camX, camY)
+}
+
+func (p *Player) UpdateHitbox() {
+	p.Hitbox.X = float32(p.X)
+	p.Hitbox.Y = float32(p.Y)
 }
 
 func (p *Player) UpdateCurrentState(newState PlayerState) {

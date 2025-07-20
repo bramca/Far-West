@@ -76,9 +76,10 @@ type Game struct {
 	player *actors.Player
 
 	// world
-	recticle      *world.Recticle
-	cactusSprites []*ebiten.Image
-	cacti         []*world.Cactus
+	recticle       *world.Recticle
+	cactusSprites  []*ebiten.Image
+	cactusHitboxes []*actors.HitBox
+	cacti          []*world.Cactus
 
 	// gameplay
 	frameCount   int
@@ -165,13 +166,21 @@ func NewGame() *Game {
 		Speed:          2.0,
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
+		Hitbox: &actors.HitBox{
+			X: 0.0,
+			Y: 0.0,
+			W: float32(playerSprites[0].Bounds().Dx()),
+			H: float32(playerSprites[0].Bounds().Dy()),
+		},
 	}
 
 	game.cactusSprites = helpers.LoadSprites(assets, []string{
 		"assets/cactus.png",
 	}, 32, 32)
 
-	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites)
+	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
+
+	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites, game.cactusHitboxes)
 
 	return game
 }
@@ -217,6 +226,13 @@ func (g *Game) Update() error {
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) {
 			g.player.Y += g.player.Speed
+			g.player.UpdateHitbox()
+			for _, cactus := range g.cacti {
+				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+					g.player.Y -= g.player.Speed
+					g.player.UpdateHitbox()
+				}
+			}
 			directionKeyPressed = true
 		}
 
@@ -235,6 +251,13 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
 			g.player.Y -= g.player.Speed
+			g.player.UpdateHitbox()
+			for _, cactus := range g.cacti {
+				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+					g.player.Y += g.player.Speed
+					g.player.UpdateHitbox()
+				}
+			}
 			directionKeyPressed = true
 		}
 
@@ -253,6 +276,13 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyD) {
 			g.player.X += g.player.Speed
+			g.player.UpdateHitbox()
+			for _, cactus := range g.cacti {
+				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+					g.player.X -= g.player.Speed
+					g.player.UpdateHitbox()
+				}
+			}
 			directionKeyPressed = true
 		}
 
@@ -262,6 +292,13 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) {
 			g.player.X -= g.player.Speed
+			g.player.UpdateHitbox()
+			for _, cactus := range g.cacti {
+				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+					g.player.X += g.player.Speed
+					g.player.UpdateHitbox()
+				}
+			}
 			directionKeyPressed = true
 		}
 
@@ -349,9 +386,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeGame:
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
+			cactus.DrawHitbox(screen, g.camX, g.camY)
 		}
 		// g.recticle.Draw(screen)
-		g.player.Draw(screen, float64(g.player.X-g.camX), float64(g.player.Y-g.camY))
+		g.player.Draw(screen, g.camX, g.camY)
+		g.player.DrawHitbox(screen, g.camX, g.camY)
 	}
 }
 

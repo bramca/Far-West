@@ -19,8 +19,8 @@ In the town there are `shops` were you can by stuff:
 - [X] animate player
 - [X] spawn some cacti
 - [X] player revolver
-- [ ] hitboxes
-- [ ] collision detection
+- [X] hitboxes
+- [X] collision detection
 - [ ] shoot mechanics
 - [ ] environment destructable?
 - [ ] enemies
