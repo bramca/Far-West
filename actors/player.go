@@ -1,6 +1,8 @@
 package actors
 
-import "github.com/hajimehoshi/ebiten/v2"
+import (
+	"github.com/hajimehoshi/ebiten/v2"
+)
 
 type (
 	PlayerState int
@@ -53,6 +55,8 @@ type Player struct {
 	VisualDir      Direction
 	CurrentWeapon  Weapon
 	Hitbox         *HitBox
+	Bullets        []*Bullet
+	BulletSprite   *ebiten.Image
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -71,6 +75,28 @@ func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
 func (p *Player) UpdateHitbox() {
 	p.Hitbox.X = float32(p.X)
 	p.Hitbox.Y = float32(p.Y)
+}
+
+func (p *Player) Shoot() {
+	// TODO: Implement
+	p.addBullet(p.BulletSprite, 4, 0, 5)
+}
+
+func (p *Player) UpdateBullets() {
+	toRemove := []int{}
+	for i, bullet := range p.Bullets {
+		bullet.Update()
+		if bullet.Duration < 1 {
+			toRemove = append(toRemove, i)
+		}
+	}
+
+	for _, index := range toRemove {
+		p.Bullets = removeFromBullets(p.Bullets, index)
+	}
+}
+
+func (p *Player) DrawBullets(screen *ebiten.Image) {
 }
 
 func (p *Player) UpdateCurrentState(newState PlayerState) {
@@ -190,4 +216,30 @@ func (p *Player) StopAnimation() {
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
 	}
+}
+
+func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
+	return append(bullets[:index], bullets[index+1:]...)
+}
+
+func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int) {
+	bullet := &Bullet{
+		X:           p.X,
+		Y:           p.Y,
+		W:           float64(bulletSprite.Bounds().Dx()),
+		H:           float64(bulletSprite.Bounds().Dy()),
+		R:           bulletRotation,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       1,
+		Speed:       bulletSpeed,
+		Duration:    duration,
+		Hitbox: &HitBox{
+			X: 14,
+			Y: 15,
+			W: 3,
+			H: 2,
+		},
+	}
+
+	p.Bullets = append(p.Bullets, bullet)
 }

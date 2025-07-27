@@ -73,10 +73,11 @@ type Game struct {
 	pauseDrawOptions          *text.DrawOptions
 
 	// actors
-	player *actors.Player
+	player       *actors.Player
+	bulletSprite *ebiten.Image
 
 	// world
-	recticle       *world.Recticle
+	recticle       *world.Recticle // unused
 	cactusSprites  []*ebiten.Image
 	cactusHitboxes []*actors.HitBox
 	cacti          []*world.Cactus
@@ -99,7 +100,7 @@ func NewGame() *Game {
 		camY:            0.0,
 		newlinePadding:  20,
 		framesPerSecond: 60,
-		recticle:        &world.Recticle{Size: 6},
+		recticle:        &world.Recticle{Size: 6}, // unused
 		assets:          assets,
 		frameCount:      1,
 		maxFramCount:    60,
@@ -181,6 +182,10 @@ func NewGame() *Game {
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
 
 	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites, game.cactusHitboxes)
+
+	game.bulletSprite = helpers.LoadSprites(assets, []string{
+		"assets/bullet.png",
+	}, 32, 32)[0]
 
 	return game
 }
