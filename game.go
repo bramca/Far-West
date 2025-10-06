@@ -157,6 +157,10 @@ func NewGame() *Game {
 		"assets/player-revolver.png",
 	}, 32, 32)
 
+	game.bulletSprite = helpers.LoadSprites(assets, []string{
+		"assets/bullet.png",
+	}, 32, 32)[0]
+
 	game.player = &actors.Player{
 		X:              0.0,
 		Y:              0.0,
@@ -167,6 +171,7 @@ func NewGame() *Game {
 		Speed:          2.0,
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
+		BulletSprite:   game.bulletSprite,
 		Hitbox: &actors.HitBox{
 			X: 0.0,
 			Y: 0.0,
@@ -182,10 +187,6 @@ func NewGame() *Game {
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
 
 	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites, game.cactusHitboxes)
-
-	game.bulletSprite = helpers.LoadSprites(assets, []string{
-		"assets/bullet.png",
-	}, 32, 32)[0]
 
 	return game
 }
@@ -219,6 +220,17 @@ func (g *Game) Update() error {
 		g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
 
 		g.frameCount += 1
+
+		g.player.UpdateBullets()
+
+		// TODO: check bullet collision and damage the environment
+		for _, bullet := range g.player.Bullets {
+			for _, cactus := range g.cacti {
+				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+					bullet.Speed = 0
+				}
+			}
+		}
 
 		if inpututil.IsKeyJustPressed(ebiten.Key1) {
 			g.player.DrawWeapon(actors.Revolver)
@@ -319,6 +331,10 @@ func (g *Game) Update() error {
 			g.player.StopAnimation()
 		}
 
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+			g.player.Shoot()
+		}
+
 		if ebiten.IsKeyPressed(ebiten.KeyP) {
 			g.mode = ModePause
 		}
@@ -396,6 +412,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// g.recticle.Draw(screen)
 		g.player.Draw(screen, g.camX, g.camY)
 		g.player.DrawHitbox(screen, g.camX, g.camY)
+		g.player.DrawBullets(screen, g.camX, g.camY)
 	}
 }
 

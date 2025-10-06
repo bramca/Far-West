@@ -21,7 +21,8 @@ In the town there are `shops` were you can by stuff:
 - [X] player revolver
 - [X] hitboxes
 - [X] collision detection
-- [ ] shoot mechanics
+- [X] shoot mechanics
+- [ ] bullet hit animation
 - [ ] environment destructable?
 - [ ] enemies
 - [ ] minimap

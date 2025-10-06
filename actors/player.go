@@ -1,6 +1,8 @@
 package actors
 
 import (
+	"math"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -78,8 +80,19 @@ func (p *Player) UpdateHitbox() {
 }
 
 func (p *Player) Shoot() {
-	// TODO: Implement
-	p.addBullet(p.BulletSprite, 4, 0, 5)
+	if p.CurrentWeapon == Fists {
+		return
+	}
+	switch p.VisualDir {
+	case Right:
+		p.addBullet(p.BulletSprite, 4, 0, 150)
+	case LeftUp, RightUp:
+		p.addBullet(p.BulletSprite, 4, 3*math.Pi/2, 150)
+	case Left:
+		p.addBullet(p.BulletSprite, 4, math.Pi, 150)
+	case LeftDown, RightDown:
+		p.addBullet(p.BulletSprite, 4, math.Pi/2, 150)
+	}
 }
 
 func (p *Player) UpdateBullets() {
@@ -96,7 +109,11 @@ func (p *Player) UpdateBullets() {
 	}
 }
 
-func (p *Player) DrawBullets(screen *ebiten.Image) {
+func (p *Player) DrawBullets(screen *ebiten.Image, camX, camY float64) {
+	for _, bullet := range p.Bullets {
+		bullet.Draw(screen, camX, camY)
+		bullet.DrawHitbox(screen, camX, camY)
+	}
 }
 
 func (p *Player) UpdateCurrentState(newState PlayerState) {
@@ -223,22 +240,28 @@ func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
 }
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int) {
+	scale := float64(4)
+	x := p.X - float64(bulletSprite.Bounds().Dx())*scale/2 + p.W/2
+	y := p.Y - float64(bulletSprite.Bounds().Dy())*scale/2 + p.H/2
+	offset := float64(14)
 	bullet := &Bullet{
-		X:           p.X,
-		Y:           p.Y,
+		X:           x,
+		Y:           y,
 		W:           float64(bulletSprite.Bounds().Dx()),
 		H:           float64(bulletSprite.Bounds().Dy()),
 		R:           bulletRotation,
 		DrawOptions: &ebiten.DrawImageOptions{},
-		Scale:       1,
+		Scale:       scale,
 		Speed:       bulletSpeed,
+		Sprite:      bulletSprite,
 		Duration:    duration,
 		Hitbox: &HitBox{
-			X: 14,
-			Y: 15,
-			W: 3,
-			H: 2,
+			X: float32(x + offset*scale),
+			Y: float32(y + offset*scale),
+			W: float32(3 * scale),
+			H: float32(3 * scale),
 		},
+		HitboxOffset: offset,
 	}
 
 	p.Bullets = append(p.Bullets, bullet)
