@@ -83,15 +83,19 @@ func (p *Player) Shoot() {
 	if p.CurrentWeapon == Fists {
 		return
 	}
-	switch p.VisualDir {
-	case Right:
-		p.addBullet(p.BulletSprite, 4, 0, 150)
-	case LeftUp, RightUp:
-		p.addBullet(p.BulletSprite, 4, 3*math.Pi/2, 150)
-	case Left:
-		p.addBullet(p.BulletSprite, 4, math.Pi, 150)
-	case LeftDown, RightDown:
-		p.addBullet(p.BulletSprite, 4, math.Pi/2, 150)
+	switch p.CurrentWeapon {
+	case Revolver:
+		bulletSpeed := 4.0
+		bulletDuration := 150
+		bulletDirection := map[Direction]float64{
+			Right: 0,
+			LeftUp: 3*math.Pi/2,
+			RightUp: 3*math.Pi/2,
+			Left: math.Pi,
+			LeftDown: math.Pi/2,
+			RightDown: math.Pi/2,
+		}
+		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration)
 	}
 }
 
@@ -241,8 +245,11 @@ func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int) {
 	scale := float64(4)
+	// The middle of the bullet starts at the middle of the player
 	x := p.X - float64(bulletSprite.Bounds().Dx())*scale/2 + p.W/2
 	y := p.Y - float64(bulletSprite.Bounds().Dy())*scale/2 + p.H/2
+	bulletPixelWidth := 3.0
+	bulletPixelHeight := 3.0
 	offset := float64(14)
 	bullet := &Bullet{
 		X:           x,
@@ -258,8 +265,8 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 		Hitbox: &HitBox{
 			X: float32(x + offset*scale),
 			Y: float32(y + offset*scale),
-			W: float32(3 * scale),
-			H: float32(3 * scale),
+			W: float32(bulletPixelWidth * scale),
+			H: float32(bulletPixelHeight * scale),
 		},
 		HitboxOffset: offset,
 	}

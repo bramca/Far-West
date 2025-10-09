@@ -30,16 +30,8 @@ func (b *Bullet) Draw(screen *ebiten.Image, camX float64, camY float64) {
 }
 
 func (b *Bullet) Update() {
-	switch b.R {
-	case 0:
-		b.X += b.Speed
-	case 3 * math.Pi / 2:
-		b.Y -= b.Speed
-	case math.Pi:
-		b.X -= b.Speed
-	case math.Pi / 2:
-		b.Y += b.Speed
-	}
+	b.X += b.Speed * math.Cos(b.R)
+	b.Y += b.Speed * math.Sin(b.R)
 
 	b.UpdateHitbox()
 	b.Duration -= 1

@@ -77,7 +77,6 @@ type Game struct {
 	bulletSprite *ebiten.Image
 
 	// world
-	recticle       *world.Recticle // unused
 	cactusSprites  []*ebiten.Image
 	cactusHitboxes []*actors.HitBox
 	cacti          []*world.Cactus
@@ -100,7 +99,6 @@ func NewGame() *Game {
 		camY:            0.0,
 		newlinePadding:  20,
 		framesPerSecond: 60,
-		recticle:        &world.Recticle{Size: 6}, // unused
 		assets:          assets,
 		frameCount:      1,
 		maxFramCount:    60,
@@ -186,12 +184,17 @@ func NewGame() *Game {
 
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
 
-	game.cacti = helpers.SpawnCacti(3*ScreenWidth, 3*ScreenHeight, 60, 4, game.cactusSprites, game.cactusHitboxes)
+	cactusAmount := 60
+	cactusSpawnBoundY := 3 * ScreenHeight
+	cactusSpawnBoundX := 3 * ScreenWidth
+	cactusSpriteScale := 4.0
+	game.cacti = helpers.SpawnCacti(cactusSpawnBoundX, cactusSpawnBoundY, cactusAmount, cactusSpriteScale, game.cactusSprites, game.cactusHitboxes)
 
 	return game
 }
 
 func (g *Game) Initialize() {
+	// TODO: What happens after game over?
 	// Calculate the position of the screen center based on the player's position
 	// camX = player.x + player.w/2 - ScreenWidth/2
 	// camY = player.y + player.h/2 - ScreenHeight/2
@@ -376,8 +379,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		g.titleTextExtraDrawOptions.GeoM = g.titleExtraGeoMatrix
 
-		// g.recticle.Draw(screen)
-
 	case ModeGameOver:
 		for i, l := range g.gameOverTexts {
 			tx := 0
@@ -409,7 +410,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			cactus.Draw(screen, g.camX, g.camY)
 			cactus.DrawHitbox(screen, g.camX, g.camY)
 		}
-		// g.recticle.Draw(screen)
 		g.player.Draw(screen, g.camX, g.camY)
 		g.player.DrawHitbox(screen, g.camX, g.camY)
 		g.player.DrawBullets(screen, g.camX, g.camY)
