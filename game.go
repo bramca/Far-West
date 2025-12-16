@@ -3,6 +3,7 @@ package farwest
 import (
 	"embed"
 	"image/color"
+	"log"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/helpers"
@@ -31,6 +32,27 @@ const (
 
 //go:embed assets/*
 var assets embed.FS
+
+// gamepad mappings
+var standardButtonToString = map[ebiten.StandardGamepadButton]string{
+	ebiten.StandardGamepadButtonRightBottom:      "RB",
+	ebiten.StandardGamepadButtonRightRight:       "RR",
+	ebiten.StandardGamepadButtonRightLeft:        "RL",
+	ebiten.StandardGamepadButtonRightTop:         "RT",
+	ebiten.StandardGamepadButtonFrontTopLeft:     "FTL",
+	ebiten.StandardGamepadButtonFrontTopRight:    "FTR",
+	ebiten.StandardGamepadButtonFrontBottomLeft:  "FBL",
+	ebiten.StandardGamepadButtonFrontBottomRight: "FBR",
+	ebiten.StandardGamepadButtonCenterLeft:       "CL",
+	ebiten.StandardGamepadButtonCenterRight:      "CR",
+	ebiten.StandardGamepadButtonLeftStick:        "LS",
+	ebiten.StandardGamepadButtonRightStick:       "RS",
+	ebiten.StandardGamepadButtonLeftBottom:       "LB",
+	ebiten.StandardGamepadButtonLeftRight:        "LR",
+	ebiten.StandardGamepadButtonLeftLeft:         "LL",
+	ebiten.StandardGamepadButtonLeftTop:          "LT",
+	ebiten.StandardGamepadButtonCenterCenter:     "CC",
+}
 
 // Game implements ebiten.Game interface.
 type Game struct {
@@ -84,14 +106,23 @@ type Game struct {
 	// gameplay
 	frameCount   int
 	maxFramCount int
+
+	// gamepad
+	gamepadIDsBuf  []ebiten.GamepadID
+	gamepadIDs     map[ebiten.GamepadID]struct{}
+	xLeftAxis      float64
+	yLeftAxis      float64
+	xRightAxis     float64
+	yRightAxis     float64
+	buttonsPressed map[string]bool
 }
 
 func NewGame() *Game {
 	game := &Game{
 		titleTexts:      []string{"FAR WEST"},
-		titleTextsExtra: []string{"PRESS SPACE KEY"},
-		gameOverTexts:   []string{"GAME OVER!", "PRESS SPACE KEY"},
-		pauseTexts:      []string{"PAUSED", "PRESS SPACE KEY"},
+		titleTextsExtra: []string{"PRESS SPACE KEY OR START BUTTON"},
+		gameOverTexts:   []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
+		pauseTexts:      []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
 		fontSize:        24,
 		titleFontSize:   36,
 		backgroundColor: color.RGBA{R: 76, G: 70, B: 50, A: 1},
@@ -102,6 +133,7 @@ func NewGame() *Game {
 		assets:          assets,
 		frameCount:      1,
 		maxFramCount:    60,
+		buttonsPressed:  map[string]bool{},
 	}
 
 	dpi := 72.0
@@ -203,18 +235,76 @@ func (g *Game) Initialize() {
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
+	// gamepad logic
+	if g.gamepadIDs == nil {
+		g.gamepadIDs = map[ebiten.GamepadID]struct{}{}
+	}
+
+	// log gamepad connection events
+	g.gamepadIDsBuf = inpututil.AppendJustConnectedGamepadIDs(g.gamepadIDsBuf[:0])
+	for _, id := range g.gamepadIDsBuf {
+		log.Printf("gamepad connected: id: %d, SDL id: $s", id, ebiten.GamepadSDLID(id))
+		g.gamepadIDs[id] = struct{}{}
+	}
+	for id := range g.gamepadIDs {
+		if inpututil.IsGamepadJustDisconnected(id) {
+			log.Printf("gamepad disconnected: id: %d", id)
+			delete(g.gamepadIDs, id)
+		}
+	}
+
+	for id := range g.gamepadIDs {
+		// log axis events
+		xLeftAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal)
+		if xLeftAxisPressed != g.xLeftAxis {
+			g.xLeftAxis = xLeftAxisPressed
+			log.Printf("Left Stick X: %+0.2f", g.xLeftAxis)
+		}
+		yLeftAyisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical)
+		if yLeftAyisPressed != g.yLeftAxis {
+			g.yLeftAxis = yLeftAyisPressed
+			log.Printf("Left Stick Y: %+0.2f", g.yLeftAxis)
+		}
+		xRightAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal)
+		if xRightAxisPressed != g.xRightAxis {
+			g.xRightAxis = xRightAxisPressed
+			log.Printf("Right Stick X: %+0.2f", g.xRightAxis)
+		}
+		yRightAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickVertical)
+		if yRightAxisPressed != g.yRightAxis {
+			g.yRightAxis = yRightAxisPressed
+			log.Printf("Right Stick Y: %+0.2f", g.yRightAxis)
+		}
+
+		// log button events
+		maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
+		for b := ebiten.GamepadButton(0); b < maxButton; b++ {
+			if inpututil.IsGamepadButtonJustPressed(id, b) {
+				log.Printf("button pressed: id: %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
+				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
+			}
+
+			if inpututil.IsGamepadButtonJustReleased(id, b) {
+				log.Printf("button released: id %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
+				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = false
+			}
+		}
+
+	}
+
+	// controls
 	switch g.mode {
 	case ModeTitle:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGameOver:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
 			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModePause:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGame:
@@ -235,12 +325,17 @@ func (g *Game) Update() error {
 			}
 		}
 
+		// weapon switching
 		if inpututil.IsKeyJustPressed(ebiten.Key1) {
 			g.player.DrawWeapon(actors.Revolver)
 		}
 
 		if inpututil.IsKeyJustPressed(ebiten.Key0) {
 			g.player.DrawWeapon(actors.Fists)
+		}
+
+		if g.buttonsPressed["RT"] {
+			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Revolver + 1))
 		}
 
 		directionKeyPressed := false
