@@ -236,6 +236,7 @@ func (g *Game) Initialize() {
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
 	// gamepad logic
+	buttonsJustPressed := map[string]bool{}
 	if g.gamepadIDs == nil {
 		g.gamepadIDs = map[ebiten.GamepadID]struct{}{}
 	}
@@ -282,6 +283,7 @@ func (g *Game) Update() error {
 			if inpututil.IsGamepadButtonJustPressed(id, b) {
 				log.Printf("button pressed: id: %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
 				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
+				buttonsJustPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
 			}
 
 			if inpututil.IsGamepadButtonJustReleased(id, b) {
@@ -334,12 +336,12 @@ func (g *Game) Update() error {
 			g.player.DrawWeapon(actors.Fists)
 		}
 
-		if g.buttonsPressed["RT"] {
+		if buttonsJustPressed["RT"] {
 			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Revolver + 1))
 		}
 
 		directionKeyPressed := false
-		if ebiten.IsKeyPressed(ebiten.KeyS) {
+		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
 			g.player.Y += g.player.Speed
 			g.player.UpdateHitbox()
 			for _, cactus := range g.cacti {
@@ -351,7 +353,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyDown) {
+		if ebiten.IsKeyPressed(ebiten.KeyDown) || g.yRightAxis > 0.5 {
 			switch g.player.VisualDir {
 			case actors.Left:
 				g.player.ChangeVisualDirection(actors.LeftDown)
@@ -364,7 +366,7 @@ func (g *Game) Update() error {
 			}
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) {
+		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
 			g.player.Y -= g.player.Speed
 			g.player.UpdateHitbox()
 			for _, cactus := range g.cacti {
@@ -376,7 +378,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyUp) {
+		if ebiten.IsKeyPressed(ebiten.KeyUp) || g.yRightAxis < -0.5 {
 			switch g.player.VisualDir {
 			case actors.Left:
 				g.player.ChangeVisualDirection(actors.LeftUp)
@@ -389,7 +391,7 @@ func (g *Game) Update() error {
 			}
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyD) {
+		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
 			g.player.X += g.player.Speed
 			g.player.UpdateHitbox()
 			for _, cactus := range g.cacti {
@@ -401,11 +403,11 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyRight) {
+		if ebiten.IsKeyPressed(ebiten.KeyRight) || g.xRightAxis > 0.5 {
 			g.player.ChangeVisualDirection(actors.Right)
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) {
+		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
 			g.player.X -= g.player.Speed
 			g.player.UpdateHitbox()
 			for _, cactus := range g.cacti {
@@ -417,7 +419,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+		if ebiten.IsKeyPressed(ebiten.KeyLeft) || g.xRightAxis < -0.5 {
 			g.player.ChangeVisualDirection(actors.Left)
 		}
 
@@ -429,11 +431,11 @@ func (g *Game) Update() error {
 			g.player.StopAnimation()
 		}
 
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FTR"] {
 			g.player.Shoot()
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyP) {
+		if ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"] {
 			g.mode = ModePause
 		}
 
