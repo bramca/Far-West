@@ -19,6 +19,8 @@ const (
 	Left
 	LeftUp
 	LeftDown
+	Up
+	Down
 )
 
 const (
@@ -55,10 +57,14 @@ type Player struct {
 	AnimationSpeed int
 	DrawOptions    *ebiten.DrawImageOptions
 	VisualDir      Direction
+	MoveDirs       map[Direction]bool
 	CurrentWeapon  Weapon
 	Hitbox         *HitBox
 	Bullets        []*Bullet
 	BulletSprite   *ebiten.Image
+
+	// For NPC
+	CurrentAction Action
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -86,16 +92,62 @@ func (p *Player) Shoot() {
 	switch p.CurrentWeapon {
 	case Revolver:
 		bulletSpeed := 4.0
-		bulletDuration := 150
+		bulletDuration := 500
 		bulletDirection := map[Direction]float64{
-			Right: 0,
-			LeftUp: 3*math.Pi/2,
-			RightUp: 3*math.Pi/2,
-			Left: math.Pi,
-			LeftDown: math.Pi/2,
-			RightDown: math.Pi/2,
+			Right:     0,
+			LeftUp:    3 * math.Pi / 2,
+			RightUp:   3 * math.Pi / 2,
+			Left:      math.Pi,
+			LeftDown:  math.Pi / 2,
+			RightDown: math.Pi / 2,
 		}
 		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration)
+	}
+}
+
+func (p *Player) Move(d Direction) {
+	p.MoveDirs[d] = true
+	switch d {
+	case Right:
+		p.X += p.Speed
+	case Left:
+		p.X -= p.Speed
+	case Up:
+		p.Y -= p.Speed
+	case Down:
+		p.Y += p.Speed
+	}
+	p.UpdateHitbox()
+}
+
+func (p *Player) Look(d Direction) {
+	switch d {
+	case Up:
+		switch p.VisualDir {
+		case Left:
+			p.ChangeVisualDirection(LeftUp)
+		case LeftDown:
+			p.ChangeVisualDirection(LeftUp)
+		case Right:
+			p.ChangeVisualDirection(RightUp)
+		case RightDown:
+			p.ChangeVisualDirection(RightUp)
+		}
+	case Down:
+		switch p.VisualDir {
+		case Left:
+			p.ChangeVisualDirection(LeftDown)
+		case LeftUp:
+			p.ChangeVisualDirection(LeftDown)
+		case Right:
+			p.ChangeVisualDirection(RightDown)
+		case RightUp:
+			p.ChangeVisualDirection(RightDown)
+		}
+	case Right:
+		p.ChangeVisualDirection(Right)
+	case Left:
+		p.ChangeVisualDirection(Left)
 	}
 }
 
@@ -237,6 +289,19 @@ func (p *Player) StopAnimation() {
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
 	}
+}
+
+// For NPC
+func (p *Player) Think(animate bool) {
+	if p.CurrentAction.Duration <= 0 {
+		p.CurrentAction = Action{
+			Duration: 200,
+			Type:     Dodge,
+			actor:    p,
+		}
+	}
+
+	p.CurrentAction.PerformAction(p.Bullets, animate)
 }
 
 func removeFromBullets(bullets []*Bullet, index int) []*Bullet {

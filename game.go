@@ -3,7 +3,7 @@ package farwest
 import (
 	"embed"
 	"image/color"
-	"log"
+	"math/rand"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/helpers"
@@ -97,6 +97,7 @@ type Game struct {
 	// actors
 	player       *actors.Player
 	bulletSprite *ebiten.Image
+	enemies      []*actors.Player
 
 	// world
 	cactusSprites  []*ebiten.Image
@@ -187,6 +188,11 @@ func NewGame() *Game {
 		"assets/player-revolver.png",
 	}, 32, 32)
 
+	enemySprites := helpers.LoadSprites(assets, []string{
+		"assets/enemy-1-no-gun.png",
+		"assets/enemy-1-revolver.png",
+	}, 32, 32)
+
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
 		"assets/bullet.png",
 	}, 32, 32)[0]
@@ -205,9 +211,35 @@ func NewGame() *Game {
 		Hitbox: &actors.HitBox{
 			X: 0.0,
 			Y: 0.0,
-			W: float32(playerSprites[0].Bounds().Dx()),
+			W: float32(playerSprites[0].Bounds().Dx() - 5),
 			H: float32(playerSprites[0].Bounds().Dy()),
 		},
+	}
+
+	nEnemies := 5
+	for _ = range nEnemies {
+		x := rand.Float64()*ScreenWidth + game.camX + 20
+		y := rand.Float64()*ScreenHeight + game.camY + 20
+		state := actors.PlayerRevolverLeft
+		game.enemies = append(game.enemies, &actors.Player{
+			X:              x,
+			Y:              y,
+			W:              float64(enemySprites[state].Bounds().Dx()),
+			H:              float64(playerSprites[state].Bounds().Dy()),
+			Sprites:        enemySprites,
+			CurrentState:   state,
+			Scale:          2,
+			Speed:          2.0,
+			AnimationSpeed: 15,
+			DrawOptions:    &ebiten.DrawImageOptions{},
+			BulletSprite:   game.bulletSprite,
+			Hitbox: &actors.HitBox{
+				X: float32(x),
+				Y: float32(y),
+				W: float32(playerSprites[state].Bounds().Dx() - 5),
+				H: float32(playerSprites[state].Bounds().Dy()),
+			},
+		})
 	}
 
 	game.cactusSprites = helpers.LoadSprites(assets, []string{
@@ -232,6 +264,89 @@ func (g *Game) Initialize() {
 	// camY = player.y + player.h/2 - ScreenHeight/2
 }
 
+func (g *Game) CheckCollisions() {
+	// TODO: check bullet collision and damage the environment
+	for _, cactus := range g.cacti {
+		removeIndices := []int{}
+		for i, bullet := range g.player.Bullets {
+			if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+				removeIndices = append(removeIndices, i)
+			}
+		}
+		for _, index := range removeIndices {
+			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
+		}
+
+		for _, enemy := range g.enemies {
+			if enemy.Hitbox.CheckCollision(cactus.Hitbox) {
+				for dir, moving := range enemy.MoveDirs {
+					if moving {
+						switch dir {
+						case actors.Up:
+							enemy.Y += enemy.Speed
+						case actors.Down:
+							enemy.Y -= enemy.Speed
+						case actors.Right:
+							enemy.X -= enemy.Speed
+						case actors.Left:
+							enemy.X += enemy.Speed
+						}
+						enemy.UpdateHitbox()
+					}
+				}
+			}
+
+		}
+		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+			for dir, moving := range g.player.MoveDirs {
+				if moving {
+					switch dir {
+					case actors.Up:
+						g.player.Y += g.player.Speed
+					case actors.Down:
+						g.player.Y -= g.player.Speed
+					case actors.Right:
+						g.player.X -= g.player.Speed
+					case actors.Left:
+						g.player.X += g.player.Speed
+					}
+					g.player.UpdateHitbox()
+				}
+			}
+		}
+	}
+
+	for _, enemy := range g.enemies {
+		removeIndices := []int{}
+		for i, bullet := range g.player.Bullets {
+			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
+				removeIndices = append(removeIndices, i)
+			}
+		}
+		for _, index := range removeIndices {
+			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
+		}
+
+		if g.player.Hitbox.CheckCollision(enemy.Hitbox) {
+			for dir, moving := range g.player.MoveDirs {
+				if moving {
+					switch dir {
+					case actors.Up:
+						g.player.Y += g.player.Speed
+					case actors.Down:
+						g.player.Y -= g.player.Speed
+					case actors.Right:
+						g.player.X -= g.player.Speed
+					case actors.Left:
+						g.player.X += g.player.Speed
+					}
+					g.player.UpdateHitbox()
+				}
+			}
+		}
+	}
+}
+
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
@@ -244,12 +359,12 @@ func (g *Game) Update() error {
 	// log gamepad connection events
 	g.gamepadIDsBuf = inpututil.AppendJustConnectedGamepadIDs(g.gamepadIDsBuf[:0])
 	for _, id := range g.gamepadIDsBuf {
-		log.Printf("gamepad connected: id: %d, SDL id: $s", id, ebiten.GamepadSDLID(id))
+		// log.Printf("gamepad connected: id: %d, SDL id: $s", id, ebiten.GamepadSDLID(id))
 		g.gamepadIDs[id] = struct{}{}
 	}
 	for id := range g.gamepadIDs {
 		if inpututil.IsGamepadJustDisconnected(id) {
-			log.Printf("gamepad disconnected: id: %d", id)
+			// log.Printf("gamepad disconnected: id: %d", id)
 			delete(g.gamepadIDs, id)
 		}
 	}
@@ -259,35 +374,35 @@ func (g *Game) Update() error {
 		xLeftAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal)
 		if xLeftAxisPressed != g.xLeftAxis {
 			g.xLeftAxis = xLeftAxisPressed
-			log.Printf("Left Stick X: %+0.2f", g.xLeftAxis)
+			// log.Printf("Left Stick X: %+0.2f", g.xLeftAxis)
 		}
 		yLeftAyisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical)
 		if yLeftAyisPressed != g.yLeftAxis {
 			g.yLeftAxis = yLeftAyisPressed
-			log.Printf("Left Stick Y: %+0.2f", g.yLeftAxis)
+			// log.Printf("Left Stick Y: %+0.2f", g.yLeftAxis)
 		}
 		xRightAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal)
 		if xRightAxisPressed != g.xRightAxis {
 			g.xRightAxis = xRightAxisPressed
-			log.Printf("Right Stick X: %+0.2f", g.xRightAxis)
+			// log.Printf("Right Stick X: %+0.2f", g.xRightAxis)
 		}
 		yRightAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickVertical)
 		if yRightAxisPressed != g.yRightAxis {
 			g.yRightAxis = yRightAxisPressed
-			log.Printf("Right Stick Y: %+0.2f", g.yRightAxis)
+			// log.Printf("Right Stick Y: %+0.2f", g.yRightAxis)
 		}
 
 		// log button events
 		maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
 		for b := ebiten.GamepadButton(0); b < maxButton; b++ {
 			if inpututil.IsGamepadButtonJustPressed(id, b) {
-				log.Printf("button pressed: id: %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
+				// log.Printf("button pressed: id: %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
 				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
 				buttonsJustPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
 			}
 
 			if inpututil.IsGamepadButtonJustReleased(id, b) {
-				log.Printf("button released: id %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
+				// log.Printf("button released: id %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
 				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = false
 			}
 		}
@@ -314,18 +429,16 @@ func (g *Game) Update() error {
 		g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
 		g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
 
+		g.player.MoveDirs = map[actors.Direction]bool{
+			actors.Up:    false,
+			actors.Down:  false,
+			actors.Right: false,
+			actors.Left:  false,
+		}
+
 		g.frameCount += 1
 
 		g.player.UpdateBullets()
-
-		// TODO: check bullet collision and damage the environment
-		for _, bullet := range g.player.Bullets {
-			for _, cactus := range g.cacti {
-				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
-					bullet.Speed = 0
-				}
-			}
-		}
 
 		// weapon switching
 		if inpututil.IsKeyJustPressed(ebiten.Key1) {
@@ -342,85 +455,39 @@ func (g *Game) Update() error {
 
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
-			g.player.Y += g.player.Speed
-			g.player.UpdateHitbox()
-			for _, cactus := range g.cacti {
-				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-					g.player.Y -= g.player.Speed
-					g.player.UpdateHitbox()
-				}
-			}
+			g.player.Move(actors.Down)
 			directionKeyPressed = true
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyDown) || g.yRightAxis > 0.5 {
-			switch g.player.VisualDir {
-			case actors.Left:
-				g.player.ChangeVisualDirection(actors.LeftDown)
-			case actors.LeftUp:
-				g.player.ChangeVisualDirection(actors.LeftDown)
-			case actors.Right:
-				g.player.ChangeVisualDirection(actors.RightDown)
-			case actors.RightUp:
-				g.player.ChangeVisualDirection(actors.RightDown)
-			}
+			g.player.Look(actors.Down)
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
-			g.player.Y -= g.player.Speed
-			g.player.UpdateHitbox()
-			for _, cactus := range g.cacti {
-				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-					g.player.Y += g.player.Speed
-					g.player.UpdateHitbox()
-				}
-			}
+			g.player.Move(actors.Up)
 			directionKeyPressed = true
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyUp) || g.yRightAxis < -0.5 {
-			switch g.player.VisualDir {
-			case actors.Left:
-				g.player.ChangeVisualDirection(actors.LeftUp)
-			case actors.LeftDown:
-				g.player.ChangeVisualDirection(actors.LeftUp)
-			case actors.Right:
-				g.player.ChangeVisualDirection(actors.RightUp)
-			case actors.RightDown:
-				g.player.ChangeVisualDirection(actors.RightUp)
-			}
+			g.player.Look(actors.Up)
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
-			g.player.X += g.player.Speed
-			g.player.UpdateHitbox()
-			for _, cactus := range g.cacti {
-				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-					g.player.X -= g.player.Speed
-					g.player.UpdateHitbox()
-				}
-			}
+			g.player.Move(actors.Right)
 			directionKeyPressed = true
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyRight) || g.xRightAxis > 0.5 {
-			g.player.ChangeVisualDirection(actors.Right)
+			g.player.Look(actors.Right)
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
-			g.player.X -= g.player.Speed
-			g.player.UpdateHitbox()
-			for _, cactus := range g.cacti {
-				if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-					g.player.X += g.player.Speed
-					g.player.UpdateHitbox()
-				}
-			}
+			g.player.Move(actors.Left)
 			directionKeyPressed = true
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyLeft) || g.xRightAxis < -0.5 {
-			g.player.ChangeVisualDirection(actors.Left)
+			g.player.Look(actors.Left)
 		}
 
 		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
@@ -434,6 +501,13 @@ func (g *Game) Update() error {
 		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FTR"] {
 			g.player.Shoot()
 		}
+
+		for _, enemy := range g.enemies {
+			animate := g.frameCount%g.player.AnimationSpeed == 0
+			enemy.Think(animate)
+		}
+
+		g.CheckCollisions()
 
 		if ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"] {
 			g.mode = ModePause
@@ -455,6 +529,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeTitle:
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
+		}
+		for _, enemy := range g.enemies {
+			enemy.Draw(screen, g.camX, g.camY)
 		}
 		for i, l := range g.titleTexts {
 			tx := 0
@@ -506,6 +583,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
 			cactus.DrawHitbox(screen, g.camX, g.camY)
+		}
+		for _, enemy := range g.enemies {
+			enemy.Draw(screen, g.camX, g.camY)
+			enemy.DrawHitbox(screen, g.camX, g.camY)
 		}
 		g.player.Draw(screen, g.camX, g.camY)
 		g.player.DrawHitbox(screen, g.camX, g.camY)
