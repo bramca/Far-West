@@ -4,7 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"image"
-	"math"
 	"math/rand"
 
 	"github.com/bramca/Far-West/actors"
@@ -17,7 +16,12 @@ func LoadImage(assets embed.FS, imagePath string) (*ebiten.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open image file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to close image file: %e", err))
+		}
+	}()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
@@ -25,14 +29,6 @@ func LoadImage(assets embed.FS, imagePath string) (*ebiten.Image, error) {
 	}
 
 	return ebiten.NewImageFromImage(img), nil
-}
-
-func AngleBetweenPoints(x1, y1, x2, y2 float64) float64 {
-	return math.Atan2(y2-y1, x2-x1)
-}
-
-func DistanceBetweenPoints(x1, y1, x2, y2 float64) float64 {
-	return math.Sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
 }
 
 func InitializeCactusHitboxes() []*actors.HitBox {

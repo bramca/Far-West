@@ -97,7 +97,7 @@ type Game struct {
 	// actors
 	player       *actors.Player
 	bulletSprite *ebiten.Image
-	enemies      []*actors.Player
+	enemies      []*actors.Enemy
 
 	// world
 	cactusSprites  []*ebiten.Image
@@ -217,28 +217,33 @@ func NewGame() *Game {
 	}
 
 	nEnemies := 5
-	for _ = range nEnemies {
-		x := rand.Float64()*ScreenWidth + game.camX + 20
-		y := rand.Float64()*ScreenHeight + game.camY + 20
+	for range nEnemies {
+		x := rand.Float64()*ScreenWidth + 20
+		y := rand.Float64()*ScreenHeight + 20
 		state := actors.PlayerRevolverLeft
-		game.enemies = append(game.enemies, &actors.Player{
-			X:              x,
-			Y:              y,
-			W:              float64(enemySprites[state].Bounds().Dx()),
-			H:              float64(playerSprites[state].Bounds().Dy()),
-			Sprites:        enemySprites,
-			CurrentState:   state,
-			Scale:          2,
-			Speed:          2.0,
-			AnimationSpeed: 15,
-			DrawOptions:    &ebiten.DrawImageOptions{},
-			BulletSprite:   game.bulletSprite,
-			Hitbox: &actors.HitBox{
-				X: float32(x),
-				Y: float32(y),
-				W: float32(playerSprites[state].Bounds().Dx() - 5),
-				H: float32(playerSprites[state].Bounds().Dy()),
+		game.enemies = append(game.enemies, &actors.Enemy{
+			Player: &actors.Player{
+				X:              x,
+				Y:              y,
+				W:              float64(enemySprites[state].Bounds().Dx() - 5),
+				H:              float64(enemySprites[state].Bounds().Dy()),
+				Sprites:        enemySprites,
+				CurrentState:   state,
+				CurrentWeapon:  actors.Revolver,
+				Scale:          2,
+				Speed:          2.0,
+				AnimationSpeed: 15,
+				DrawOptions:    &ebiten.DrawImageOptions{},
+				BulletSprite:   game.bulletSprite,
+				Hitbox: &actors.HitBox{
+					X: float32(x) + 16,
+					Y: float32(y) + 16,
+					W: float32(enemySprites[state].Bounds().Dx() - 5),
+					H: float32(enemySprites[state].Bounds().Dy()),
+				},
 			},
+			VisualDist: rand.Intn(200) + 250,
+			MoveSpeed:  2,
 		})
 	}
 
@@ -277,7 +282,7 @@ func (g *Game) CheckCollisions() {
 			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
 		}
 
-		for _, enemy := range g.enemies {
+		for i, enemy := range g.enemies {
 			if enemy.Hitbox.CheckCollision(cactus.Hitbox) {
 				for dir, moving := range enemy.MoveDirs {
 					if moving {
@@ -291,11 +296,34 @@ func (g *Game) CheckCollisions() {
 						case actors.Left:
 							enemy.X += enemy.Speed
 						}
-						enemy.UpdateHitbox()
+						enemy.UpdateHitboxOffset(16)
 					}
 				}
 			}
+			for j, otherEnemy := range g.enemies {
+				if i == j {
+					continue
+				}
 
+				if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
+					for dir, moving := range enemy.MoveDirs {
+						if moving {
+							switch dir {
+							case actors.Up:
+								enemy.Y += enemy.Speed
+							case actors.Down:
+								enemy.Y -= enemy.Speed
+							case actors.Right:
+								enemy.X -= enemy.Speed
+							case actors.Left:
+								enemy.X += enemy.Speed
+							}
+							enemy.UpdateHitboxOffset(16)
+						}
+					}
+				}
+
+			}
 		}
 		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
 			for dir, moving := range g.player.MoveDirs {
@@ -436,6 +464,15 @@ func (g *Game) Update() error {
 			actors.Left:  false,
 		}
 
+		for _, enemy := range g.enemies {
+			enemy.MoveDirs = map[actors.Direction]bool{
+				actors.Up:    false,
+				actors.Down:  false,
+				actors.Right: false,
+				actors.Left:  false,
+			}
+		}
+
 		g.frameCount += 1
 
 		g.player.UpdateBullets()
@@ -456,6 +493,7 @@ func (g *Game) Update() error {
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
 			g.player.Move(actors.Down)
+			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -465,6 +503,7 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
 			g.player.Move(actors.Up)
+			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -474,6 +513,7 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
 			g.player.Move(actors.Right)
+			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -483,6 +523,7 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
 			g.player.Move(actors.Left)
+			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -503,8 +544,7 @@ func (g *Game) Update() error {
 		}
 
 		for _, enemy := range g.enemies {
-			animate := g.frameCount%g.player.AnimationSpeed == 0
-			enemy.Think(animate)
+			enemy.ThinkAndAct(g.player, g.player.Bullets, g.frameCount)
 		}
 
 		g.CheckCollisions()

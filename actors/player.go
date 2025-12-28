@@ -62,9 +62,7 @@ type Player struct {
 	Hitbox         *HitBox
 	Bullets        []*Bullet
 	BulletSprite   *ebiten.Image
-
-	// For NPC
-	CurrentAction Action
+	Running        bool
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -117,7 +115,6 @@ func (p *Player) Move(d Direction) {
 	case Down:
 		p.Y += p.Speed
 	}
-	p.UpdateHitbox()
 }
 
 func (p *Player) Look(d Direction) {
@@ -182,17 +179,41 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 	case Revolver:
 		switch p.VisualDir {
 		case Left:
-			p.UpdateCurrentState(PlayerRevolverLeft)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunLeft)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverLeft)
+			}
 		case LeftUp:
-			p.UpdateCurrentState(PlayerRevolverLeftUp)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunLeftUp)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverLeftUp)
+			}
 		case LeftDown:
-			p.UpdateCurrentState(PlayerRevolverLeftDown)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunLeftDown)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverLeftDown)
+			}
 		case Right:
-			p.UpdateCurrentState(PlayerRevolverRight)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunRight)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverRight)
+			}
 		case RightUp:
-			p.UpdateCurrentState(PlayerRevolverRightUp)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunRightUp)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverRightUp)
+			}
 		case RightDown:
-			p.UpdateCurrentState(PlayerRevolverRightDown)
+			if p.Running {
+				p.UpdateCurrentState(PlayerRevolverRunRightDown)
+			} else {
+				p.UpdateCurrentState(PlayerRevolverRightDown)
+			}
 		}
 	case Fists:
 		switch p.VisualDir {
@@ -245,36 +266,52 @@ func (p *Player) Animate() {
 	switch p.CurrentState {
 	case PlayerNoGunRight:
 		p.UpdateCurrentState(PlayerNoGunRunRight)
+		p.Running = true
 	case PlayerNoGunLeft:
 		p.UpdateCurrentState(PlayerNoGunRunLeft)
+		p.Running = true
 	case PlayerNoGunRunRight:
 		p.UpdateCurrentState(PlayerNoGunRight)
+		p.Running = false
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
+		p.Running = false
 	case PlayerRevolverRight:
 		p.UpdateCurrentState(PlayerRevolverRunRight)
+		p.Running = true
 	case PlayerRevolverRightUp:
 		p.UpdateCurrentState(PlayerRevolverRunRightUp)
+		p.Running = true
 	case PlayerRevolverRightDown:
 		p.UpdateCurrentState(PlayerRevolverRunRightDown)
+		p.Running = true
 	case PlayerRevolverLeft:
 		p.UpdateCurrentState(PlayerRevolverRunLeft)
+		p.Running = true
 	case PlayerRevolverLeftUp:
 		p.UpdateCurrentState(PlayerRevolverRunLeftUp)
+		p.Running = true
 	case PlayerRevolverLeftDown:
 		p.UpdateCurrentState(PlayerRevolverRunLeftDown)
+		p.Running = true
 	case PlayerRevolverRunRight:
 		p.UpdateCurrentState(PlayerRevolverRight)
+		p.Running = false
 	case PlayerRevolverRunRightUp:
 		p.UpdateCurrentState(PlayerRevolverRightUp)
+		p.Running = false
 	case PlayerRevolverRunRightDown:
 		p.UpdateCurrentState(PlayerRevolverRightDown)
+		p.Running = false
 	case PlayerRevolverRunLeft:
 		p.UpdateCurrentState(PlayerRevolverLeft)
+		p.Running = false
 	case PlayerRevolverRunLeftUp:
 		p.UpdateCurrentState(PlayerRevolverLeftUp)
+		p.Running = false
 	case PlayerRevolverRunLeftDown:
 		p.UpdateCurrentState(PlayerRevolverLeftDown)
+		p.Running = false
 	}
 }
 
@@ -289,19 +326,6 @@ func (p *Player) StopAnimation() {
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
 	}
-}
-
-// For NPC
-func (p *Player) Think(animate bool) {
-	if p.CurrentAction.Duration <= 0 {
-		p.CurrentAction = Action{
-			Duration: 200,
-			Type:     Dodge,
-			actor:    p,
-		}
-	}
-
-	p.CurrentAction.PerformAction(p.Bullets, animate)
 }
 
 func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
