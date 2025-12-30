@@ -165,7 +165,7 @@ func (p *Player) UpdateBullets() {
 func (p *Player) DrawBullets(screen *ebiten.Image, camX, camY float64) {
 	for _, bullet := range p.Bullets {
 		bullet.Draw(screen, camX, camY)
-		bullet.DrawHitbox(screen, camX, camY)
+		// bullet.DrawHitbox(screen, camX, camY)
 	}
 }
 

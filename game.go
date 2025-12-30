@@ -244,6 +244,7 @@ func NewGame() *Game {
 			},
 			VisualDist: rand.Intn(200) + 250,
 			MoveSpeed:  2,
+			ShootSpeed: 25 + rand.Intn(15),
 		})
 	}
 
@@ -324,7 +325,22 @@ func (g *Game) CheckCollisions() {
 				}
 
 			}
+
+			removeIndices := []int{}
+			for i, bullet := range enemy.Bullets {
+				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+					removeIndices = append(removeIndices, i)
+				}
+				// TODO: damage player
+				if bullet.Hitbox.CheckCollision(g.player.Hitbox) {
+					removeIndices = append(removeIndices, i)
+				}
+			}
+			for _, index := range removeIndices {
+				enemy.Bullets = append(enemy.Bullets[:index], enemy.Bullets[index+1:]...)
+			}
 		}
+
 		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
 			for dir, moving := range g.player.MoveDirs {
 				if moving {
@@ -347,6 +363,7 @@ func (g *Game) CheckCollisions() {
 	for _, enemy := range g.enemies {
 		removeIndices := []int{}
 		for i, bullet := range g.player.Bullets {
+			// TODO: damage enemy
 			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
 				removeIndices = append(removeIndices, i)
 			}
@@ -471,6 +488,8 @@ func (g *Game) Update() error {
 				actors.Right: false,
 				actors.Left:  false,
 			}
+
+			enemy.UpdateBullets()
 		}
 
 		g.frameCount += 1
@@ -608,6 +627,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
 		}
+		for _, enemy := range g.enemies {
+			enemy.Draw(screen, g.camX, g.camY)
+			enemy.DrawBullets(screen, g.camX, g.camY)
+		}
+
+		g.player.Draw(screen, g.camX, g.camY)
+		g.player.DrawBullets(screen, g.camX, g.camY)
 
 		for i, l := range g.pauseTexts {
 			tx := 0
@@ -622,14 +648,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeGame:
 		for _, cactus := range g.cacti {
 			cactus.Draw(screen, g.camX, g.camY)
-			cactus.DrawHitbox(screen, g.camX, g.camY)
+			// cactus.DrawHitbox(screen, g.camX, g.camY)
 		}
 		for _, enemy := range g.enemies {
 			enemy.Draw(screen, g.camX, g.camY)
-			enemy.DrawHitbox(screen, g.camX, g.camY)
+			enemy.DrawBullets(screen, g.camX, g.camY)
+			// enemy.DrawHitbox(screen, g.camX, g.camY)
 		}
 		g.player.Draw(screen, g.camX, g.camY)
-		g.player.DrawHitbox(screen, g.camX, g.camY)
+		// g.player.DrawHitbox(screen, g.camX, g.camY)
 		g.player.DrawBullets(screen, g.camX, g.camY)
 	}
 }

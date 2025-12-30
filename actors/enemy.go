@@ -1,7 +1,6 @@
 package actors
 
 import (
-	"math"
 	"math/rand"
 
 	"github.com/bramca/Far-West/utils"
@@ -14,6 +13,7 @@ type Enemy struct {
 	CurrentAction Action
 	VisualDist    int
 	MoveSpeed     int
+	ShootSpeed    int
 }
 
 func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -30,76 +30,16 @@ func (e *Enemy) UpdateHitboxOffset(offset int) {
 
 func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount int) {
 	// Detect player
-	performAction := true
 	e.CurrentAction.Duration -= 1
-	if utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist) {
-		move := false
-		angle := utils.AngleBetweenPoints(player.X, player.Y, e.X, e.Y)
-		if e.CurrentAction.Type == Move || e.CurrentAction.Type == MoveAndShoot {
-			performAction = false
-			move = frameCount%e.MoveSpeed == 0
-			if math.Abs(angle-3*math.Pi/2) < 0.1 || math.Abs(angle-math.Pi) < 0.1 || math.Abs(angle) < 0.1 || math.Abs(angle-math.Pi/2) < 0.1 {
-				move = false
-				e.StopAnimation()
-			}
+	if utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist) && e.CurrentAction.Type != MoveAndShoot && e.CurrentAction.Duration <= 0 {
+		actionType := MoveAndShoot
+		if rand.Float64() < 0.5 {
+			actionType = Dodge
 		}
-
-		xDelta := math.Abs(e.X - player.X)
-		yDelta := math.Abs(e.Y - player.Y)
-		moveX := false
-		moveY := false
-		if xDelta <= yDelta && angle >= 0 && angle <= math.Pi {
-			e.Look(Up)
-			moveX = true
-		}
-		if xDelta <= yDelta && angle <= 0 && angle >= -math.Pi {
-			e.Look(Down)
-			moveX = true
-		}
-		if yDelta <= xDelta && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
-			e.Look(Right)
-			moveY = true
-		}
-		if yDelta <= xDelta && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-			e.Look(Left)
-			moveY = true
-		}
-		if move && moveX && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-			e.Move(Left)
-			e.UpdateHitboxOffset(16)
-		}
-		if move && moveX && ((angle >= math.Pi/2 && angle <= 3*math.Pi/2) || (angle <= -math.Pi/2 && angle >= -3*math.Pi/2)) {
-			e.Move(Right)
-			e.UpdateHitboxOffset(16)
-		}
-		if move && moveY && angle >= 0 && angle <= math.Pi {
-			e.Move(Up)
-			e.UpdateHitboxOffset(16)
-		}
-		if move && moveY && angle <= 0 && angle >= -math.Pi {
-			e.Move(Down)
-			e.UpdateHitboxOffset(16)
-		}
-
-		if player.Hitbox.CheckCollision(e.Hitbox) {
-			for dir, moving := range e.MoveDirs {
-				if moving {
-					switch dir {
-					case Up:
-						e.Y += e.Speed
-					case Down:
-						e.Y -= e.Speed
-					case Right:
-						e.X -= e.Speed
-					case Left:
-						e.X += e.Speed
-					}
-					e.UpdateHitboxOffset(16)
-				}
-			}
-		}
-		if move && frameCount%e.AnimationSpeed == 0 {
-			e.Animate()
+		e.CurrentAction = Action{
+			Duration: 120 + rand.Intn(240),
+			Type:     actionType,
+			actor:    e,
 		}
 	}
 
@@ -109,14 +49,20 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 		if rand.Float64() < 0.5 {
 			actionType = Dodge
 		}
+		dirs := []Direction{
+			Up,
+			Down,
+			Left,
+			Right,
+		}
 		e.CurrentAction = Action{
-			Duration: 300 + rand.Intn(240),
+			Duration: 120 + rand.Intn(240),
 			Type:     actionType,
+			MoveDir:  dirs[rand.Intn(len(dirs))],
+			LookDir:  dirs[rand.Intn(len(dirs))],
 			actor:    e,
 		}
 	}
 
-	if performAction {
-		e.CurrentAction.PerformAction(playerBullets, frameCount%e.AnimationSpeed == 0)
-	}
+	e.CurrentAction.PerformAction(player, frameCount)
 }

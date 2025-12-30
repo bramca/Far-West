@@ -24,7 +24,8 @@ In the town there are `shops` were you can by stuff:
 - [X] shoot mechanics
 - [ ] bullet hit animation
 - [ ] environment destructable?
-- [ ] enemies
+- [X] enemies
+- [ ] interesting enemy behaviour
 - [ ] minimap
 - [ ] healthbar
 - [ ] dash mechanics / animation
