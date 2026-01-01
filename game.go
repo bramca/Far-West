@@ -4,6 +4,7 @@ import (
 	"embed"
 	"image/color"
 	"math/rand"
+	"strconv"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/helpers"
@@ -69,11 +70,13 @@ type Game struct {
 	fontSize            int
 	titleFontSize       int
 	healthBarFontSize   int
+	hitFontSize         int
 	titleFontColorScale ebiten.ColorScale
 
 	titleArcadeFont font.Face
 	arcadeFont      font.Face
 	healthBarFont   font.Face
+	hitTextFont     font.Face
 
 	backgroundColor       color.RGBA
 	playerHealthbarColors []color.RGBA
@@ -129,6 +132,7 @@ func NewGame() *Game {
 		fontSize:              24,
 		titleFontSize:         36,
 		healthBarFontSize:     7,
+		hitFontSize:           8,
 		backgroundColor:       color.RGBA{R: 76, G: 70, B: 50, A: 1},
 		playerHealthbarColors: []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
 		enemyHealthbarColors:  []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
@@ -154,11 +158,15 @@ func NewGame() *Game {
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
-
 	game.healthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
 		Size:    float64(game.healthBarFontSize),
 		DPI:     dpi,
 		Hinting: font.HintingFull,
+	})
+	game.hitTextFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.hitFontSize),
+		DPI:     dpi,
+		Hinting: font.HintingVertical,
 	})
 
 	game.titleFontColorScale.ScaleWithColor(color.White)
@@ -369,9 +377,19 @@ func (g *Game) CheckCollisions() {
 				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
 					removeIndices = append(removeIndices, i)
 				}
-				// TODO: damage player
 				if bullet.Hitbox.CheckCollision(g.player.Hitbox) {
 					removeIndices = append(removeIndices, i)
+					g.player.Health -= bullet.Damage
+					hit := actors.Hit{
+						X:        g.player.X,
+						Y:        g.player.Y - g.player.H/2,
+						Color:    color.RGBA{255, 255, 255, 240},
+						Msg:      "-" + strconv.Itoa(bullet.Damage),
+						TextFont: text.NewGoXFace(g.hitTextFont),
+						Duration: 2 * g.framesPerSecond / 3,
+					}
+					hit.SetDrawOptions()
+					g.player.Hits = append(g.player.Hits, hit)
 				}
 			}
 			for _, index := range removeIndices {
@@ -401,9 +419,19 @@ func (g *Game) CheckCollisions() {
 	for _, enemy := range g.enemies {
 		removeIndices := []int{}
 		for i, bullet := range g.player.Bullets {
-			// TODO: damage enemy
 			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
 				removeIndices = append(removeIndices, i)
+				enemy.Health -= bullet.Damage
+				hit := actors.Hit{
+					X:        enemy.X,
+					Y:        enemy.Y - enemy.H/2,
+					Color:    color.RGBA{255, 255, 255, 240},
+					Msg:      "-" + strconv.Itoa(bullet.Damage),
+					TextFont: text.NewGoXFace(g.hitTextFont),
+					Duration: 2 * g.framesPerSecond / 3,
+				}
+				hit.SetDrawOptions()
+				enemy.Hits = append(enemy.Hits, hit)
 			}
 		}
 		for _, index := range removeIndices {

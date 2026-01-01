@@ -11,6 +11,7 @@ type Bullet struct {
 	W, H         float64
 	R            float64
 	Speed        float64
+	Damage       int
 	Scale        float64
 	Duration     int
 	DrawOptions  *ebiten.DrawImageOptions

@@ -2,6 +2,7 @@ package actors
 
 import (
 	"math"
+	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -68,6 +69,7 @@ type Player struct {
 	MaxHealth      int
 	IsNpc          bool
 	Running        bool
+	Hits           []Hit
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -78,6 +80,15 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.Healthbar.Draw(screen, camX, camY)
+	for i := len(p.Hits) - 1; i >= 0; i-- {
+		if p.Hits[i].Duration > 0 {
+			p.Hits[i].Update()
+			p.Hits[i].Draw(screen, camX, camY)
+		} else {
+			p.Hits[i] = p.Hits[len(p.Hits)-1]
+			p.Hits = p.Hits[:len(p.Hits)-1]
+		}
+	}
 }
 
 func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
@@ -97,6 +108,7 @@ func (p *Player) Shoot() {
 	case Revolver:
 		bulletSpeed := 4.0
 		bulletDuration := 500
+		bulletDamage := 3
 		bulletDirection := map[Direction]float64{
 			Right:     0,
 			LeftUp:    3 * math.Pi / 2,
@@ -105,7 +117,7 @@ func (p *Player) Shoot() {
 			LeftDown:  math.Pi / 2,
 			RightDown: math.Pi / 2,
 		}
-		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration)
+		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration, bulletDamage)
 	}
 }
 
@@ -340,7 +352,7 @@ func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
 	return append(bullets[:index], bullets[index+1:]...)
 }
 
-func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int) {
+func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int, damage int) {
 	scale := float64(4)
 	// The middle of the bullet starts at the middle of the player
 	x := p.X - float64(bulletSprite.Bounds().Dx())*scale/2 + p.W/2
@@ -358,6 +370,7 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 		Scale:       scale,
 		Speed:       bulletSpeed,
 		Sprite:      bulletSprite,
+		Damage:      rand.Intn(damage + 1),
 		Duration:    duration,
 		Hitbox: &HitBox{
 			X: float32(x + offset*scale),
