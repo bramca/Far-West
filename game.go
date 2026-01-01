@@ -390,6 +390,7 @@ func (g *Game) CheckCollisions() {
 					}
 					hit.SetDrawOptions()
 					g.player.Hits = append(g.player.Hits, hit)
+					// TODO: What if player health <= 0?
 				}
 			}
 			for _, index := range removeIndices {
@@ -432,6 +433,8 @@ func (g *Game) CheckCollisions() {
 				}
 				hit.SetDrawOptions()
 				enemy.Hits = append(enemy.Hits, hit)
+
+				// TODO: What if enemy health <= 0?
 			}
 		}
 		for _, index := range removeIndices {
