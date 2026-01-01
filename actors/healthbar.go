@@ -1,0 +1,54 @@
+package actors
+
+import (
+	"fmt"
+	"image/color"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
+)
+
+type HealthBar struct {
+	X, Y            float64
+	W, H            float64
+	Points          int
+	MaxPoints       int
+	HealthBarColor  color.RGBA
+	HealthLostColor color.RGBA
+	FontColor       color.RGBA
+	FontSize        int
+	DrawOptions     *text.DrawOptions
+	TextFont        *text.GoXFace
+}
+
+func (h *HealthBar) SetDrawOptions() {
+	h.DrawOptions = &text.DrawOptions{}
+	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
+	h.DrawOptions.GeoM.Translate(float64(h.X+h.W/2)-float64(len(healthBarMsg)*h.FontSize/2), float64(h.Y))
+	h.DrawOptions.ColorScale.SetR(float32(h.FontColor.R) / 256.0)
+	h.DrawOptions.ColorScale.SetG(float32(h.FontColor.G) / 256.0)
+	h.DrawOptions.ColorScale.SetB(float32(h.FontColor.B) / 256.0)
+	h.DrawOptions.ColorScale.SetA(float32(h.FontColor.A) / 256.0)
+}
+
+func (h *HealthBar) Update(x, y float64, points, maxPoints int) {
+	h.X, h.Y = x, y
+	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
+	h.DrawOptions.GeoM.Reset()
+	h.DrawOptions.GeoM.Translate(float64(h.X+h.W/2)-float64(len(healthBarMsg)*h.FontSize/2), float64(h.Y))
+	h.Points, h.MaxPoints = points, maxPoints
+}
+
+func (h *HealthBar) Draw(screen *ebiten.Image, camX, camY float64) {
+	x1, y1 := float32(h.X)-float32(camX), float32(h.Y)-float32(camY)
+	w1 := float32(h.W * float64(h.Points) / float64(h.MaxPoints))
+	h1 := float32(h.H)
+	x2, y2 := x1+w1, y1
+	w2 := float32(h.W * float64(h.MaxPoints-h.Points) / float64(h.MaxPoints))
+	h2 := float32(h.H)
+	vector.FillRect(screen, x1, y1, w1, h1, h.HealthBarColor, false)
+	vector.FillRect(screen, x2, y2, w2, h2, h.HealthLostColor, false)
+	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
+	text.Draw(screen, healthBarMsg, h.TextFont, h.DrawOptions)
+}

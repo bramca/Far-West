@@ -28,6 +28,8 @@ const (
 const (
 	ScreenWidth  = 1280
 	ScreenHeight = 860
+
+	healthBarSize = 7.0
 )
 
 //go:embed assets/*
@@ -60,28 +62,30 @@ type Game struct {
 
 	assets embed.FS
 
-	titleTexts      []string
-	titleTextsExtra []string
-	gameOverTexts   []string
-	pauseTexts      []string
+	titleTexts    []string
+	gameOverTexts []string
+	pauseTexts    []string
 
 	fontSize            int
 	titleFontSize       int
+	healthBarFontSize   int
 	titleFontColorScale ebiten.ColorScale
 
 	titleArcadeFont font.Face
 	arcadeFont      font.Face
+	healthBarFont   font.Face
 
-	backgroundColor color.RGBA
+	backgroundColor       color.RGBA
+	playerHealthbarColors []color.RGBA
+	enemyHealthbarColors  []color.RGBA
 
 	camX float64
 	camY float64
 
 	// text geo matrices
-	titleGeoMatrix      ebiten.GeoM
-	titleExtraGeoMatrix ebiten.GeoM
-	gameOverGeoMatrix   ebiten.GeoM
-	pauseGeoMatrix      ebiten.GeoM
+	titleGeoMatrix    ebiten.GeoM
+	gameOverGeoMatrix ebiten.GeoM
+	pauseGeoMatrix    ebiten.GeoM
 
 	// text padding
 	newlinePadding int
@@ -89,10 +93,9 @@ type Game struct {
 	framesPerSecond int
 
 	// draw options
-	titleDrawOptions          *text.DrawOptions
-	titleTextExtraDrawOptions *text.DrawOptions
-	gameOverDrawOptions       *text.DrawOptions
-	pauseDrawOptions          *text.DrawOptions
+	titleDrawOptions    *text.DrawOptions
+	gameOverDrawOptions *text.DrawOptions
+	pauseDrawOptions    *text.DrawOptions
 
 	// actors
 	player       *actors.Player
@@ -120,21 +123,23 @@ type Game struct {
 
 func NewGame() *Game {
 	game := &Game{
-		titleTexts:      []string{"FAR WEST"},
-		titleTextsExtra: []string{"PRESS SPACE KEY OR START BUTTON"},
-		gameOverTexts:   []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
-		pauseTexts:      []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
-		fontSize:        24,
-		titleFontSize:   36,
-		backgroundColor: color.RGBA{R: 76, G: 70, B: 50, A: 1},
-		camX:            0.0,
-		camY:            0.0,
-		newlinePadding:  20,
-		framesPerSecond: 60,
-		assets:          assets,
-		frameCount:      1,
-		maxFramCount:    60,
-		buttonsPressed:  map[string]bool{},
+		titleTexts:            []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
+		gameOverTexts:         []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
+		pauseTexts:            []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
+		fontSize:              24,
+		titleFontSize:         36,
+		healthBarFontSize:     7,
+		backgroundColor:       color.RGBA{R: 76, G: 70, B: 50, A: 1},
+		playerHealthbarColors: []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
+		enemyHealthbarColors:  []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
+		camX:                  0.0,
+		camY:                  0.0,
+		newlinePadding:        20,
+		framesPerSecond:       60,
+		assets:                assets,
+		frameCount:            1,
+		maxFramCount:          60,
+		buttonsPressed:        map[string]bool{},
 	}
 
 	dpi := 72.0
@@ -150,10 +155,15 @@ func NewGame() *Game {
 		Hinting: font.HintingFull,
 	})
 
+	game.healthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.healthBarFontSize),
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+
 	game.titleFontColorScale.ScaleWithColor(color.White)
 
 	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
-	game.titleExtraGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTextsExtra[0])*game.fontSize)/2, float64(10*game.fontSize))
 	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
 	game.pauseGeoMatrix.Translate(float64((ScreenWidth-len(game.pauseTexts[0])*game.fontSize)/2), float64(8*game.fontSize))
 
@@ -161,12 +171,6 @@ func NewGame() *Game {
 	game.titleDrawOptions = &text.DrawOptions{
 		DrawImageOptions: ebiten.DrawImageOptions{
 			GeoM:       game.titleGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
-	game.titleTextExtraDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.titleExtraGeoMatrix,
 			ColorScale: game.titleFontColorScale,
 		},
 	}
@@ -208,6 +212,8 @@ func NewGame() *Game {
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   game.bulletSprite,
+		Health:         10,
+		MaxHealth:      10,
 		Hitbox: &actors.HitBox{
 			X: 0.0,
 			Y: 0.0,
@@ -216,12 +222,25 @@ func NewGame() *Game {
 		},
 	}
 
+	game.player.Healthbar = &actors.HealthBar{
+		X:               game.player.X - game.player.W/2,
+		Y:               game.player.Y - (game.player.H - game.player.H/3),
+		W:               game.player.W,
+		H:               healthBarSize,
+		Points:          game.player.Health,
+		MaxPoints:       game.player.MaxHealth,
+		HealthBarColor:  game.playerHealthbarColors[0],
+		HealthLostColor: game.playerHealthbarColors[1],
+		TextFont:        text.NewGoXFace(game.healthBarFont),
+	}
+	game.player.Healthbar.SetDrawOptions()
+
 	nEnemies := 5
 	for range nEnemies {
 		x := rand.Float64()*ScreenWidth + 20
 		y := rand.Float64()*ScreenHeight + 20
 		state := actors.PlayerRevolverLeft
-		game.enemies = append(game.enemies, &actors.Enemy{
+		enemy := &actors.Enemy{
 			Player: &actors.Player{
 				X:              x,
 				Y:              y,
@@ -236,6 +255,8 @@ func NewGame() *Game {
 				DrawOptions:    &ebiten.DrawImageOptions{},
 				FireRate:       25 + rand.Intn(15),
 				BulletSprite:   game.bulletSprite,
+				Health:         10,
+				MaxHealth:      10,
 				IsNpc:          true,
 				Hitbox: &actors.HitBox{
 					X: float32(x) + 16,
@@ -245,7 +266,20 @@ func NewGame() *Game {
 				},
 			},
 			VisualDist: rand.Intn(200) + 250,
-		})
+		}
+		enemy.Healthbar = &actors.HealthBar{
+			X:               enemy.X - enemy.W/2,
+			Y:               enemy.Y - (enemy.H - enemy.H/3),
+			W:               enemy.W,
+			H:               healthBarSize,
+			Points:          enemy.Health,
+			MaxPoints:       enemy.MaxHealth,
+			HealthBarColor:  game.enemyHealthbarColors[0],
+			HealthLostColor: game.enemyHealthbarColors[1],
+			TextFont:        text.NewGoXFace(game.healthBarFont),
+		}
+		enemy.Healthbar.SetDrawOptions()
+		game.enemies = append(game.enemies, enemy)
 	}
 
 	game.cactusSprites = helpers.LoadSprites(assets, []string{
@@ -289,15 +323,14 @@ func (g *Game) CheckCollisions() {
 					if moving {
 						switch dir {
 						case actors.Up:
-							enemy.Y += enemy.Speed
+							enemy.Move(actors.Down)
 						case actors.Down:
-							enemy.Y -= enemy.Speed
+							enemy.Move(actors.Up)
 						case actors.Right:
-							enemy.X -= enemy.Speed
+							enemy.Move(actors.Left)
 						case actors.Left:
-							enemy.X += enemy.Speed
+							enemy.Move(actors.Right)
 						}
-						enemy.UpdateHitboxOffset(16)
 					}
 				}
 			}
@@ -311,15 +344,14 @@ func (g *Game) CheckCollisions() {
 						if moving {
 							switch dir {
 							case actors.Up:
-								enemy.Y += enemy.Speed
+								enemy.Move(actors.Down)
 							case actors.Down:
-								enemy.Y -= enemy.Speed
+								enemy.Move(actors.Up)
 							case actors.Right:
-								enemy.X -= enemy.Speed
+								enemy.Move(actors.Left)
 							case actors.Left:
-								enemy.X += enemy.Speed
+								enemy.Move(actors.Right)
 							}
-							enemy.UpdateHitboxOffset(16)
 						}
 					}
 				}
@@ -346,15 +378,14 @@ func (g *Game) CheckCollisions() {
 				if moving {
 					switch dir {
 					case actors.Up:
-						g.player.Y += g.player.Speed
+						g.player.Move(actors.Down)
 					case actors.Down:
-						g.player.Y -= g.player.Speed
+						g.player.Move(actors.Up)
 					case actors.Right:
-						g.player.X -= g.player.Speed
+						g.player.Move(actors.Left)
 					case actors.Left:
-						g.player.X += g.player.Speed
+						g.player.Move(actors.Right)
 					}
-					g.player.UpdateHitbox()
 				}
 			}
 		}
@@ -512,7 +543,6 @@ func (g *Game) Update() error {
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
 			g.player.Move(actors.Down)
-			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -522,7 +552,6 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
 			g.player.Move(actors.Up)
-			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
@@ -594,29 +623,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		for i, l := range g.titleTexts {
 			tx := 0
-			if i-1 > -1 {
-				tx = (len(g.titleTexts[i-1]) - len(l)) * g.titleFontSize
+			if i > 0 {
+				tx = (len(g.titleTexts[i-1]) - len(l)) * g.titleFontSize / 2
 			}
 			g.titleDrawOptions.GeoM.Translate(float64(tx), float64(i+g.titleFontSize+g.newlinePadding))
 			text.Draw(screen, l, text.NewGoXFace(g.titleArcadeFont), g.titleDrawOptions)
 		}
 		g.titleDrawOptions.GeoM = g.titleGeoMatrix
 
-		for i, l := range g.titleTextsExtra {
-			tx := 0
-			if i-1 > -1 {
-				tx = ((len(g.titleTexts[i-1]) - len(l)) * g.fontSize) / 2
-			}
-			g.titleTextExtraDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.titleTextExtraDrawOptions)
-		}
-		g.titleTextExtraDrawOptions.GeoM = g.titleExtraGeoMatrix
-
 	case ModeGameOver:
 		for i, l := range g.gameOverTexts {
 			tx := 0
-			if i-1 > -1 {
-				tx = ((len(g.titleTexts[i-1]) - len(l)) * g.fontSize) / 2
+			if i > 0 {
+				tx = (len(g.gameOverTexts[i-1]) - len(l)) * g.fontSize / 2
 			}
 			g.gameOverDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
 			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.gameOverDrawOptions)
@@ -637,8 +656,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		for i, l := range g.pauseTexts {
 			tx := 0
-			if i-1 > -1 {
-				tx = (len(g.titleTexts[i-1]) - len(l)) * g.fontSize
+			if i > 0 {
+				tx = (len(g.pauseTexts[i-1]) - len(l)) * g.fontSize / 2
 			}
 			g.pauseDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
 			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.pauseDrawOptions)

@@ -19,11 +19,28 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	e.DrawOptions.GeoM.Scale(e.Scale, e.Scale)
 	e.DrawOptions.GeoM.Translate(float64(e.X-camX), float64(e.Y-camY))
 	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
+	e.Healthbar.Draw(screen, camX-16, camY-16)
 }
 
 func (e *Enemy) UpdateHitboxOffset(offset int) {
 	e.Hitbox.X = float32(e.X) + float32(offset)
 	e.Hitbox.Y = float32(e.Y) + float32(offset)
+}
+
+func (e *Enemy) Move(d Direction) {
+	e.MoveDirs[d] = true
+	switch d {
+	case Right:
+		e.X += e.Speed
+	case Left:
+		e.X -= e.Speed
+	case Up:
+		e.Y -= e.Speed
+	case Down:
+		e.Y += e.Speed
+	}
+	e.UpdateHitboxOffset(16)
+	e.Healthbar.Update(e.X-e.W/2, e.Y-(e.H-e.H/3), e.Health, e.MaxHealth)
 }
 
 func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount int) {

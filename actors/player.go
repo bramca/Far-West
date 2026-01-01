@@ -63,17 +63,21 @@ type Player struct {
 	Bullets        []*Bullet
 	BulletSprite   *ebiten.Image
 	FireRate       int
+	Healthbar      *HealthBar
+	Health         int
+	MaxHealth      int
 	IsNpc          bool
 	Running        bool
 }
 
-func (p *Player) Draw(screen *ebiten.Image, camX float64, camY float64) {
+func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	// Draw the player
 	p.DrawOptions.GeoM.Reset()
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
+	p.Healthbar.Draw(screen, camX, camY)
 }
 
 func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
@@ -117,6 +121,8 @@ func (p *Player) Move(d Direction) {
 	case Down:
 		p.Y += p.Speed
 	}
+	p.UpdateHitbox()
+	p.Healthbar.Update(p.X-p.W/2, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
 }
 
 func (p *Player) Look(d Direction) {
