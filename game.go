@@ -128,7 +128,7 @@ func NewGame() *Game {
 		pauseTexts:            []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
 		fontSize:              24,
 		titleFontSize:         36,
-		healthBarFontSize:     6,
+		healthBarFontSize:     7,
 		backgroundColor:       color.RGBA{R: 76, G: 70, B: 50, A: 1},
 		playerHealthbarColors: []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
 		enemyHealthbarColors:  []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
@@ -232,7 +232,7 @@ func NewGame() *Game {
 		HealthBarColor:  game.playerHealthbarColors[0],
 		HealthLostColor: game.playerHealthbarColors[1],
 		TextFont:        text.NewGoXFace(game.healthBarFont),
-		FontColor:       color.RGBA{255, 255, 255, 0},
+		FontColor:       color.RGBA{0, 0, 0, 240},
 		FontSize:        game.healthBarFontSize,
 	}
 	game.player.Healthbar.SetDrawOptions()
@@ -279,7 +279,7 @@ func NewGame() *Game {
 			HealthBarColor:  game.enemyHealthbarColors[0],
 			HealthLostColor: game.enemyHealthbarColors[1],
 			TextFont:        text.NewGoXFace(game.healthBarFont),
-			FontColor:       color.RGBA{255, 255, 255, 0},
+			FontColor:       color.RGBA{0, 0, 0, 240},
 			FontSize:        game.healthBarFontSize,
 		}
 		enemy.Healthbar.SetDrawOptions()
