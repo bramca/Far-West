@@ -21,13 +21,14 @@ type Action struct {
 	MoveDir  Direction
 	LookDir  Direction
 	Type     ActionType
-	actor    *Enemy
+	actor    *Player
 }
 
 func (a Action) PerformAction(player *Player, frameCount int) {
 	actionPerformed := false
 	switch a.Type {
 	case Dodge:
+		a.actor.Speed += 0.5
 		for _, bullet := range player.Bullets {
 			if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.actor.X, a.actor.Y) < 150 {
 				moveDir := Up
@@ -45,7 +46,6 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 					moveDir = Right
 				}
 				a.actor.Move(moveDir)
-				a.actor.UpdateHitboxOffset(16)
 				if frameCount%a.actor.AnimationSpeed == 0 {
 					a.actor.Animate()
 				}
@@ -53,21 +53,17 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 				break
 			}
 		}
+		a.actor.Speed -= 0.5
 	case Move:
 		a.actor.Look(a.LookDir)
-		if frameCount%a.actor.MoveSpeed == 0 {
-			a.actor.Move(a.MoveDir)
-			a.actor.UpdateHitboxOffset(16)
-		}
+		a.actor.Move(a.MoveDir)
 		if frameCount%a.actor.AnimationSpeed == 0 {
 			a.actor.Animate()
 		}
 		actionPerformed = true
 	case MoveAndShoot:
 		angle := utils.AngleBetweenPoints(player.X, player.Y, a.actor.X, a.actor.Y)
-		move := frameCount%a.actor.MoveSpeed == 0
 		if math.Abs(angle-3*math.Pi/2) < 0.1 || math.Abs(angle-math.Pi) < 0.1 || math.Abs(angle) < 0.1 || math.Abs(angle-math.Pi/2) < 0.1 {
-			move = false
 			a.actor.StopAnimation()
 		}
 
@@ -91,21 +87,17 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			a.actor.Look(Left)
 			moveY = true
 		}
-		if move && moveX && angle <= math.Pi/2 && angle >= -math.Pi/2 {
+		if moveX && angle <= math.Pi/2 && angle >= -math.Pi/2 {
 			a.actor.Move(Left)
-			a.actor.UpdateHitboxOffset(16)
 		}
-		if move && moveX && ((angle >= math.Pi/2 && angle <= 3*math.Pi/2) || (angle <= -math.Pi/2 && angle >= -3*math.Pi/2)) {
+		if moveX && ((angle >= math.Pi/2 && angle <= 3*math.Pi/2) || (angle <= -math.Pi/2 && angle >= -3*math.Pi/2)) {
 			a.actor.Move(Right)
-			a.actor.UpdateHitboxOffset(16)
 		}
-		if move && moveY && angle >= 0 && angle <= math.Pi {
+		if moveY && angle >= 0 && angle <= math.Pi {
 			a.actor.Move(Up)
-			a.actor.UpdateHitboxOffset(16)
 		}
-		if move && moveY && angle <= 0 && angle >= -math.Pi {
+		if moveY && angle <= 0 && angle >= -math.Pi {
 			a.actor.Move(Down)
-			a.actor.UpdateHitboxOffset(16)
 		}
 
 		if player.Hitbox.CheckCollision(a.actor.Hitbox) {
@@ -121,24 +113,27 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 					case Left:
 						a.actor.X += a.actor.Speed
 					}
-					a.actor.UpdateHitboxOffset(16)
 				}
 			}
 		}
-		if move && frameCount%a.actor.AnimationSpeed == 0 {
+		if frameCount%a.actor.AnimationSpeed == 0 {
 			a.actor.Animate()
 		}
 
-		if frameCount%a.actor.ShootSpeed == 0 {
+		if frameCount%a.actor.FireRate == 0 {
 			// the addition and substraction here
 			// are for adding the correct offset to the bullet
-			a.actor.X += 16
-			a.actor.Y += 16
+			if a.actor.IsNpc {
+				a.actor.X += 16
+				a.actor.Y += 16
+			}
 
 			a.actor.Shoot()
 
-			a.actor.X -= 16
-			a.actor.Y -= 16
+			if a.actor.IsNpc {
+				a.actor.X -= 16
+				a.actor.Y -= 16
+			}
 		}
 		actionPerformed = true
 	}

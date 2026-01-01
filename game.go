@@ -231,10 +231,12 @@ func NewGame() *Game {
 				CurrentState:   state,
 				CurrentWeapon:  actors.Revolver,
 				Scale:          2,
-				Speed:          2.0,
+				Speed:          0.5 + rand.Float64(),
 				AnimationSpeed: 15,
 				DrawOptions:    &ebiten.DrawImageOptions{},
+				FireRate:       25 + rand.Intn(15),
 				BulletSprite:   game.bulletSprite,
+				IsNpc:          true,
 				Hitbox: &actors.HitBox{
 					X: float32(x) + 16,
 					Y: float32(y) + 16,
@@ -243,8 +245,6 @@ func NewGame() *Game {
 				},
 			},
 			VisualDist: rand.Intn(200) + 250,
-			MoveSpeed:  2,
-			ShootSpeed: 25 + rand.Intn(15),
 		})
 	}
 

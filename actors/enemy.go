@@ -12,8 +12,6 @@ type Enemy struct {
 
 	CurrentAction Action
 	VisualDist    int
-	MoveSpeed     int
-	ShootSpeed    int
 }
 
 func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -39,7 +37,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 		e.CurrentAction = Action{
 			Duration: 120 + rand.Intn(240),
 			Type:     actionType,
-			actor:    e,
+			actor:    e.Player,
 		}
 	}
 
@@ -60,9 +58,10 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			Type:     actionType,
 			MoveDir:  dirs[rand.Intn(len(dirs))],
 			LookDir:  dirs[rand.Intn(len(dirs))],
-			actor:    e,
+			actor:    e.Player,
 		}
 	}
 
 	e.CurrentAction.PerformAction(player, frameCount)
+	e.UpdateHitboxOffset(16)
 }

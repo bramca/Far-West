@@ -62,6 +62,8 @@ type Player struct {
 	Hitbox         *HitBox
 	Bullets        []*Bullet
 	BulletSprite   *ebiten.Image
+	FireRate       int
+	IsNpc          bool
 	Running        bool
 }
 
