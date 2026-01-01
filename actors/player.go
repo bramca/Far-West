@@ -122,7 +122,7 @@ func (p *Player) Move(d Direction) {
 		p.Y += p.Speed
 	}
 	p.UpdateHitbox()
-	p.Healthbar.Update(p.X-p.W/2, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
+	p.Healthbar.Update(p.X, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
 }
 
 func (p *Player) Look(d Direction) {

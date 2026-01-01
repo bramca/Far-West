@@ -128,7 +128,7 @@ func NewGame() *Game {
 		pauseTexts:            []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
 		fontSize:              24,
 		titleFontSize:         36,
-		healthBarFontSize:     7,
+		healthBarFontSize:     6,
 		backgroundColor:       color.RGBA{R: 76, G: 70, B: 50, A: 1},
 		playerHealthbarColors: []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
 		enemyHealthbarColors:  []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
@@ -212,8 +212,8 @@ func NewGame() *Game {
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   game.bulletSprite,
-		Health:         10,
-		MaxHealth:      10,
+		Health:         15,
+		MaxHealth:      15,
 		Hitbox: &actors.HitBox{
 			X: 0.0,
 			Y: 0.0,
@@ -223,7 +223,7 @@ func NewGame() *Game {
 	}
 
 	game.player.Healthbar = &actors.HealthBar{
-		X:               game.player.X - game.player.W/2,
+		X:               game.player.X,
 		Y:               game.player.Y - (game.player.H - game.player.H/3),
 		W:               game.player.W,
 		H:               healthBarSize,
@@ -232,6 +232,8 @@ func NewGame() *Game {
 		HealthBarColor:  game.playerHealthbarColors[0],
 		HealthLostColor: game.playerHealthbarColors[1],
 		TextFont:        text.NewGoXFace(game.healthBarFont),
+		FontColor:       color.RGBA{255, 255, 255, 0},
+		FontSize:        game.healthBarFontSize,
 	}
 	game.player.Healthbar.SetDrawOptions()
 
@@ -268,15 +270,17 @@ func NewGame() *Game {
 			VisualDist: rand.Intn(200) + 250,
 		}
 		enemy.Healthbar = &actors.HealthBar{
-			X:               enemy.X - enemy.W/2,
+			X:               enemy.X,
 			Y:               enemy.Y - (enemy.H - enemy.H/3),
-			W:               enemy.W,
+			W:               enemy.W + 5,
 			H:               healthBarSize,
 			Points:          enemy.Health,
 			MaxPoints:       enemy.MaxHealth,
 			HealthBarColor:  game.enemyHealthbarColors[0],
 			HealthLostColor: game.enemyHealthbarColors[1],
 			TextFont:        text.NewGoXFace(game.healthBarFont),
+			FontColor:       color.RGBA{255, 255, 255, 0},
+			FontSize:        game.healthBarFontSize,
 		}
 		enemy.Healthbar.SetDrawOptions()
 		game.enemies = append(game.enemies, enemy)
@@ -323,14 +327,15 @@ func (g *Game) CheckCollisions() {
 					if moving {
 						switch dir {
 						case actors.Up:
-							enemy.Move(actors.Down)
+							enemy.Y += enemy.Speed
 						case actors.Down:
-							enemy.Move(actors.Up)
+							enemy.Y -= enemy.Speed
 						case actors.Right:
-							enemy.Move(actors.Left)
+							enemy.X -= enemy.Speed
 						case actors.Left:
-							enemy.Move(actors.Right)
+							enemy.X += enemy.Speed
 						}
+						g.player.UpdateHitbox()
 					}
 				}
 			}
@@ -344,14 +349,15 @@ func (g *Game) CheckCollisions() {
 						if moving {
 							switch dir {
 							case actors.Up:
-								enemy.Move(actors.Down)
+								enemy.Y += enemy.Speed
 							case actors.Down:
-								enemy.Move(actors.Up)
+								enemy.Y -= enemy.Speed
 							case actors.Right:
-								enemy.Move(actors.Left)
+								enemy.X -= enemy.Speed
 							case actors.Left:
-								enemy.Move(actors.Right)
+								enemy.X += enemy.Speed
 							}
+							g.player.UpdateHitbox()
 						}
 					}
 				}
@@ -378,14 +384,15 @@ func (g *Game) CheckCollisions() {
 				if moving {
 					switch dir {
 					case actors.Up:
-						g.player.Move(actors.Down)
+						g.player.Y += g.player.Speed
 					case actors.Down:
-						g.player.Move(actors.Up)
+						g.player.Y -= g.player.Speed
 					case actors.Right:
-						g.player.Move(actors.Left)
+						g.player.X -= g.player.Speed
 					case actors.Left:
-						g.player.Move(actors.Right)
+						g.player.X += g.player.Speed
 					}
+					g.player.UpdateHitbox()
 				}
 			}
 		}
@@ -485,6 +492,10 @@ func (g *Game) Update() error {
 
 	}
 
+	// Calculate the position of the screen center based on the player's position
+	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
+	g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
+
 	// controls
 	switch g.mode {
 	case ModeTitle:
@@ -501,10 +512,6 @@ func (g *Game) Update() error {
 			g.mode = ModeGame
 		}
 	case ModeGame:
-		// Calculate the position of the screen center based on the player's position
-		g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
-		g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
-
 		g.player.MoveDirs = map[actors.Direction]bool{
 			actors.Up:    false,
 			actors.Down:  false,
@@ -621,6 +628,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, enemy := range g.enemies {
 			enemy.Draw(screen, g.camX, g.camY)
 		}
+
+		g.player.Draw(screen, g.camX, g.camY)
+
 		for i, l := range g.titleTexts {
 			tx := 0
 			if i > 0 {

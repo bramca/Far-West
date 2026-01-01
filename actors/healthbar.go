@@ -25,7 +25,7 @@ type HealthBar struct {
 func (h *HealthBar) SetDrawOptions() {
 	h.DrawOptions = &text.DrawOptions{}
 	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
-	h.DrawOptions.GeoM.Translate(float64(h.X+h.W/2)-float64(len(healthBarMsg)*h.FontSize/2), float64(h.Y))
+	h.DrawOptions.GeoM.Translate(float64(h.X)-float64(len(healthBarMsg)*h.FontSize/2), float64(h.Y))
 	h.DrawOptions.ColorScale.SetR(float32(h.FontColor.R) / 256.0)
 	h.DrawOptions.ColorScale.SetG(float32(h.FontColor.G) / 256.0)
 	h.DrawOptions.ColorScale.SetB(float32(h.FontColor.B) / 256.0)
@@ -34,9 +34,6 @@ func (h *HealthBar) SetDrawOptions() {
 
 func (h *HealthBar) Update(x, y float64, points, maxPoints int) {
 	h.X, h.Y = x, y
-	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
-	h.DrawOptions.GeoM.Reset()
-	h.DrawOptions.GeoM.Translate(float64(h.X+h.W/2)-float64(len(healthBarMsg)*h.FontSize/2), float64(h.Y))
 	h.Points, h.MaxPoints = points, maxPoints
 }
 
@@ -50,5 +47,7 @@ func (h *HealthBar) Draw(screen *ebiten.Image, camX, camY float64) {
 	vector.FillRect(screen, x1, y1, w1, h1, h.HealthBarColor, false)
 	vector.FillRect(screen, x2, y2, w2, h2, h.HealthLostColor, false)
 	healthBarMsg := fmt.Sprintf("%d/%d", h.Points, h.MaxPoints)
+	h.DrawOptions.GeoM.Reset()
+	h.DrawOptions.GeoM.Translate(float64(h.X)-camX, float64(h.Y)-camY)
 	text.Draw(screen, healthBarMsg, h.TextFont, h.DrawOptions)
 }
