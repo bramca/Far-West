@@ -220,8 +220,8 @@ func NewGame() *Game {
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   game.bulletSprite,
-		Health:         15,
-		MaxHealth:      15,
+		Health:         20,
+		MaxHealth:      20,
 		Hitbox: &actors.HitBox{
 			X: 0.0,
 			Y: 0.0,
@@ -231,10 +231,12 @@ func NewGame() *Game {
 	}
 
 	game.player.Healthbar = &actors.HealthBar{
-		X:               game.player.X,
-		Y:               game.player.Y - (game.player.H - game.player.H/3),
-		W:               game.player.W,
+		X:               40,
+		Y:               ScreenHeight - 40,
+		W:               100,
 		H:               healthBarSize,
+		FixedSize:       true,
+		FixedPos:        true,
 		Points:          game.player.Health,
 		MaxPoints:       game.player.MaxHealth,
 		HealthBarColor:  game.playerHealthbarColors[0],
