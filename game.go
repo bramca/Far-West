@@ -30,7 +30,8 @@ const (
 	ScreenWidth  = 1280
 	ScreenHeight = 860
 
-	healthBarSize = 7.0
+	playerHealthBarSize = 9.0
+	enemyHealthBarSize  = 7.0
 )
 
 //go:embed assets/*
@@ -67,16 +68,18 @@ type Game struct {
 	gameOverTexts []string
 	pauseTexts    []string
 
-	fontSize            int
-	titleFontSize       int
-	healthBarFontSize   int
-	hitFontSize         int
-	titleFontColorScale ebiten.ColorScale
+	fontSize                int
+	titleFontSize           int
+	playerHealthBarFontSize int
+	enemyHealthBarFontSize  int
+	hitFontSize             int
+	titleFontColorScale     ebiten.ColorScale
 
-	titleArcadeFont font.Face
-	arcadeFont      font.Face
-	healthBarFont   font.Face
-	hitTextFont     font.Face
+	titleArcadeFont     font.Face
+	arcadeFont          font.Face
+	playerHealthBarFont font.Face
+	enemyHealthBarFont  font.Face
+	hitTextFont         font.Face
 
 	backgroundColor       color.RGBA
 	playerHealthbarColors []color.RGBA
@@ -126,24 +129,25 @@ type Game struct {
 
 func NewGame() *Game {
 	game := &Game{
-		titleTexts:            []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
-		gameOverTexts:         []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
-		pauseTexts:            []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
-		fontSize:              24,
-		titleFontSize:         36,
-		healthBarFontSize:     7,
-		hitFontSize:           8,
-		backgroundColor:       color.RGBA{R: 76, G: 70, B: 50, A: 1},
-		playerHealthbarColors: []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
-		enemyHealthbarColors:  []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
-		camX:                  0.0,
-		camY:                  0.0,
-		newlinePadding:        20,
-		framesPerSecond:       60,
-		assets:                assets,
-		frameCount:            1,
-		maxFramCount:          60,
-		buttonsPressed:        map[string]bool{},
+		titleTexts:              []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
+		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
+		pauseTexts:              []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
+		fontSize:                24,
+		titleFontSize:           36,
+		playerHealthBarFontSize: playerHealthBarSize,
+		enemyHealthBarFontSize:  enemyHealthBarSize,
+		hitFontSize:             8,
+		backgroundColor:         color.RGBA{R: 76, G: 70, B: 50, A: 1},
+		playerHealthbarColors:   []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
+		enemyHealthbarColors:    []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
+		camX:                    0.0,
+		camY:                    0.0,
+		newlinePadding:          20,
+		framesPerSecond:         60,
+		assets:                  assets,
+		frameCount:              1,
+		maxFramCount:            60,
+		buttonsPressed:          map[string]bool{},
 	}
 
 	dpi := 72.0
@@ -158,8 +162,13 @@ func NewGame() *Game {
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
-	game.healthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    float64(game.healthBarFontSize),
+	game.playerHealthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.playerHealthBarFontSize),
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	game.enemyHealthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.enemyHealthBarFontSize),
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
@@ -234,16 +243,16 @@ func NewGame() *Game {
 		X:               40,
 		Y:               ScreenHeight - 40,
 		W:               100,
-		H:               healthBarSize,
+		H:               playerHealthBarSize,
 		FixedSize:       true,
 		FixedPos:        true,
 		Points:          game.player.Health,
 		MaxPoints:       game.player.MaxHealth,
 		HealthBarColor:  game.playerHealthbarColors[0],
 		HealthLostColor: game.playerHealthbarColors[1],
-		TextFont:        text.NewGoXFace(game.healthBarFont),
+		TextFont:        text.NewGoXFace(game.playerHealthBarFont),
 		FontColor:       color.RGBA{0, 0, 0, 240},
-		FontSize:        game.healthBarFontSize,
+		FontSize:        game.playerHealthBarFontSize,
 	}
 	game.player.Healthbar.SetDrawOptions()
 
@@ -283,14 +292,14 @@ func NewGame() *Game {
 			X:               enemy.X,
 			Y:               enemy.Y - (enemy.H - enemy.H/3),
 			W:               enemy.W + 5,
-			H:               healthBarSize,
+			H:               enemyHealthBarSize,
 			Points:          enemy.Health,
 			MaxPoints:       enemy.MaxHealth,
 			HealthBarColor:  game.enemyHealthbarColors[0],
 			HealthLostColor: game.enemyHealthbarColors[1],
-			TextFont:        text.NewGoXFace(game.healthBarFont),
+			TextFont:        text.NewGoXFace(game.enemyHealthBarFont),
 			FontColor:       color.RGBA{0, 0, 0, 240},
-			FontSize:        game.healthBarFontSize,
+			FontSize:        game.enemyHealthBarFontSize,
 		}
 		enemy.Healthbar.SetDrawOptions()
 		game.enemies = append(game.enemies, enemy)
