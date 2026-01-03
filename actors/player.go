@@ -133,6 +133,7 @@ func (p *Player) Move(d Direction) {
 	case Down:
 		p.Y += p.Speed
 	}
+	p.UpdateHitbox()
 	if p.IsNpc {
 		p.Healthbar.Update(p.X, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
 	}
