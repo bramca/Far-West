@@ -272,6 +272,7 @@ func NewGame() *Game {
 				CurrentWeapon:  actors.Revolver,
 				Scale:          2,
 				Speed:          0.5 + rand.Float64(),
+				DodgeSpeed:     0.3 + rand.Float64()*0.4,
 				AnimationSpeed: 15,
 				DrawOptions:    &ebiten.DrawImageOptions{},
 				FireRate:       25 + rand.Intn(15),
@@ -341,18 +342,22 @@ func (g *Game) CheckCollisions() {
 		}
 
 		for i, enemy := range g.enemies {
+			dodgeCalc := 0.0
+			if enemy.CurrentAction.Type == actors.Dodge {
+				dodgeCalc = enemy.DodgeSpeed
+			}
 			if enemy.Hitbox.CheckCollision(cactus.Hitbox) {
 				for dir, moving := range enemy.MoveDirs {
 					if moving {
 						switch dir {
 						case actors.Up:
-							enemy.Y += enemy.Speed
+							enemy.Y += enemy.Speed + dodgeCalc
 						case actors.Down:
-							enemy.Y -= enemy.Speed
+							enemy.Y -= enemy.Speed + dodgeCalc
 						case actors.Right:
-							enemy.X -= enemy.Speed
+							enemy.X -= enemy.Speed + dodgeCalc
 						case actors.Left:
-							enemy.X += enemy.Speed
+							enemy.X += enemy.Speed + dodgeCalc
 						}
 						g.player.UpdateHitbox()
 					}
@@ -368,13 +373,13 @@ func (g *Game) CheckCollisions() {
 						if moving {
 							switch dir {
 							case actors.Up:
-								enemy.Y += enemy.Speed
+								enemy.Y += enemy.Speed + dodgeCalc
 							case actors.Down:
-								enemy.Y -= enemy.Speed
+								enemy.Y -= enemy.Speed + dodgeCalc
 							case actors.Right:
-								enemy.X -= enemy.Speed
+								enemy.X -= enemy.Speed + dodgeCalc
 							case actors.Left:
-								enemy.X += enemy.Speed
+								enemy.X += enemy.Speed + dodgeCalc
 							}
 							g.player.UpdateHitbox()
 						}

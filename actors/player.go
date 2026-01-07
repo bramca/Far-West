@@ -55,6 +55,7 @@ type Player struct {
 	CurrentState   PlayerState
 	Scale          float64
 	Speed          float64
+	DodgeSpeed     float64
 	AnimationSpeed int
 	DrawOptions    *ebiten.DrawImageOptions
 	VisualDir      Direction

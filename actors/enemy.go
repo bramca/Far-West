@@ -63,7 +63,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 		e.CurrentAction = Action{
 			Duration: 120 + rand.Intn(240),
 			Type:     actionType,
-			actor:    e.Player,
+			Actor:    e.Player,
 		}
 	}
 
@@ -84,7 +84,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			Type:     actionType,
 			MoveDir:  dirs[rand.Intn(len(dirs))],
 			LookDir:  dirs[rand.Intn(len(dirs))],
-			actor:    e.Player,
+			Actor:    e.Player,
 		}
 	}
 
