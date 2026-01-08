@@ -19,7 +19,9 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	e.DrawOptions.GeoM.Scale(e.Scale, e.Scale)
 	e.DrawOptions.GeoM.Translate(float64(e.X-camX), float64(e.Y-camY))
 	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
-	e.Healthbar.Draw(screen, camX-16, camY-16)
+	if !e.Dead {
+		e.Healthbar.Draw(screen, camX-16, camY-16)
+	}
 	for i := len(e.Hits) - 1; i >= 0; i-- {
 		if e.Hits[i].Duration > 0 {
 			e.Hits[i].Update()

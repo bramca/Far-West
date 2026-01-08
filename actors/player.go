@@ -46,6 +46,7 @@ const (
 	PlayerRevolverRunLeft
 	PlayerRevolverRunLeftUp
 	PlayerRevolverRunLeftDown
+	PlayerDead
 )
 
 type Player struct {
@@ -71,6 +72,7 @@ type Player struct {
 	IsNpc          bool
 	Running        bool
 	Hits           []Hit
+	Dead           bool
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {

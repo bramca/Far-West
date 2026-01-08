@@ -212,6 +212,7 @@ func NewGame() *Game {
 	enemySprites := helpers.LoadSprites(assets, []string{
 		"assets/enemy-1-no-gun.png",
 		"assets/enemy-1-revolver.png",
+		"assets/enemy-1-dead.png",
 	}, 32, 32)
 
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
@@ -342,6 +343,9 @@ func (g *Game) CheckCollisions() {
 		}
 
 		for i, enemy := range g.enemies {
+			if enemy.Dead {
+				continue
+			}
 			dodgeCalc := 0.0
 			if enemy.CurrentAction.Type == actors.Dodge {
 				dodgeCalc = enemy.DodgeSpeed
@@ -434,6 +438,9 @@ func (g *Game) CheckCollisions() {
 	}
 
 	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			continue
+		}
 		removeIndices := []int{}
 		for i, bullet := range g.player.Bullets {
 			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
@@ -450,11 +457,18 @@ func (g *Game) CheckCollisions() {
 				hit.SetDrawOptions()
 				enemy.Hits = append(enemy.Hits, hit)
 
-				// TODO: What if enemy health <= 0?
 			}
 		}
 		for _, index := range removeIndices {
 			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
+		}
+
+		if enemy.Health <= 0 {
+			enemy.Health = 0
+			enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
+			enemy.Dead = true
+			enemy.UpdateCurrentState(actors.PlayerDead)
+			continue
 		}
 
 		if g.player.Hitbox.CheckCollision(enemy.Hitbox) {
@@ -646,6 +660,9 @@ func (g *Game) Update() error {
 		}
 
 		for _, enemy := range g.enemies {
+			if enemy.Dead {
+				continue
+			}
 			enemy.ThinkAndAct(g.player, g.player.Bullets, g.frameCount)
 		}
 
