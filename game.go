@@ -560,16 +560,16 @@ func (g *Game) Update() error {
 	// controls
 	switch g.mode {
 	case ModeTitle:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGameOver:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModePause:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FBR"] {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGame:
