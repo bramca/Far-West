@@ -56,9 +56,11 @@ type Player struct {
 	CurrentState   PlayerState
 	Scale          float64
 	Speed          float64
+	DodgeDuration  int
 	DodgeSpeed     float64
 	AnimationSpeed int
 	DrawOptions    *ebiten.DrawImageOptions
+	CurrentAction  Action
 	VisualDir      Direction
 	MoveDirs       map[Direction]bool
 	CurrentWeapon  Weapon
@@ -142,6 +144,13 @@ func (p *Player) Move(d Direction) {
 	}
 	if !p.IsNpc {
 		p.Healthbar.Update(p.Healthbar.X, p.Healthbar.Y, p.Health, p.MaxHealth)
+	}
+}
+
+func (p *Player) Act(frameCount int) {
+	if p.CurrentAction.Duration > 0 {
+		p.CurrentAction.Duration -= 1
+		p.CurrentAction.PerformAction(p, frameCount)
 	}
 }
 

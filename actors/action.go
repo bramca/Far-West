@@ -28,32 +28,51 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 	actionPerformed := false
 	switch a.Type {
 	case Dodge:
-		a.Actor.Speed += a.Actor.DodgeSpeed
-		for _, bullet := range player.Bullets {
-			if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y) < 150 {
-				moveDir := Up
+		if a.Actor.IsNpc {
+			a.Actor.Speed += a.Actor.DodgeSpeed
+			for _, bullet := range player.Bullets {
+				if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y) < 150 {
+					moveDir := Up
 
-				angle := utils.AngleBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y)
-				if (bullet.R == 0 || bullet.R == math.Pi) && angle >= 0 && angle <= math.Pi {
-					moveDir = Down
-				}
+					angle := utils.AngleBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y)
+					if (bullet.R == 0 || bullet.R == math.Pi) && angle >= 0 && angle <= math.Pi {
+						moveDir = Down
+					}
 
-				if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
-					moveDir = Left
-				}
+					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
+						moveDir = Left
+					}
 
-				if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-					moveDir = Right
+					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle <= math.Pi/2 && angle >= -math.Pi/2 {
+						moveDir = Right
+					}
+					a.Actor.Move(moveDir)
+					if frameCount%a.Actor.AnimationSpeed == 0 {
+						a.Actor.Animate()
+					}
+					actionPerformed = true
+					break
 				}
-				a.Actor.Move(moveDir)
-				if frameCount%a.Actor.AnimationSpeed == 0 {
-					a.Actor.Animate()
-				}
-				actionPerformed = true
-				break
 			}
+			a.Actor.Speed -= a.Actor.DodgeSpeed
+		} else {
+			oldSpeed := a.Actor.Speed
+			fasterAnimationSpeed := a.Actor.AnimationSpeed * 2 / 3
+			a.Actor.Speed = a.Actor.DodgeSpeed
+			for dir, moving := range a.Actor.MoveDirs {
+				if !moving {
+					continue
+				}
+
+				a.Actor.Move(dir)
+			}
+			a.Actor.UpdateHitbox()
+			if frameCount%fasterAnimationSpeed == 0 {
+				a.Actor.Animate()
+			}
+			actionPerformed = true
+			a.Actor.Speed = oldSpeed
 		}
-		a.Actor.Speed -= a.Actor.DodgeSpeed
 	case Move:
 		a.Actor.Look(a.LookDir)
 		a.Actor.Move(a.MoveDir)

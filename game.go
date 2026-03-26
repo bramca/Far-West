@@ -227,6 +227,8 @@ func NewGame() *Game {
 		Sprites:        playerSprites,
 		Scale:          2,
 		Speed:          2.0,
+		DodgeSpeed:     1.7,
+		DodgeDuration:  20,
 		AnimationSpeed: 15,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   game.bulletSprite,
@@ -419,17 +421,21 @@ func (g *Game) CheckCollisions() {
 		}
 
 		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
+			dodgeCalc := 0.0
+			if g.player.CurrentAction.Duration > 0 && g.player.CurrentAction.Type == actors.Dodge {
+				dodgeCalc = g.player.DodgeSpeed
+			}
 			for dir, moving := range g.player.MoveDirs {
 				if moving {
 					switch dir {
 					case actors.Up:
-						g.player.Y += g.player.Speed
+						g.player.Y += g.player.Speed + dodgeCalc
 					case actors.Down:
-						g.player.Y -= g.player.Speed
+						g.player.Y -= g.player.Speed + dodgeCalc
 					case actors.Right:
-						g.player.X -= g.player.Speed
+						g.player.X -= g.player.Speed + dodgeCalc
 					case actors.Left:
-						g.player.X += g.player.Speed
+						g.player.X += g.player.Speed + dodgeCalc
 					}
 					g.player.UpdateHitbox()
 				}
@@ -646,6 +652,18 @@ func (g *Game) Update() error {
 		if ebiten.IsKeyPressed(ebiten.KeyLeft) || g.xRightAxis < -0.5 {
 			g.player.Look(actors.Left)
 		}
+
+		// TODO: add gamepad key for dodging
+		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) {
+			// TODO: only dodge when stamina is replenished
+			g.player.CurrentAction = actors.Action{
+				Duration: g.player.DodgeDuration,
+				Type:     actors.Dodge,
+				Actor:    g.player,
+			}
+		}
+
+		g.player.Act(g.frameCount)
 
 		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
 			g.player.Animate()

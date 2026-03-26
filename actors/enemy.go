@@ -10,8 +10,7 @@ import (
 type Enemy struct {
 	*Player
 
-	CurrentAction Action
-	VisualDist    int
+	VisualDist int
 }
 
 func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
