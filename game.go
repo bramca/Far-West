@@ -653,8 +653,7 @@ func (g *Game) Update() error {
 			g.player.Look(actors.Left)
 		}
 
-		// TODO: add gamepad key for dodging
-		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) {
+		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"] {
 			// TODO: only dodge when stamina is replenished
 			g.player.CurrentAction = actors.Action{
 				Duration: g.player.DodgeDuration,
@@ -766,6 +765,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			enemy.DrawBullets(screen, g.camX, g.camY)
 			// enemy.DrawHitbox(screen, g.camX, g.camY)
 		}
+
+		// TODO: for debugging (remove eventually)
+		// textDrawOptions := &text.DrawOptions{}
+		// textDrawOptions.GeoM.Translate(10, 10)
+		// text.Draw(screen, fmt.Sprintf("%+v", g.buttonsPressed), text.NewGoXFace(g.playerHealthBarFont), textDrawOptions)
+
 		g.player.Draw(screen, g.camX, g.camY)
 		// g.player.DrawHitbox(screen, g.camX, g.camY)
 		g.player.DrawBullets(screen, g.camX, g.camY)
