@@ -105,6 +105,15 @@ func (p *Player) UpdateHitbox() {
 	p.Hitbox.Y = float32(p.Y)
 }
 
+func (p *Player) UpdateHealhBar() {
+	if p.IsNpc {
+		p.Healthbar.Update(p.X, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
+	}
+	if !p.IsNpc {
+		p.Healthbar.Update(p.Healthbar.X, p.Healthbar.Y, p.Health, p.MaxHealth)
+	}
+}
+
 func (p *Player) Shoot() {
 	if p.CurrentWeapon == Fists {
 		return
@@ -139,12 +148,7 @@ func (p *Player) Move(d Direction) {
 		p.Y += p.Speed
 	}
 	p.UpdateHitbox()
-	if p.IsNpc {
-		p.Healthbar.Update(p.X, p.Y-(p.H-p.H/3), p.Health, p.MaxHealth)
-	}
-	if !p.IsNpc {
-		p.Healthbar.Update(p.Healthbar.X, p.Healthbar.Y, p.Health, p.MaxHealth)
-	}
+	p.UpdateHealhBar()
 }
 
 func (p *Player) Act(frameCount int) {

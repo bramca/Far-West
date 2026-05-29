@@ -412,6 +412,7 @@ func (g *Game) CheckCollisions() {
 					}
 					hit.SetDrawOptions()
 					g.player.Hits = append(g.player.Hits, hit)
+					g.player.UpdateHealhBar()
 					// TODO: What if player health <= 0?
 				}
 			}
@@ -544,7 +545,8 @@ func (g *Game) Update() error {
 
 		// log button events
 		maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
-		for b := ebiten.GamepadButton(0); b < maxButton; b++ {
+		b := ebiten.GamepadButton(0)
+		for b = range maxButton {
 			if inpututil.IsGamepadButtonJustPressed(id, b) {
 				// log.Printf("button pressed: id: %d, button: %d - %s", id, b, standardButtonToString[ebiten.StandardGamepadButton(b)])
 				g.buttonsPressed[standardButtonToString[ebiten.StandardGamepadButton(b)]] = true
@@ -620,7 +622,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyDown) || g.yRightAxis > 0.5 {
+		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyJ) || g.yRightAxis > 0.5 {
 			g.player.Look(actors.Down)
 		}
 
@@ -629,7 +631,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || g.yRightAxis < -0.5 {
+		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyK) || g.yRightAxis < -0.5 {
 			g.player.Look(actors.Up)
 		}
 
@@ -639,7 +641,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyRight) || g.xRightAxis > 0.5 {
+		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyL) || g.xRightAxis > 0.5 {
 			g.player.Look(actors.Right)
 		}
 
@@ -649,7 +651,7 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || g.xRightAxis < -0.5 {
+		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyH) || g.xRightAxis < -0.5 {
 			g.player.Look(actors.Left)
 		}
 
