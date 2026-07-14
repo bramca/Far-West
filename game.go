@@ -523,6 +523,12 @@ func (g *Game) Update() error {
 	for id := range g.gamepadIDs {
 		// log axis events
 		xLeftAxisPressed := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal)
+		if !ebiten.IsStandardGamepadAxisAvailable(id, ebiten.StandardGamepadAxisLeftStickHorizontal) ||
+			!ebiten.IsStandardGamepadAxisAvailable(id, ebiten.StandardGamepadAxisRightStickHorizontal) ||
+			!ebiten.IsStandardGamepadAxisAvailable(id, ebiten.StandardGamepadAxisLeftStickVertical) ||
+			!ebiten.IsStandardGamepadAxisAvailable(id, ebiten.StandardGamepadAxisRightStickVertical) {
+			continue
+		}
 		if xLeftAxisPressed != g.xLeftAxis {
 			g.xLeftAxis = xLeftAxisPressed
 			// log.Printf("Left Stick X: %+0.2f", g.xLeftAxis)
