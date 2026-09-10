@@ -2,17 +2,20 @@ package farwest
 
 import (
 	"embed"
+	"fmt"
 	"image/color"
 	"math/rand"
 	"strconv"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/helpers"
+	"github.com/bramca/Far-West/utils"
 	"github.com/bramca/Far-West/world"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -32,6 +35,36 @@ const (
 
 	playerHealthBarSize = 9.0
 	enemyHealthBarSize  = 7.0
+
+	// world
+	worldTilesX   = 90
+	worldTilesY   = 60
+	worldTileSize = 64.0
+	cactusAmount  = 220
+
+	// enemy spawning
+	initialMaxEnemies = 5
+	enemyHardCap      = 30
+	// every enemyIncreaseInterval seconds one extra enemy is allowed on the field
+	enemyIncreaseInterval = 20
+	// amount of frames between two spawn attempts
+	enemySpawnInterval = 90
+	// enemies spawn at least this far away from the player
+	enemyMinSpawnDistance = 600.0
+	enemyMaxSpawnDistance = 1600.0
+	// amount of frames a corpse stays on the field
+	corpseDuration = 300
+
+	scorePerKill = 100
+
+	// weapons
+	playerMagazineSize   = 6
+	playerReloadDuration = 90
+	playerShootCooldown  = 12
+	enemyMagazineSize    = 6
+	enemyReloadDuration  = 150
+
+	enemyHitboxOffset = 16
 )
 
 //go:embed assets/*
@@ -70,6 +103,7 @@ type Game struct {
 
 	fontSize                int
 	titleFontSize           int
+	hudFontSize             int
 	playerHealthBarFontSize int
 	enemyHealthBarFontSize  int
 	hitFontSize             int
@@ -77,9 +111,15 @@ type Game struct {
 
 	titleArcadeFont     font.Face
 	arcadeFont          font.Face
+	hudFont             font.Face
 	playerHealthBarFont font.Face
 	enemyHealthBarFont  font.Face
 	hitTextFont         font.Face
+
+	titleFace  *text.GoXFace
+	arcadeFace *text.GoXFace
+	hudFace    *text.GoXFace
+	hitFace    *text.GoXFace
 
 	backgroundColor       color.RGBA
 	playerHealthbarColors []color.RGBA
@@ -104,11 +144,14 @@ type Game struct {
 	pauseDrawOptions    *text.DrawOptions
 
 	// actors
-	player       *actors.Player
-	bulletSprite *ebiten.Image
-	enemies      []*actors.Enemy
+	player        *actors.Player
+	playerSprites []*ebiten.Image
+	enemySprites  []*ebiten.Image
+	bulletSprite  *ebiten.Image
+	enemies       []*actors.Enemy
 
 	// world
+	island         *world.Island
 	cactusSprites  []*ebiten.Image
 	cactusHitboxes []*actors.HitBox
 	cacti          []*world.Cactus
@@ -116,6 +159,12 @@ type Game struct {
 	// gameplay
 	frameCount   int
 	maxFramCount int
+
+	// survival run state
+	elapsedFrames  int
+	score          int
+	maxEnemies     int
+	enemySpawnWait int
 
 	// gamepad
 	gamepadIDsBuf  []ebiten.GamepadID
@@ -134,6 +183,7 @@ func NewGame() *Game {
 		pauseTexts:              []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
 		fontSize:                24,
 		titleFontSize:           36,
+		hudFontSize:             16,
 		playerHealthBarFontSize: playerHealthBarSize,
 		enemyHealthBarFontSize:  enemyHealthBarSize,
 		hitFontSize:             8,
@@ -162,6 +212,11 @@ func NewGame() *Game {
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
+	game.hudFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.hudFontSize),
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
 	game.playerHealthBarFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
 		Size:    float64(game.playerHealthBarFontSize),
 		DPI:     dpi,
@@ -179,6 +234,11 @@ func NewGame() *Game {
 	})
 
 	game.titleFontColorScale.ScaleWithColor(color.White)
+
+	game.titleFace = text.NewGoXFace(game.titleArcadeFont)
+	game.arcadeFace = text.NewGoXFace(game.arcadeFont)
+	game.hudFace = text.NewGoXFace(game.hudFont)
+	game.hitFace = text.NewGoXFace(game.hitTextFont)
 
 	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
 	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
@@ -204,12 +264,13 @@ func NewGame() *Game {
 		},
 	}
 
-	playerSprites := helpers.LoadSprites(assets, []string{
+	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/player-no-gun.png",
 		"assets/player-revolver.png",
+		"assets/player-dead.png",
 	}, 32, 32)
 
-	enemySprites := helpers.LoadSprites(assets, []string{
+	game.enemySprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-1-no-gun.png",
 		"assets/enemy-1-revolver.png",
 		"assets/enemy-1-dead.png",
@@ -219,283 +280,423 @@ func NewGame() *Game {
 		"assets/bullet.png",
 	}, 32, 32)[0]
 
-	game.player = &actors.Player{
-		X:              0.0,
-		Y:              0.0,
-		W:              float64(playerSprites[0].Bounds().Dx()),
-		H:              float64(playerSprites[0].Bounds().Dy()),
-		Sprites:        playerSprites,
-		Scale:          2,
-		Speed:          2.0,
-		DodgeSpeed:     1.7,
-		DodgeDuration:  20,
-		AnimationSpeed: 15,
-		DrawOptions:    &ebiten.DrawImageOptions{},
-		BulletSprite:   game.bulletSprite,
-		Health:         20,
-		MaxHealth:      20,
-		Hitbox: &actors.HitBox{
-			X: 0.0,
-			Y: 0.0,
-			W: float32(playerSprites[0].Bounds().Dx() - 5),
-			H: float32(playerSprites[0].Bounds().Dy()),
-		},
-	}
-
-	game.player.Healthbar = &actors.HealthBar{
-		X:               40,
-		Y:               ScreenHeight - 40,
-		W:               100,
-		H:               playerHealthBarSize,
-		FixedSize:       true,
-		FixedPos:        true,
-		Points:          game.player.Health,
-		MaxPoints:       game.player.MaxHealth,
-		HealthBarColor:  game.playerHealthbarColors[0],
-		HealthLostColor: game.playerHealthbarColors[1],
-		TextFont:        text.NewGoXFace(game.playerHealthBarFont),
-		FontColor:       color.RGBA{0, 0, 0, 240},
-		FontSize:        game.playerHealthBarFontSize,
-	}
-	game.player.Healthbar.SetDrawOptions()
-
-	nEnemies := 5
-	for range nEnemies {
-		x := rand.Float64()*ScreenWidth + 20
-		y := rand.Float64()*ScreenHeight + 20
-		state := actors.PlayerRevolverLeft
-		enemy := &actors.Enemy{
-			Player: &actors.Player{
-				X:              x,
-				Y:              y,
-				W:              float64(enemySprites[state].Bounds().Dx() - 5),
-				H:              float64(enemySprites[state].Bounds().Dy()),
-				Sprites:        enemySprites,
-				CurrentState:   state,
-				CurrentWeapon:  actors.Revolver,
-				Scale:          2,
-				Speed:          0.5 + rand.Float64(),
-				DodgeSpeed:     0.3 + rand.Float64()*0.4,
-				AnimationSpeed: 15,
-				DrawOptions:    &ebiten.DrawImageOptions{},
-				FireRate:       25 + rand.Intn(15),
-				BulletSprite:   game.bulletSprite,
-				Health:         10,
-				MaxHealth:      10,
-				IsNpc:          true,
-				Hitbox: &actors.HitBox{
-					X: float32(x) + 16,
-					Y: float32(y) + 16,
-					W: float32(enemySprites[state].Bounds().Dx() - 5),
-					H: float32(enemySprites[state].Bounds().Dy()),
-				},
-			},
-			VisualDist: rand.Intn(200) + 250,
-		}
-		enemy.Healthbar = &actors.HealthBar{
-			X:               enemy.X,
-			Y:               enemy.Y - (enemy.H - enemy.H/3),
-			W:               enemy.W + 5,
-			H:               enemyHealthBarSize,
-			Points:          enemy.Health,
-			MaxPoints:       enemy.MaxHealth,
-			HealthBarColor:  game.enemyHealthbarColors[0],
-			HealthLostColor: game.enemyHealthbarColors[1],
-			TextFont:        text.NewGoXFace(game.enemyHealthBarFont),
-			FontColor:       color.RGBA{0, 0, 0, 240},
-			FontSize:        game.enemyHealthBarFontSize,
-		}
-		enemy.Healthbar.SetDrawOptions()
-		game.enemies = append(game.enemies, enemy)
-	}
-
 	game.cactusSprites = helpers.LoadSprites(assets, []string{
 		"assets/cactus.png",
 	}, 32, 32)
 
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
 
-	cactusAmount := 60
-	cactusSpawnBoundY := 3 * ScreenHeight
-	cactusSpawnBoundX := 3 * ScreenWidth
-	cactusSpriteScale := 4.0
-	game.cacti = helpers.SpawnCacti(cactusSpawnBoundX, cactusSpawnBoundY, cactusAmount, cactusSpriteScale, game.cactusSprites, game.cactusHitboxes)
+	game.Initialize()
 
 	return game
 }
 
+// Initialize starts a brand new run, it generates a new island and resets
+// every piece of run specific state. It is called on startup and after every
+// game over.
 func (g *Game) Initialize() {
-	// TODO: What happens after game over?
-	// Calculate the position of the screen center based on the player's position
-	// camX = player.x + player.w/2 - ScreenWidth/2
-	// camY = player.y + player.h/2 - ScreenHeight/2
+	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
+	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
+
+	g.player = g.newPlayer()
+	g.clearSpawnArea()
+	g.enemies = nil
+	g.score = 0
+	g.elapsedFrames = 0
+	g.frameCount = 1
+	g.maxEnemies = initialMaxEnemies
+	g.enemySpawnWait = 0
+
+	for range initialMaxEnemies {
+		g.spawnEnemy()
+	}
+
+	// Calculate the position of the screen center based on the player position
+	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
+	g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
 }
 
-func (g *Game) CheckCollisions() {
-	// TODO: check bullet collision and damage the environment
-	for _, cactus := range g.cacti {
-		removeIndices := []int{}
-		for i, bullet := range g.player.Bullets {
-			if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
-				removeIndices = append(removeIndices, i)
-			}
-		}
-		for _, index := range removeIndices {
-			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
-		}
+func (g *Game) newPlayer() *actors.Player {
+	x, y := g.island.Center()
+	player := &actors.Player{
+		X:              x,
+		Y:              y,
+		W:              float64(g.playerSprites[0].Bounds().Dx()),
+		H:              float64(g.playerSprites[0].Bounds().Dy()),
+		Sprites:        g.playerSprites,
+		Scale:          2,
+		Speed:          2.0,
+		DodgeSpeed:     1.7,
+		DodgeDuration:  20,
+		AnimationSpeed: 15,
+		DrawOptions:    &ebiten.DrawImageOptions{},
+		BulletSprite:   g.bulletSprite,
+		Health:         20,
+		MaxHealth:      20,
+		MagazineSize:   playerMagazineSize,
+		Ammo:           playerMagazineSize,
+		ReloadDuration: playerReloadDuration,
+		ShootCooldown:  playerShootCooldown,
+		Hitbox: &actors.HitBox{
+			X: float32(x),
+			Y: float32(y),
+			W: float32(g.playerSprites[0].Bounds().Dx() - 5),
+			H: float32(g.playerSprites[0].Bounds().Dy()),
+		},
+	}
 
-		for i, enemy := range g.enemies {
-			if enemy.Dead {
+	player.Healthbar = &actors.HealthBar{
+		X:               40,
+		Y:               ScreenHeight - 40,
+		W:               100,
+		H:               playerHealthBarSize,
+		FixedSize:       true,
+		FixedPos:        true,
+		Points:          player.Health,
+		MaxPoints:       player.MaxHealth,
+		HealthBarColor:  g.playerHealthbarColors[0],
+		HealthLostColor: g.playerHealthbarColors[1],
+		TextFont:        text.NewGoXFace(g.playerHealthBarFont),
+		FontColor:       color.RGBA{0, 0, 0, 240},
+		FontSize:        g.playerHealthBarFontSize,
+	}
+	player.Healthbar.SetDrawOptions()
+	player.SavePosition()
+
+	return player
+}
+
+// enemySpawnPoint looks for a land tile that is far enough from the player so
+// enemies never pop up right next to him.
+// clearSpawnArea removes the cacti that grew on top of the player spawn.
+func (g *Game) clearSpawnArea() {
+	spawnArea := &actors.HitBox{
+		X: g.player.Hitbox.X - g.player.Hitbox.W,
+		Y: g.player.Hitbox.Y - g.player.Hitbox.H,
+		W: g.player.Hitbox.W * 3,
+		H: g.player.Hitbox.H * 3,
+	}
+
+	remaining := g.cacti[:0]
+	for _, cactus := range g.cacti {
+		if spawnArea.CheckCollision(cactus.Hitbox) {
+			continue
+		}
+		remaining = append(remaining, cactus)
+	}
+	g.cacti = remaining
+}
+
+// enemySpawnPoint looks for a land tile that is far enough from the player so
+// enemies never pop up right next to him. It reports whether such a spot was
+// found, spawning an enemy on an invalid position would leave it stuck there
+// for the rest of the run.
+func (g *Game) enemySpawnPoint() (float64, float64, bool) {
+	spriteWidth := float32(g.enemySprites[actors.PlayerRevolverLeft].Bounds().Dx() - 5)
+	spriteHeight := float32(g.enemySprites[actors.PlayerRevolverLeft].Bounds().Dy())
+
+	// the first pass keeps the enemies at a distance, the second pass drops
+	// that requirement for the islands that are too small for it
+	for pass := range 2 {
+		for range 100 {
+			x, y := g.island.RandomLandPoint()
+			dist := utils.DistanceBetweenPoints(g.player.X, g.player.Y, x, y)
+			if pass == 0 && (dist < enemyMinSpawnDistance || dist > enemyMaxSpawnDistance) {
 				continue
 			}
-			dodgeCalc := 0.0
-			if enemy.CurrentAction.Type == actors.Dodge {
-				dodgeCalc = enemy.DodgeSpeed
+			hitbox := &actors.HitBox{
+				X: float32(x) + enemyHitboxOffset,
+				Y: float32(y) + enemyHitboxOffset,
+				W: spriteWidth,
+				H: spriteHeight,
 			}
-			if enemy.Hitbox.CheckCollision(cactus.Hitbox) {
-				for dir, moving := range enemy.MoveDirs {
-					if moving {
-						switch dir {
-						case actors.Up:
-							enemy.Y += enemy.Speed + dodgeCalc
-						case actors.Down:
-							enemy.Y -= enemy.Speed + dodgeCalc
-						case actors.Right:
-							enemy.X -= enemy.Speed + dodgeCalc
-						case actors.Left:
-							enemy.X += enemy.Speed + dodgeCalc
-						}
-						g.player.UpdateHitbox()
-					}
-				}
-			}
-			for j, otherEnemy := range g.enemies {
-				if i == j {
-					continue
-				}
-
-				if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
-					for dir, moving := range enemy.MoveDirs {
-						if moving {
-							switch dir {
-							case actors.Up:
-								enemy.Y += enemy.Speed + dodgeCalc
-							case actors.Down:
-								enemy.Y -= enemy.Speed + dodgeCalc
-							case actors.Right:
-								enemy.X -= enemy.Speed + dodgeCalc
-							case actors.Left:
-								enemy.X += enemy.Speed + dodgeCalc
-							}
-							g.player.UpdateHitbox()
-						}
-					}
-				}
-
-			}
-
-			removeIndices := []int{}
-			for i, bullet := range enemy.Bullets {
-				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
-					removeIndices = append(removeIndices, i)
-				}
-				if bullet.Hitbox.CheckCollision(g.player.Hitbox) {
-					removeIndices = append(removeIndices, i)
-					g.player.Health -= bullet.Damage
-					hit := actors.Hit{
-						X:        g.player.X,
-						Y:        g.player.Y - g.player.H/2,
-						Color:    color.RGBA{255, 255, 255, 240},
-						Msg:      "-" + strconv.Itoa(bullet.Damage),
-						TextFont: text.NewGoXFace(g.hitTextFont),
-						Duration: 2 * g.framesPerSecond / 3,
-					}
-					hit.SetDrawOptions()
-					g.player.Hits = append(g.player.Hits, hit)
-					g.player.UpdateHealhBar()
-					// TODO: What if player health <= 0?
-				}
-			}
-			for _, index := range removeIndices {
-				enemy.Bullets = append(enemy.Bullets[:index], enemy.Bullets[index+1:]...)
+			if g.canStandAt(hitbox) {
+				return x, y, true
 			}
 		}
+	}
 
-		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-			dodgeCalc := 0.0
-			if g.player.CurrentAction.Duration > 0 && g.player.CurrentAction.Type == actors.Dodge {
-				dodgeCalc = g.player.DodgeSpeed
-			}
-			for dir, moving := range g.player.MoveDirs {
-				if moving {
-					switch dir {
-					case actors.Up:
-						g.player.Y += g.player.Speed + dodgeCalc
-					case actors.Down:
-						g.player.Y -= g.player.Speed + dodgeCalc
-					case actors.Right:
-						g.player.X -= g.player.Speed + dodgeCalc
-					case actors.Left:
-						g.player.X += g.player.Speed + dodgeCalc
-					}
-					g.player.UpdateHitbox()
-				}
-			}
+	return 0, 0, false
+}
+
+func (g *Game) spawnEnemy() {
+	x, y, ok := g.enemySpawnPoint()
+	if !ok {
+		return
+	}
+
+	state := actors.PlayerRevolverLeft
+	enemy := &actors.Enemy{
+		Player: &actors.Player{
+			X:              x,
+			Y:              y,
+			W:              float64(g.enemySprites[state].Bounds().Dx() - 5),
+			H:              float64(g.enemySprites[state].Bounds().Dy()),
+			Sprites:        g.enemySprites,
+			CurrentState:   state,
+			CurrentWeapon:  actors.Revolver,
+			Scale:          2,
+			Speed:          0.5 + rand.Float64(),
+			DodgeSpeed:     0.3 + rand.Float64()*0.4,
+			AnimationSpeed: 15,
+			DrawOptions:    &ebiten.DrawImageOptions{},
+			FireRate:       25 + rand.Intn(15),
+			BulletSprite:   g.bulletSprite,
+			Health:         10,
+			MaxHealth:      10,
+			IsNpc:          true,
+			HitboxOffset:   enemyHitboxOffset,
+			MagazineSize:   enemyMagazineSize,
+			Ammo:           enemyMagazineSize,
+			ReloadDuration: enemyReloadDuration,
+			Hitbox: &actors.HitBox{
+				X: float32(x) + enemyHitboxOffset,
+				Y: float32(y) + enemyHitboxOffset,
+				W: float32(g.enemySprites[state].Bounds().Dx() - 5),
+				H: float32(g.enemySprites[state].Bounds().Dy()),
+			},
+		},
+		VisualDist: rand.Intn(350) + 400,
+	}
+	enemy.Healthbar = &actors.HealthBar{
+		X:               enemy.X,
+		Y:               enemy.Y - (enemy.H - enemy.H/3),
+		W:               enemy.W + 5,
+		H:               enemyHealthBarSize,
+		Points:          enemy.Health,
+		MaxPoints:       enemy.MaxHealth,
+		HealthBarColor:  g.enemyHealthbarColors[0],
+		HealthLostColor: g.enemyHealthbarColors[1],
+		TextFont:        text.NewGoXFace(g.enemyHealthBarFont),
+		FontColor:       color.RGBA{0, 0, 0, 240},
+		FontSize:        g.enemyHealthBarFontSize,
+	}
+	enemy.Healthbar.SetDrawOptions()
+	enemy.SavePosition()
+
+	g.enemies = append(g.enemies, enemy)
+}
+
+// aliveEnemies counts the enemies that are still a threat to the player.
+func (g *Game) aliveEnemies() int {
+	alive := 0
+	for _, enemy := range g.enemies {
+		if !enemy.Dead {
+			alive++
 		}
+	}
+
+	return alive
+}
+
+// updateEnemySpawning keeps the field populated and slowly raises the maximum
+// amount of enemies the longer the player survives.
+func (g *Game) updateEnemySpawning() {
+	g.maxEnemies = min(initialMaxEnemies+g.elapsedFrames/(g.framesPerSecond*enemyIncreaseInterval), enemyHardCap)
+
+	if g.enemySpawnWait > 0 {
+		g.enemySpawnWait -= 1
+
+		return
+	}
+
+	if g.aliveEnemies() >= g.maxEnemies {
+		return
+	}
+
+	g.spawnEnemy()
+	g.enemySpawnWait = enemySpawnInterval
+}
+
+// removeCorpses drops enemies that have been dead for a while so the world
+// does not fill up with bodies.
+func (g *Game) removeCorpses() {
+	for i := len(g.enemies) - 1; i >= 0; i-- {
+		enemy := g.enemies[i]
+		if !enemy.Dead || len(enemy.Bullets) > 0 {
+			continue
+		}
+		enemy.CorpseTimer += 1
+		if enemy.CorpseTimer > corpseDuration {
+			g.enemies = append(g.enemies[:i], g.enemies[i+1:]...)
+		}
+	}
+}
+
+// survivalTime returns how long the player has been surviving as mm:ss.
+func (g *Game) survivalTime() string {
+	seconds := g.elapsedFrames / g.framesPerSecond
+
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+// CheckCollisions resolves every collision of the current frame: bullets,
+// the borders of the island and the actors bumping into each other.
+func (g *Game) CheckCollisions() {
+	g.checkBulletCollisions()
+	g.checkWorldCollisions()
+	g.checkActorCollisions()
+}
+
+// checkBulletCollisions lets bullets damage what they hit and removes the
+// bullets that hit something or that left the world.
+func (g *Game) checkBulletCollisions() {
+	remaining := g.player.Bullets[:0]
+	for _, bullet := range g.player.Bullets {
+		if g.bulletBlocked(bullet) {
+			continue
+		}
+
+		hitEnemy := false
+		for _, enemy := range g.enemies {
+			if enemy.Dead || !bullet.Hitbox.CheckCollision(enemy.Hitbox) {
+				continue
+			}
+			enemy.Health -= bullet.Damage
+			g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(bullet.Damage), color.RGBA{255, 255, 255, 240})
+			enemy.UpdateHealhBar()
+			if enemy.Health <= 0 {
+				g.killEnemy(enemy)
+			}
+			hitEnemy = true
+
+			break
+		}
+		if hitEnemy {
+			continue
+		}
+
+		remaining = append(remaining, bullet)
+	}
+	g.player.Bullets = remaining
+
+	for _, enemy := range g.enemies {
+		remaining := enemy.Bullets[:0]
+		for _, bullet := range enemy.Bullets {
+			if g.bulletBlocked(bullet) {
+				continue
+			}
+
+			if !g.player.Dead && bullet.Hitbox.CheckCollision(g.player.Hitbox) {
+				g.damagePlayer(bullet.Damage)
+
+				continue
+			}
+
+			remaining = append(remaining, bullet)
+		}
+		enemy.Bullets = remaining
+	}
+}
+
+// bulletBlocked reports whether the bullet hit a cactus or left the world.
+func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
+	x, y := float64(bullet.Hitbox.X), float64(bullet.Hitbox.Y)
+	if x < 0 || y < 0 || x > g.island.PixelWidth() || y > g.island.PixelHeight() {
+		return true
+	}
+
+	for _, cactus := range g.cacti {
+		if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// checkWorldCollisions keeps the actors on solid ground, the ocean and the
+// cacti are the barriers of the world.
+func (g *Game) checkWorldCollisions() {
+	if !g.player.Dead && !g.canStandAt(g.player.Hitbox) {
+		g.player.RestorePosition()
 	}
 
 	for _, enemy := range g.enemies {
 		if enemy.Dead {
 			continue
 		}
-		removeIndices := []int{}
-		for i, bullet := range g.player.Bullets {
-			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
-				removeIndices = append(removeIndices, i)
-				enemy.Health -= bullet.Damage
-				hit := actors.Hit{
-					X:        enemy.X,
-					Y:        enemy.Y - enemy.H/2,
-					Color:    color.RGBA{255, 255, 255, 240},
-					Msg:      "-" + strconv.Itoa(bullet.Damage),
-					TextFont: text.NewGoXFace(g.hitTextFont),
-					Duration: 2 * g.framesPerSecond / 3,
-				}
-				hit.SetDrawOptions()
-				enemy.Hits = append(enemy.Hits, hit)
-
-			}
+		if !g.canStandAt(enemy.Hitbox) {
+			enemy.RestorePosition()
 		}
-		for _, index := range removeIndices {
-			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
-		}
+	}
+}
 
-		if enemy.Health <= 0 {
-			enemy.Health = 0
-			enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
-			enemy.Dead = true
-			enemy.UpdateCurrentState(actors.PlayerDead)
+// canStandAt reports whether the given hitbox is completely on walkable land
+// and does not overlap a cactus.
+func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
+	if !g.island.IsRectWalkable(float64(hitbox.X), float64(hitbox.Y), float64(hitbox.W), float64(hitbox.H)) {
+		return false
+	}
+
+	for _, cactus := range g.cacti {
+		if hitbox.CheckCollision(cactus.Hitbox) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// checkActorCollisions stops actors from walking through each other.
+func (g *Game) checkActorCollisions() {
+	for i, enemy := range g.enemies {
+		if enemy.Dead {
 			continue
 		}
 
-		if g.player.Hitbox.CheckCollision(enemy.Hitbox) {
-			for dir, moving := range g.player.MoveDirs {
-				if moving {
-					switch dir {
-					case actors.Up:
-						g.player.Y += g.player.Speed
-					case actors.Down:
-						g.player.Y -= g.player.Speed
-					case actors.Right:
-						g.player.X -= g.player.Speed
-					case actors.Left:
-						g.player.X += g.player.Speed
-					}
-					g.player.UpdateHitbox()
-				}
+		if !g.player.Dead && g.player.Hitbox.CheckCollision(enemy.Hitbox) {
+			g.player.RestorePosition()
+			enemy.RestorePosition()
+		}
+
+		for _, otherEnemy := range g.enemies[i+1:] {
+			if otherEnemy.Dead {
+				continue
+			}
+			if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
+				enemy.RestorePosition()
 			}
 		}
 	}
+}
+
+// damagePlayer applies bullet damage to the player and ends the run when he dies.
+func (g *Game) damagePlayer(damage int) {
+	g.player.Health -= damage
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 255, 255, 240})
+
+	if g.player.Health <= 0 {
+		g.player.Health = 0
+		g.player.Dead = true
+		g.player.UpdateCurrentState(actors.PlayerDead)
+		g.mode = ModeGameOver
+	}
+
+	g.player.UpdateHealhBar()
+}
+
+// killEnemy turns the enemy into a corpse and rewards the player with points.
+func (g *Game) killEnemy(enemy *actors.Enemy) {
+	enemy.Health = 0
+	enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
+	enemy.Dead = true
+	enemy.UpdateCurrentState(actors.PlayerDead)
+	g.score += scorePerKill
+	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill), color.RGBA{255, 215, 0, 240})
+}
+
+func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor color.RGBA) {
+	hit := actors.Hit{
+		X:        x,
+		Y:        y,
+		Color:    hitColor,
+		Msg:      msg,
+		TextFont: g.hitFace,
+		Duration: 2 * g.framesPerSecond / 3,
+	}
+	hit.SetDrawOptions()
+	*hits = append(*hits, hit)
 }
 
 // Update proceeds the game state.
@@ -574,19 +775,26 @@ func (g *Game) Update() error {
 	// controls
 	switch g.mode {
 	case ModeTitle:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModeGameOver:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModePause:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGame:
+		g.elapsedFrames += 1
+		g.updateEnemySpawning()
+		g.removeCorpses()
+
+		g.player.SavePosition()
+		g.player.UpdateWeapon()
 		g.player.MoveDirs = map[actors.Direction]bool{
 			actors.Up:    false,
 			actors.Down:  false,
@@ -595,6 +803,8 @@ func (g *Game) Update() error {
 		}
 
 		for _, enemy := range g.enemies {
+			enemy.SavePosition()
+			enemy.UpdateWeapon()
 			enemy.MoveDirs = map[actors.Direction]bool{
 				actors.Up:    false,
 				actors.Down:  false,
@@ -680,8 +890,12 @@ func (g *Game) Update() error {
 			g.player.StopAnimation()
 		}
 
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FTR"] {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FTR"] {
 			g.player.Shoot()
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RL"] {
+			g.player.Reload()
 		}
 
 		for _, enemy := range g.enemies {
@@ -693,7 +907,7 @@ func (g *Game) Update() error {
 
 		g.CheckCollisions()
 
-		if ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"] {
+		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
 			g.mode = ModePause
 		}
 
@@ -707,82 +921,142 @@ func (g *Game) Update() error {
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Write your game's rendering.
 	screen.Fill(g.backgroundColor)
 	switch g.mode {
 	case ModeTitle:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-		}
-
-		g.player.Draw(screen, g.camX, g.camY)
-
-		for i, l := range g.titleTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.titleTexts[i-1]) - len(l)) * g.titleFontSize / 2
-			}
-			g.titleDrawOptions.GeoM.Translate(float64(tx), float64(i+g.titleFontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.titleArcadeFont), g.titleDrawOptions)
-		}
-		g.titleDrawOptions.GeoM = g.titleGeoMatrix
+		g.drawWorld(screen)
+		g.drawCenteredTexts(screen, g.titleTexts, g.titleFace, g.titleFontSize, g.titleDrawOptions, g.titleGeoMatrix)
 
 	case ModeGameOver:
-		for i, l := range g.gameOverTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.gameOverTexts[i-1]) - len(l)) * g.fontSize / 2
-			}
-			g.gameOverDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.gameOverDrawOptions)
-		}
-		g.gameOverDrawOptions.GeoM = g.gameOverGeoMatrix
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		gameOverTexts := append([]string{}, g.gameOverTexts[0])
+		gameOverTexts = append(gameOverTexts,
+			"SURVIVED "+g.survivalTime(),
+			"SCORE "+strconv.Itoa(g.score),
+			g.gameOverTexts[1],
+		)
+		g.drawCenteredTexts(screen, gameOverTexts, g.arcadeFace, g.fontSize, g.gameOverDrawOptions, g.gameOverGeoMatrix)
 
 	case ModePause:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-			enemy.DrawBullets(screen, g.camX, g.camY)
-		}
-
-		g.player.Draw(screen, g.camX, g.camY)
-		g.player.DrawBullets(screen, g.camX, g.camY)
-
-		for i, l := range g.pauseTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.pauseTexts[i-1]) - len(l)) * g.fontSize / 2
-			}
-			g.pauseDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.pauseDrawOptions)
-		}
-		g.pauseDrawOptions.GeoM = g.pauseGeoMatrix
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 
 	case ModeGame:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-			// cactus.DrawHitbox(screen, g.camX, g.camY)
-		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-			enemy.DrawBullets(screen, g.camX, g.camY)
-			// enemy.DrawHitbox(screen, g.camX, g.camY)
-		}
-
-		// TODO: for debugging (remove eventually)
-		// textDrawOptions := &text.DrawOptions{}
-		// textDrawOptions.GeoM.Translate(10, 10)
-		// text.Draw(screen, fmt.Sprintf("%+v", g.buttonsPressed), text.NewGoXFace(g.playerHealthBarFont), textDrawOptions)
-
-		g.player.Draw(screen, g.camX, g.camY)
-		// g.player.DrawHitbox(screen, g.camX, g.camY)
-		g.player.DrawBullets(screen, g.camX, g.camY)
+		g.drawWorld(screen)
+		g.drawHud(screen)
 	}
+}
+
+// drawWorld renders the island and everything that lives on it.
+func (g *Game) drawWorld(screen *ebiten.Image) {
+	g.island.Draw(screen, g.camX, g.camY)
+
+	for _, cactus := range g.cacti {
+		cactus.Draw(screen, g.camX, g.camY)
+	}
+
+	// dead enemies are drawn first so corpses never cover a living actor
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			enemy.Draw(screen, g.camX, g.camY)
+		}
+	}
+
+	for _, enemy := range g.enemies {
+		if !enemy.Dead {
+			enemy.Draw(screen, g.camX, g.camY)
+		}
+		enemy.DrawBullets(screen, g.camX, g.camY)
+	}
+
+	g.player.Draw(screen, g.camX, g.camY)
+	g.player.DrawBullets(screen, g.camX, g.camY)
+}
+
+// drawHud renders the survival timer, the score, the ammo and the mini map.
+func (g *Game) drawHud(screen *ebiten.Image) {
+	lines := []string{
+		"TIME  " + g.survivalTime(),
+		"SCORE " + strconv.Itoa(g.score),
+		"FOES  " + strconv.Itoa(g.aliveEnemies()) + "/" + strconv.Itoa(g.maxEnemies),
+	}
+	for i, line := range lines {
+		drawOptions := &text.DrawOptions{}
+		drawOptions.GeoM.Translate(20, float64(20+i*(g.hudFontSize+6)))
+		text.Draw(screen, line, g.hudFace, drawOptions)
+	}
+
+	g.drawAmmo(screen)
+
+	miniMapScale := 2.0
+	g.island.DrawMiniMap(
+		screen,
+		float64(ScreenWidth)-float64(worldTilesX)*miniMapScale-20,
+		20,
+		miniMapScale,
+		g.player.X,
+		g.player.Y,
+		g.enemyPositions(),
+	)
+}
+
+// drawAmmo shows the bullets left in the magazine and the reload progress.
+func (g *Game) drawAmmo(screen *ebiten.Image) {
+	x := 40.0
+	y := float64(ScreenHeight) - 70
+
+	msg := "AMMO"
+	if g.player.Reloading {
+		msg = "RELOADING"
+	}
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
+	text.Draw(screen, msg, g.hudFace, drawOptions)
+
+	if g.player.Reloading {
+		progress := 1 - float64(g.player.ReloadTimer)/float64(g.player.ReloadDuration)
+		vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{60, 60, 60, 220}, false)
+		vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, color.RGBA{230, 190, 60, 240}, false)
+
+		return
+	}
+
+	bulletWidth, bulletSpacing := float32(6), float32(6)
+	for i := range g.player.MagazineSize {
+		bulletColor := color.RGBA{90, 70, 40, 200}
+		if i < g.player.Ammo {
+			bulletColor = color.RGBA{240, 220, 120, 240}
+		}
+		vector.FillRect(screen, float32(x)+float32(i)*(bulletWidth+bulletSpacing), float32(y), bulletWidth, 14, bulletColor, false)
+	}
+}
+
+// enemyPositions returns the position of every living enemy for the mini map.
+func (g *Game) enemyPositions() [][2]float64 {
+	positions := make([][2]float64, 0, len(g.enemies))
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			continue
+		}
+		positions = append(positions, [2]float64{enemy.X, enemy.Y})
+	}
+
+	return positions
+}
+
+// drawCenteredTexts draws a block of horizontally centered lines of text.
+func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *text.GoXFace, fontSize int, drawOptions *text.DrawOptions, geoMatrix ebiten.GeoM) {
+	for i, line := range texts {
+		tx := 0
+		if i > 0 {
+			tx = (len(texts[i-1]) - len(line)) * fontSize / 2
+		}
+		drawOptions.GeoM.Translate(float64(tx), float64(i+fontSize+g.newlinePadding))
+		text.Draw(screen, line, face, drawOptions)
+	}
+	drawOptions.GeoM = geoMatrix
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.

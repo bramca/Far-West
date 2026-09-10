@@ -51,6 +51,7 @@ const (
 
 type Player struct {
 	X, Y           float64
+	PrevX, PrevY   float64
 	W, H           float64
 	Sprites        []*ebiten.Image
 	CurrentState   PlayerState
@@ -65,6 +66,7 @@ type Player struct {
 	MoveDirs       map[Direction]bool
 	CurrentWeapon  Weapon
 	Hitbox         *HitBox
+	HitboxOffset   float64
 	Bullets        []*Bullet
 	BulletSprite   *ebiten.Image
 	FireRate       int
@@ -75,6 +77,15 @@ type Player struct {
 	Running        bool
 	Hits           []Hit
 	Dead           bool
+
+	// weapon handling
+	MagazineSize   int
+	Ammo           int
+	ReloadDuration int
+	ReloadTimer    int
+	Reloading      bool
+	ShootCooldown  int
+	ShootTimer     int
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -101,8 +112,21 @@ func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
 }
 
 func (p *Player) UpdateHitbox() {
-	p.Hitbox.X = float32(p.X)
-	p.Hitbox.Y = float32(p.Y)
+	p.Hitbox.X = float32(p.X + p.HitboxOffset)
+	p.Hitbox.Y = float32(p.Y + p.HitboxOffset)
+}
+
+// SavePosition stores the current position so it can be restored when the
+// actor ends up somewhere it is not allowed to be.
+func (p *Player) SavePosition() {
+	p.PrevX, p.PrevY = p.X, p.Y
+}
+
+// RestorePosition moves the actor back to the last saved position.
+func (p *Player) RestorePosition() {
+	p.X, p.Y = p.PrevX, p.PrevY
+	p.UpdateHitbox()
+	p.UpdateHealhBar()
 }
 
 func (p *Player) UpdateHealhBar() {
@@ -115,9 +139,19 @@ func (p *Player) UpdateHealhBar() {
 }
 
 func (p *Player) Shoot() {
-	if p.CurrentWeapon == Fists {
+	if p.CurrentWeapon == Fists || p.Dead {
 		return
 	}
+
+	if !p.CanShoot() {
+		// running dry automatically starts a reload
+		if p.Ammo <= 0 {
+			p.Reload()
+		}
+
+		return
+	}
+
 	switch p.CurrentWeapon {
 	case Revolver:
 		bulletSpeed := 4.0
@@ -132,6 +166,43 @@ func (p *Player) Shoot() {
 			RightDown: math.Pi / 2,
 		}
 		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration, bulletDamage)
+	}
+
+	p.Ammo -= 1
+	p.ShootTimer = p.ShootCooldown
+	if p.Ammo <= 0 {
+		p.Reload()
+	}
+}
+
+// CanShoot reports whether the weapon is loaded and ready to fire again.
+func (p *Player) CanShoot() bool {
+	return !p.Reloading && p.Ammo > 0 && p.ShootTimer <= 0
+}
+
+// Reload starts the reload of the weapon, during the reload no bullet can be fired.
+func (p *Player) Reload() {
+	if p.Reloading || p.Ammo >= p.MagazineSize {
+		return
+	}
+	p.Reloading = true
+	p.ReloadTimer = p.ReloadDuration
+}
+
+// UpdateWeapon ticks the reload and fire rate timers, it has to be called once per frame.
+func (p *Player) UpdateWeapon() {
+	if p.ShootTimer > 0 {
+		p.ShootTimer -= 1
+	}
+
+	if !p.Reloading {
+		return
+	}
+
+	p.ReloadTimer -= 1
+	if p.ReloadTimer <= 0 {
+		p.Reloading = false
+		p.Ammo = p.MagazineSize
 	}
 }
 
@@ -190,16 +261,11 @@ func (p *Player) Look(d Direction) {
 }
 
 func (p *Player) UpdateBullets() {
-	toRemove := []int{}
-	for i, bullet := range p.Bullets {
-		bullet.Update()
-		if bullet.Duration < 1 {
-			toRemove = append(toRemove, i)
+	for i := len(p.Bullets) - 1; i >= 0; i-- {
+		p.Bullets[i].Update()
+		if p.Bullets[i].Duration < 1 {
+			p.Bullets = removeFromBullets(p.Bullets, i)
 		}
-	}
-
-	for _, index := range toRemove {
-		p.Bullets = removeFromBullets(p.Bullets, index)
 	}
 }
 

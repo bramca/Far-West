@@ -96,11 +96,11 @@ func LoadSprites(assets embed.FS, fileNames []string, xFrameSize int, yFrameSize
 	return result
 }
 
-func SpawnCacti(xBound, yBound int, amount int, spriteScale float64, cactusSprites []*ebiten.Image, hitboxes []*actors.HitBox) []*world.Cactus {
+// SpawnCacti spreads cacti over the land tiles of the given island.
+func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSprites []*ebiten.Image, hitboxes []*actors.HitBox) []*world.Cactus {
 	cacti := []*world.Cactus{}
 	for range amount {
-		x := float64(rand.Intn(xBound))
-		y := float64(rand.Intn(yBound))
+		x, y := island.RandomLandPoint()
 		i := rand.Intn(len(cactusSprites))
 		sprite := cactusSprites[i]
 		hitbox := hitboxes[i]

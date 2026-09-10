@@ -22,3 +22,13 @@ func (h *HitBox) CheckCollision(hitbox *HitBox) bool {
 		h.Y+h.H >= hitbox.Y && // h top edge past hitbox bottom
 		h.Y <= hitbox.Y+hitbox.H
 }
+
+// CenterX returns the horizontal center of the hitbox.
+func (h *HitBox) CenterX() float64 {
+	return float64(h.X + h.W/2)
+}
+
+// CenterY returns the vertical center of the hitbox.
+func (h *HitBox) CenterY() float64 {
+	return float64(h.Y + h.H/2)
+}
