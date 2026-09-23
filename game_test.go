@@ -7,8 +7,8 @@ import (
 )
 
 // TestGameLoop runs the game loop without any player input, the player is
-// expected to stay on the island, to be hunted down by the enemies and to end
-// up in a game over.
+// expected to stay on the island, to be hunted down by the enemies of the
+// first level and to end up in a game over.
 func TestGameLoop(t *testing.T) {
 	game := NewGame()
 	game.mode = ModeGame
@@ -31,36 +31,32 @@ func TestGameLoop(t *testing.T) {
 			}
 		}
 
-		if game.aliveEnemies() > game.maxEnemies {
-			t.Fatalf("%d enemies on the field while only %d are allowed", game.aliveEnemies(), game.maxEnemies)
+		if game.aliveEnemies() > game.levelEnemies {
+			t.Fatalf("%d enemies on the field while the level only has %d", game.aliveEnemies(), game.levelEnemies)
 		}
 
-		if game.mode == ModeGameOver {
+		if game.player.Dead {
 			break
 		}
 	}
 
-	if game.mode != ModeGameOver {
+	if !game.player.Dead {
 		t.Fatal("an idle player is expected to die eventually")
-	}
-
-	if game.maxEnemies <= initialMaxEnemies {
-		t.Fatalf("the maximum amount of enemies did not grow over time: %d", game.maxEnemies)
 	}
 }
 
-// TestRestart makes sure a new run starts from a clean slate.
+// TestRestart makes sure a new run starts from a clean slate on level one.
 func TestRestart(t *testing.T) {
 	game := NewGame()
 	game.score = 500
 	game.elapsedFrames = 6000
-	game.maxEnemies = 20
+	game.level = 5
 	game.player.Dead = true
 	game.player.Health = 0
 
 	game.Initialize()
 
-	if game.score != 0 || game.elapsedFrames != 0 || game.maxEnemies != initialMaxEnemies {
+	if game.score != 0 || game.elapsedFrames != 0 || game.level != 1 {
 		t.Fatal("the run state was not reset")
 	}
 
@@ -68,8 +64,60 @@ func TestRestart(t *testing.T) {
 		t.Fatal("the player was not revived")
 	}
 
-	if len(game.enemies) == 0 || len(game.enemies) > initialMaxEnemies {
-		t.Fatalf("expected at most %d enemies after a restart, got %d", initialMaxEnemies, len(game.enemies))
+	if n := game.aliveEnemies(); n < 1 || n > initialEnemies {
+		t.Fatalf("expected at most %d enemies on a fresh run, got %d", initialEnemies, n)
+	}
+}
+
+// TestLevelClearsAndAdvances makes sure a level starts with a set number of
+// enemies, that killing them all starts the next level on a fresh island and
+// that the player regains full health along the way.
+func TestLevelClearsAndAdvances(t *testing.T) {
+	game := NewGame()
+	game.mode = ModeGame
+
+	firstIsland := game.island
+	if game.level != 1 {
+		t.Fatalf("expected the game to start at level 1, got level %d", game.level)
+	}
+	if game.aliveEnemies() != enemyCountForLevel(1) {
+		t.Fatalf("expected %d enemies on level 1, got %d", enemyCountForLevel(1), game.aliveEnemies())
+	}
+
+	game.player.Health -= game.player.MaxHealth / 2
+
+	for _, enemy := range game.enemies {
+		game.killEnemy(enemy)
+	}
+
+	for range 2 {
+		if err := game.Update(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if game.level != 2 {
+		t.Fatalf("the level did not advance after clearing level 1, still at %d", game.level)
+	}
+	if game.island == firstIsland {
+		t.Fatal("the island was not regenerated for the next level")
+	}
+	if game.player.Health != game.player.MaxHealth {
+		t.Fatalf("the player did not regain full health on level 2, got %d", game.player.Health)
+	}
+	if game.aliveEnemies() != enemyCountForLevel(2) {
+		t.Fatalf("expected %d enemies on level 2, got %d", enemyCountForLevel(2), game.aliveEnemies())
+	}
+}
+
+// TestEnemyCountForLevel guards the enemy scaling.
+func TestEnemyCountForLevel(t *testing.T) {
+	if got := enemyCountForLevel(1); got != initialEnemies {
+		t.Fatalf("level 1 has %d enemies, expected %d", got, initialEnemies)
+	}
+
+	if killed := enemyCountForLevel(maxLevelEnemies - initialEnemies + 1); killed != maxLevelEnemies {
+		t.Fatalf("the enemy count should be capped at %d, got %d", maxLevelEnemies, killed)
 	}
 }
 

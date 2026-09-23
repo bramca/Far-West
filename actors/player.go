@@ -92,6 +92,7 @@ type Player struct {
 	Reloading      bool
 	ShootCooldown  int
 	ShootTimer     int
+	Damage         int
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -177,8 +178,7 @@ func (p *Player) Shoot() {
 	case Revolver:
 		bulletSpeed := 4.0
 		bulletDuration := 500
-		bulletDamage := 3
-		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, bulletDamage)
+		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
 	}
 
 	p.Ammo -= 1

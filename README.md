@@ -33,18 +33,23 @@ In the town there are `shops` were you can by stuff:
 - [X] ammunition
 - [X] reload
 - [X] random island world with an ocean border
-- [X] endless enemy spawning with a growing enemy cap
-- [X] survival timer, score and game over / restart
+- [X] level based progression with tougher enemies
 - [ ] town buildings
 - [ ] spawn random town
 
 ## Survival run
 
-Every run generates a random shaped island, the ocean around it is the border of
-the world. Enemies keep spawning as long as you are alive: a fixed amount is on
-the field at a time and that maximum grows the longer you survive. Killing an
-enemy gives you points, running out of health ends the run and you can start a
-fresh one right away.
+The game is played in levels. Every level drops you on a randomly shaped
+island, the ocean around it is the border of the world. You have to wipe out
+every enemy to advance to the next level.
+
+The first level starts with 6 normal enemies. Every following level the enemies
+get tougher — more health, harder hitting bullets and a faster fire rate — and
+there are more of them, up to a cap. When a new level starts you respawn on a
+fresh island and regain your full health.
+
+Killing an enemy gives you points. Running out of health ends the run on the
+level you are on and pressing `Space` starts a fresh run from level 1.
 
 ## Controls
 

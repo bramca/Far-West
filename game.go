@@ -43,13 +43,16 @@ const (
 	worldTileSize = 64.0
 	cactusAmount  = 220
 
-	// enemy spawning
-	initialMaxEnemies = 5
-	enemyHardCap      = 30
-	// every enemyIncreaseInterval seconds one extra enemy is allowed on the field
-	enemyIncreaseInterval = 20
-	// amount of frames between two spawn attempts
-	enemySpawnInterval = 90
+	// levels
+	initialEnemies   = 6
+	maxLevelEnemies  = 12
+	enemyCountGrowth = 1
+	// every other level the enemies deal one more damage
+	levelDamageBonus = 1
+	// and they get two more hitpoints every level
+	levelHealthBonus = 2
+	// the enemies shoot a bit faster every level, never faster than this
+	enemyFireRateFloor = 15
 	// enemies spawn at least this far away from the player
 	enemyMinSpawnDistance = 600.0
 	enemyMaxSpawnDistance = 1600.0
@@ -161,11 +164,11 @@ type Game struct {
 	frameCount   int
 	maxFramCount int
 
-	// survival run state
-	elapsedFrames  int
-	score          int
-	maxEnemies     int
-	enemySpawnWait int
+	// level state
+	level         int
+	levelEnemies  int
+	elapsedFrames int
+	score         int
 
 	// gamepad
 	gamepadIDsBuf  []ebiten.GamepadID
@@ -292,29 +295,62 @@ func NewGame() *Game {
 	return game
 }
 
-// Initialize starts a brand new run, it generates a new island and resets
-// every piece of run specific state. It is called on startup and after every
-// game over.
+// Initialize starts a brand new run from level one. It is called on startup
+// and after every game over.
 func (g *Game) Initialize() {
+	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
+	g.player = g.newPlayer()
+	g.score = 0
+	g.elapsedFrames = 0
+
+	g.startLevel(1)
+}
+
+// startLevel drops the player on a brand new island for the given level,
+// spawns the enemies to beat and restores the player.
+func (g *Game) startLevel(level int) {
+	g.level = level
+
 	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
 	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
 
-	g.player = g.newPlayer()
+	x, y := g.island.Center()
+	g.player.X = x
+	g.player.Y = y
+	g.player.Bullets = nil
+	g.player.Hits = nil
+	g.player.Health = g.player.MaxHealth
+	g.player.Ammo = g.player.MagazineSize
+	g.player.Reloading = false
+	g.player.ReloadTimer = 0
+	g.player.Dead = false
+	g.player.CurrentAction = actors.Action{}
+	g.player.UpdateHitbox()
+	g.player.UpdateHealhBar()
+	g.player.DrawWeapon(g.player.CurrentWeapon)
 	g.clearSpawnArea()
-	g.enemies = nil
-	g.score = 0
-	g.elapsedFrames = 0
-	g.frameCount = 1
-	g.maxEnemies = initialMaxEnemies
-	g.enemySpawnWait = 0
 
-	for range initialMaxEnemies {
+	g.enemies = nil
+	g.spawnLevel()
+}
+
+// spawnLevel spawns every enemy the player has to defeat in the current level.
+func (g *Game) spawnLevel() {
+	g.levelEnemies = enemyCountForLevel(g.level)
+	for range g.levelEnemies {
 		g.spawnEnemy()
 	}
+}
 
-	// Calculate the position of the screen center based on the player position
-	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
-	g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
+// enemyCountForLevel returns how many enemies the player has to beat in a
+// level, it grows with the level up to a cap so the field never gets silly.
+func enemyCountForLevel(level int) int {
+	count := initialEnemies + (level-1)*enemyCountGrowth
+	if count > maxLevelEnemies {
+		count = maxLevelEnemies
+	}
+
+	return count
 }
 
 func (g *Game) newPlayer() *actors.Player {
@@ -338,6 +374,7 @@ func (g *Game) newPlayer() *actors.Player {
 		Ammo:           playerMagazineSize,
 		ReloadDuration: playerReloadDuration,
 		ShootCooldown:  playerShootCooldown,
+		Damage:         3,
 		Hitbox: &actors.HitBox{
 			X: float32(x),
 			Y: float32(y),
@@ -441,10 +478,12 @@ func (g *Game) spawnEnemy() {
 			DodgeSpeed:     0.3 + rand.Float64()*0.4,
 			AnimationSpeed: 15,
 			DrawOptions:    &ebiten.DrawImageOptions{},
-			FireRate:       25 + rand.Intn(15),
+			FireRate:       max(enemyFireRateFloor, 25+rand.Intn(15)-(g.level-1)),
 			BulletSprite:   g.bulletSprite,
-			Health:         10,
-			MaxHealth:      10,
+			// the higher the level the tougher and deadlier the enemies get
+			Health:         10 + (g.level-1)*levelHealthBonus,
+			MaxHealth:      10 + (g.level-1)*levelHealthBonus,
+			Damage:         3 + (g.level-1)/2*levelDamageBonus,
 			IsNpc:          true,
 			HitboxOffset:   enemyHitboxOffset,
 			MagazineSize:   enemyMagazineSize,
@@ -488,25 +527,6 @@ func (g *Game) aliveEnemies() int {
 	}
 
 	return alive
-}
-
-// updateEnemySpawning keeps the field populated and slowly raises the maximum
-// amount of enemies the longer the player survives.
-func (g *Game) updateEnemySpawning() {
-	g.maxEnemies = min(initialMaxEnemies+g.elapsedFrames/(g.framesPerSecond*enemyIncreaseInterval), enemyHardCap)
-
-	if g.enemySpawnWait > 0 {
-		g.enemySpawnWait -= 1
-
-		return
-	}
-
-	if g.aliveEnemies() >= g.maxEnemies {
-		return
-	}
-
-	g.spawnEnemy()
-	g.enemySpawnWait = enemySpawnInterval
 }
 
 // removeCorpses drops enemies that have been dead for a while so the world
@@ -791,7 +811,6 @@ func (g *Game) Update() error {
 		}
 	case ModeGame:
 		g.elapsedFrames += 1
-		g.updateEnemySpawning()
 		g.removeCorpses()
 
 		g.player.SavePosition()
@@ -904,6 +923,11 @@ func (g *Game) Update() error {
 
 		g.CheckCollisions()
 
+		// a level is cleared when every enemy of it is dead
+		if g.mode == ModeGame && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
+			g.startLevel(g.level + 1)
+		}
+
 		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
 			g.mode = ModePause
 		}
@@ -929,7 +953,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawHud(screen)
 		gameOverTexts := append([]string{}, g.gameOverTexts[0])
 		gameOverTexts = append(gameOverTexts,
-			"SURVIVED "+g.survivalTime(),
+			"LEVEL "+strconv.Itoa(g.level)+"  SURVIVED "+g.survivalTime(),
 			"SCORE "+strconv.Itoa(g.score),
 			g.gameOverTexts[1],
 		)
@@ -975,9 +999,10 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 // drawHud renders the survival timer, the score, the ammo and the mini map.
 func (g *Game) drawHud(screen *ebiten.Image) {
 	lines := []string{
+		"LEVEL " + strconv.Itoa(g.level),
 		"TIME  " + g.survivalTime(),
 		"SCORE " + strconv.Itoa(g.score),
-		"FOES  " + strconv.Itoa(g.aliveEnemies()) + "/" + strconv.Itoa(g.maxEnemies),
+		"FOES  " + strconv.Itoa(g.aliveEnemies()) + "/" + strconv.Itoa(g.levelEnemies),
 	}
 	for i, line := range lines {
 		drawOptions := &text.DrawOptions{}
