@@ -978,7 +978,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
 			"SCORE " + strconv.Itoa(g.score),
 			"TIME  " + g.survivalTime(),
-			"PRESS N OR A TO CONTINUE",
+			"PRESS N OR B TO CONTINUE",
 		}
 		g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 
