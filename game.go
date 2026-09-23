@@ -28,6 +28,7 @@ const (
 	ModeGame
 	ModeGameOver
 	ModePause
+	ModeLevelComplete
 )
 
 const (
@@ -809,6 +810,11 @@ func (g *Game) Update() error {
 		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
+	case ModeLevelComplete:
+		if inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"] {
+			g.startLevel(g.level + 1)
+			g.mode = ModeGame
+		}
 	case ModeGame:
 		g.elapsedFrames += 1
 		g.removeCorpses()
@@ -923,9 +929,10 @@ func (g *Game) Update() error {
 
 		g.CheckCollisions()
 
-		// a level is cleared when every enemy of it is dead
+		// a level is cleared when every enemy of it is dead, the player
+		// presses N or the A button to continue to the next one
 		if g.mode == ModeGame && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
-			g.startLevel(g.level + 1)
+			g.mode = ModeLevelComplete
 		}
 
 		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
@@ -963,6 +970,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawWorld(screen)
 		g.drawHud(screen)
 		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
+
+	case ModeLevelComplete:
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		levelCompleteTexts := []string{
+			"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
+			"SCORE " + strconv.Itoa(g.score),
+			"TIME  " + g.survivalTime(),
+			"PRESS N OR A TO CONTINUE",
+		}
+		g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 
 	case ModeGame:
 		g.drawWorld(screen)

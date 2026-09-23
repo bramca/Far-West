@@ -70,8 +70,8 @@ func TestRestart(t *testing.T) {
 }
 
 // TestLevelClearsAndAdvances makes sure a level starts with a set number of
-// enemies, that killing them all starts the next level on a fresh island and
-// that the player regains full health along the way.
+// enemies, that killing them all shows the level complete overlay and that
+// continuing starts the next level on a fresh island with full health.
 func TestLevelClearsAndAdvances(t *testing.T) {
 	game := NewGame()
 	game.mode = ModeGame
@@ -90,14 +90,24 @@ func TestLevelClearsAndAdvances(t *testing.T) {
 		game.killEnemy(enemy)
 	}
 
-	for range 2 {
-		if err := game.Update(); err != nil {
-			t.Fatal(err)
-		}
+	if err := game.Update(); err != nil {
+		t.Fatal(err)
+	}
+
+	if game.mode != ModeLevelComplete {
+		t.Fatalf("expected the level complete overlay, got mode %d", game.mode)
+	}
+	if game.level != 1 {
+		t.Fatalf("the level advanced without a continue input, still at %d", game.level)
+	}
+
+	game.startLevel(game.level + 1)
+	if err := game.Update(); err != nil {
+		t.Fatal(err)
 	}
 
 	if game.level != 2 {
-		t.Fatalf("the level did not advance after clearing level 1, still at %d", game.level)
+		t.Fatalf("the level did not advance after continuing, still at %d", game.level)
 	}
 	if game.island == firstIsland {
 		t.Fatal("the island was not regenerated for the next level")

@@ -102,19 +102,8 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
 	if !p.Dead && p.CurrentWeapon != Fists {
-		// faint line behind the player that shows where the gun is aimed
-		cx := p.X + p.W/2 - camX
-		cy := p.Y + p.H/2 - camY
-		aimLength := 56.0
-		vector.StrokeLine(
-			screen,
-			float32(cx), float32(cy),
-			float32(cx+math.Cos(p.AimAngle)*aimLength),
-			float32(cy+math.Sin(p.AimAngle)*aimLength),
-			2,
-			color.RGBA{255, 255, 255, 80},
-			true,
-		)
+		// a small reticle hovering at a fixed distance in front of the gun
+		drawAimCursor(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle, color.RGBA{255, 255, 255, 140})
 	}
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.Healthbar.Draw(screen, camX, camY)
@@ -131,6 +120,21 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 
 func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
 	p.Hitbox.Draw(screen, camX, camY)
+}
+
+// drawAimCursor draws a small cross reticle at a fixed distance from the actor
+// along the aim angle, it shows where the bullets go without cluttering the
+// middle of the screen.
+func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) {
+	const (
+		distance = 52.0
+		size     = 7.0
+		width    = 2.0
+	)
+	ax := cx + math.Cos(angle)*distance
+	ay := cy + math.Sin(angle)*distance
+	vector.StrokeLine(screen, float32(ax-size), float32(ay), float32(ax+size), float32(ay), width, clr, true)
+	vector.StrokeLine(screen, float32(ax), float32(ay-size), float32(ax), float32(ay+size), width, clr, true)
 }
 
 func (p *Player) UpdateHitbox() {

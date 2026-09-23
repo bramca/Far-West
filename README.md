@@ -45,8 +45,9 @@ every enemy to advance to the next level.
 
 The first level starts with 6 normal enemies. Every following level the enemies
 get tougher — more health, harder hitting bullets and a faster fire rate — and
-there are more of them, up to a cap. When a new level starts you respawn on a
-fresh island and regain your full health.
+there are more of them, up to a cap. When a level is cleared an overview shows
+your score and time, press `N` or the `A` button to continue to the next level,
+where you respawn on a fresh island with your full health back.
 
 Killing an enemy gives you points. Running out of health ends the run on the
 level you are on and pressing `Space` starts a fresh run from level 1.
@@ -62,4 +63,5 @@ level you are on and pressing `Space` starts a fresh run from level 1.
 | Dodge | `Left Shift` | Left top shoulder |
 | Switch weapon | `0` (fists), `1` (revolver) | Right top face button |
 | Pause | `P` | Start |
+| Continue after level | `N` | Right bottom face button (`A`) |
 | Start / restart | `Space` | Start |
