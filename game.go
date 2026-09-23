@@ -28,7 +28,6 @@ const (
 	ModeGame
 	ModeGameOver
 	ModePause
-	ModeLevelComplete
 )
 
 const (
@@ -168,6 +167,7 @@ type Game struct {
 	// level state
 	level         int
 	levelEnemies  int
+	levelComplete bool
 	elapsedFrames int
 	score         int
 
@@ -303,6 +303,7 @@ func (g *Game) Initialize() {
 	g.player = g.newPlayer()
 	g.score = 0
 	g.elapsedFrames = 0
+	g.levelComplete = false
 
 	g.startLevel(1)
 }
@@ -810,11 +811,6 @@ func (g *Game) Update() error {
 		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
-	case ModeLevelComplete:
-		if inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"] {
-			g.startLevel(g.level + 1)
-			g.mode = ModeGame
-		}
 	case ModeGame:
 		g.elapsedFrames += 1
 		g.removeCorpses()
@@ -929,10 +925,14 @@ func (g *Game) Update() error {
 
 		g.CheckCollisions()
 
-		// a level is cleared when every enemy of it is dead, the player
-		// presses N or the A button to continue to the next one
-		if g.mode == ModeGame && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
-			g.mode = ModeLevelComplete
+		// a level is cleared when every enemy of it is dead, the player can
+		// keep walking around until he presses N or the A button to continue
+		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
+			g.levelComplete = true
+		}
+		if g.mode == ModeGame && g.levelComplete && (inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
+			g.levelComplete = false
+			g.startLevel(g.level + 1)
 		}
 
 		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
@@ -971,21 +971,25 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawHud(screen)
 		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 
-	case ModeLevelComplete:
-		g.drawWorld(screen)
-		g.drawHud(screen)
-		levelCompleteTexts := []string{
-			"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
-			"SCORE " + strconv.Itoa(g.score),
-			"TIME  " + g.survivalTime(),
-			"PRESS N OR B TO CONTINUE",
-		}
-		g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
-
 	case ModeGame:
 		g.drawWorld(screen)
 		g.drawHud(screen)
+		if g.levelComplete {
+			g.drawLevelCompleteOverlay(screen)
+		}
 	}
+}
+
+// drawLevelCompleteOverlay shows the summary of the finished level while the
+// player is still free to move around the island.
+func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
+	levelCompleteTexts := []string{
+		"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
+		"SCORE " + strconv.Itoa(g.score),
+		"TIME  " + g.survivalTime(),
+		"PRESS N OR A TO CONTINUE",
+	}
+	g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 }
 
 // drawWorld renders the island and everything that lives on it.
@@ -1086,12 +1090,13 @@ func (g *Game) enemyPositions() [][2]float64 {
 	return positions
 }
 
-// drawCenteredTexts draws a block of horizontally centered lines of text.
+// drawCenteredTexts draws a block of horizontally centered lines of text, the
+// translation of the geo matrix already centers the first line.
 func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *text.GoXFace, fontSize int, drawOptions *text.DrawOptions, geoMatrix ebiten.GeoM) {
 	for i, line := range texts {
 		tx := 0
 		if i > 0 {
-			tx = (len(texts[i-1]) - len(line)) * fontSize / 2
+			tx = (len(texts[0]) - len(line)) * fontSize / 2
 		}
 		drawOptions.GeoM.Translate(float64(tx), float64(i+fontSize+g.newlinePadding))
 		text.Draw(screen, line, face, drawOptions)

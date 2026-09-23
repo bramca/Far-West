@@ -70,7 +70,7 @@ func TestRestart(t *testing.T) {
 }
 
 // TestLevelClearsAndAdvances makes sure a level starts with a set number of
-// enemies, that killing them all shows the level complete overlay and that
+// enemies, that killing them all flags the level complete overlay and that
 // continuing starts the next level on a fresh island with full health.
 func TestLevelClearsAndAdvances(t *testing.T) {
 	game := NewGame()
@@ -94,8 +94,11 @@ func TestLevelClearsAndAdvances(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if game.mode != ModeLevelComplete {
-		t.Fatalf("expected the level complete overlay, got mode %d", game.mode)
+	if game.mode != ModeGame {
+		t.Fatalf("the game should keep running behind the overlay, got mode %d", game.mode)
+	}
+	if !game.levelComplete {
+		t.Fatal("the level complete overlay was not shown")
 	}
 	if game.level != 1 {
 		t.Fatalf("the level advanced without a continue input, still at %d", game.level)
