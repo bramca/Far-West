@@ -100,9 +100,8 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
-	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	if !p.Dead && p.CurrentWeapon != Fists {
-		// small line that shows where the gun is currently pointed
+		// faint line behind the player that shows where the gun is aimed
 		cx := p.X + p.W/2 - camX
 		cy := p.Y + p.H/2 - camY
 		aimLength := 56.0
@@ -112,10 +111,11 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 			float32(cx+math.Cos(p.AimAngle)*aimLength),
 			float32(cy+math.Sin(p.AimAngle)*aimLength),
 			2,
-			color.RGBA{255, 255, 255, 160},
+			color.RGBA{255, 255, 255, 80},
 			true,
 		)
 	}
+	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.Healthbar.Draw(screen, camX, camY)
 	for i := len(p.Hits) - 1; i >= 0; i-- {
 		if p.Hits[i].Duration > 0 {
@@ -370,9 +370,17 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 	case Fists:
 		switch p.VisualDir {
 		case Left, LeftUp, LeftDown:
-			p.UpdateCurrentState(PlayerNoGunLeft)
+			if p.Running {
+				p.UpdateCurrentState(PlayerNoGunRunLeft)
+			} else {
+				p.UpdateCurrentState(PlayerNoGunLeft)
+			}
 		case Right, RightUp, RightDown:
-			p.UpdateCurrentState(PlayerNoGunRight)
+			if p.Running {
+				p.UpdateCurrentState(PlayerNoGunRunRight)
+			} else {
+				p.UpdateCurrentState(PlayerNoGunRight)
+			}
 		}
 	}
 }
@@ -468,6 +476,7 @@ func (p *Player) Animate() {
 }
 
 func (p *Player) StopAnimation() {
+	p.Running = false
 	switch p.CurrentState {
 	case PlayerRevolverRunRight:
 		p.UpdateCurrentState(PlayerRevolverRight)
