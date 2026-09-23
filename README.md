@@ -51,8 +51,8 @@ fresh one right away.
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Move | `Z`/`W`, `Q`/`A`, `S`, `D` | Left stick |
-| Aim | Arrow keys or `H`, `J`, `K`, `L` | Right stick |
-| Shoot | `Space` | Right top shoulder |
+| Aim | Mouse (free angle) | Right stick (free angle) |
+| Shoot | `Space` or left mouse | Right top shoulder |
 | Reload | `R` | Right cluster left button (`X`) |
 | Dodge | `Left Shift` | Left top shoulder |
 | Switch weapon | `0` (fists), `1` (revolver) | Right top face button |

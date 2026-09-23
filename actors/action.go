@@ -32,19 +32,18 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			a.Actor.Speed += a.Actor.DodgeSpeed
 			for _, bullet := range player.Bullets {
 				if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y) < 150 {
+					// dodge perpendicularly to the incoming bullet
+					perpX := -math.Sin(bullet.R)
+					perpY := math.Cos(bullet.R)
 					moveDir := Up
-
-					angle := utils.AngleBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y)
-					if (bullet.R == 0 || bullet.R == math.Pi) && angle >= 0 && angle <= math.Pi {
+					if math.Abs(perpX) > math.Abs(perpY) {
+						if perpX > 0 {
+							moveDir = Right
+						} else {
+							moveDir = Left
+						}
+					} else if perpY > 0 {
 						moveDir = Down
-					}
-
-					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
-						moveDir = Left
-					}
-
-					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-						moveDir = Right
 					}
 					a.Actor.Move(moveDir)
 					if frameCount%a.Actor.AnimationSpeed == 0 {
@@ -118,6 +117,10 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 		if moveY && angle <= 0 && angle >= -math.Pi {
 			a.Actor.Move(Down)
 		}
+
+		// the enemy aims straight at the player and faces the shot quadrant
+		a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
+		a.Actor.FaceFromAim()
 
 		if player.Hitbox.CheckCollision(a.Actor.Hitbox) {
 			for dir, moving := range a.Actor.MoveDirs {

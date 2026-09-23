@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"image/color"
+	"math"
 	"math/rand"
 	"strconv"
 
@@ -838,17 +839,9 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyJ) || g.yRightAxis > 0.5 {
-			g.player.Look(actors.Down)
-		}
-
 		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
 			g.player.Move(actors.Up)
 			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyK) || g.yRightAxis < -0.5 {
-			g.player.Look(actors.Up)
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
@@ -857,19 +850,23 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyL) || g.xRightAxis > 0.5 {
-			g.player.Look(actors.Right)
-		}
-
 		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
 			g.player.Move(actors.Left)
 			g.player.UpdateHitbox()
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyH) || g.xRightAxis < -0.5 {
-			g.player.Look(actors.Left)
+		// free-angle aim: while the right stick is pushed out of its deadzone
+		// it takes over, otherwise the gun follows the mouse cursor
+		if math.Hypot(g.xRightAxis, g.yRightAxis) > 0.5 {
+			g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
+		} else {
+			mx, my := ebiten.CursorPosition()
+			worldX := float64(mx) + g.camX
+			worldY := float64(my) + g.camY
+			g.player.AimAngle = math.Atan2(worldY-(g.player.Y+g.player.H/2), worldX-(g.player.X+g.player.W/2))
 		}
+		g.player.FaceFromAim()
 
 		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"] {
 			// TODO: only dodge when stamina is replenished
@@ -890,7 +887,7 @@ func (g *Game) Update() error {
 			g.player.StopAnimation()
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || g.buttonsPressed["FTR"] {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"] {
 			g.player.Shoot()
 		}
 

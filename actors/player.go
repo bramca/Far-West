@@ -1,10 +1,12 @@
 package actors
 
 import (
+	"image/color"
 	"math"
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type (
@@ -63,20 +65,24 @@ type Player struct {
 	DrawOptions    *ebiten.DrawImageOptions
 	CurrentAction  Action
 	VisualDir      Direction
-	MoveDirs       map[Direction]bool
-	CurrentWeapon  Weapon
-	Hitbox         *HitBox
-	HitboxOffset   float64
-	Bullets        []*Bullet
-	BulletSprite   *ebiten.Image
-	FireRate       int
-	Healthbar      *HealthBar
-	Health         int
-	MaxHealth      int
-	IsNpc          bool
-	Running        bool
-	Hits           []Hit
-	Dead           bool
+	// AimAngle is the free-angle in radians the gun is pointed at (0 is
+	// right, grows clockwise because the screen has a flipped Y axis). The
+	// bullets fly along this angle while VisualDir only selects the sprite.
+	AimAngle      float64
+	MoveDirs      map[Direction]bool
+	CurrentWeapon Weapon
+	Hitbox        *HitBox
+	HitboxOffset  float64
+	Bullets       []*Bullet
+	BulletSprite  *ebiten.Image
+	FireRate      int
+	Healthbar     *HealthBar
+	Health        int
+	MaxHealth     int
+	IsNpc         bool
+	Running       bool
+	Hits          []Hit
+	Dead          bool
 
 	// weapon handling
 	MagazineSize   int
@@ -95,6 +101,21 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
+	if !p.Dead && p.CurrentWeapon != Fists {
+		// small line that shows where the gun is currently pointed
+		cx := p.X + p.W/2 - camX
+		cy := p.Y + p.H/2 - camY
+		aimLength := 56.0
+		vector.StrokeLine(
+			screen,
+			float32(cx), float32(cy),
+			float32(cx+math.Cos(p.AimAngle)*aimLength),
+			float32(cy+math.Sin(p.AimAngle)*aimLength),
+			2,
+			color.RGBA{255, 255, 255, 160},
+			true,
+		)
+	}
 	p.Healthbar.Draw(screen, camX, camY)
 	for i := len(p.Hits) - 1; i >= 0; i-- {
 		if p.Hits[i].Duration > 0 {
@@ -157,15 +178,7 @@ func (p *Player) Shoot() {
 		bulletSpeed := 4.0
 		bulletDuration := 500
 		bulletDamage := 3
-		bulletDirection := map[Direction]float64{
-			Right:     0,
-			LeftUp:    3 * math.Pi / 2,
-			RightUp:   3 * math.Pi / 2,
-			Left:      math.Pi,
-			LeftDown:  math.Pi / 2,
-			RightDown: math.Pi / 2,
-		}
-		p.addBullet(p.BulletSprite, bulletSpeed, bulletDirection[p.VisualDir], bulletDuration, bulletDamage)
+		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, bulletDamage)
 	}
 
 	p.Ammo -= 1
@@ -260,6 +273,38 @@ func (p *Player) Look(d Direction) {
 	}
 }
 
+// FaceFromAim turns the free-angle aim into one of the eight visual facing
+// directions, so the sprite follows the quadrant the gun is pointed at.
+func (p *Player) FaceFromAim() {
+	if p.Dead {
+		return
+	}
+
+	a := math.Mod(p.AimAngle, 2*math.Pi)
+	if a < 0 {
+		a += 2 * math.Pi
+	}
+
+	var dir Direction
+	switch {
+	case a < math.Pi/4:
+		dir = Right
+	case a < math.Pi/2:
+		dir = RightDown
+	case a < 3*math.Pi/4:
+		dir = LeftDown
+	case a < 5*math.Pi/4:
+		dir = Left
+	case a < 3*math.Pi/2:
+		dir = LeftUp
+	case a < 7*math.Pi/4:
+		dir = RightUp
+	default:
+		dir = Right
+	}
+	p.ChangeVisualDirection(dir)
+}
+
 func (p *Player) UpdateBullets() {
 	for i := len(p.Bullets) - 1; i >= 0; i-- {
 		p.Bullets[i].Update()
@@ -324,9 +369,9 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 		}
 	case Fists:
 		switch p.VisualDir {
-		case Left:
+		case Left, LeftUp, LeftDown:
 			p.UpdateCurrentState(PlayerNoGunLeft)
-		case Right:
+		case Right, RightUp, RightDown:
 			p.UpdateCurrentState(PlayerNoGunRight)
 		}
 	}
