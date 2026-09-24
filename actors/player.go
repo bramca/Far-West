@@ -51,6 +51,9 @@ const (
 	PlayerDead
 )
 
+// bulletSpeed is the speed every revolver bullet travels at in pixels/frame.
+const bulletSpeed = 4.0
+
 type Player struct {
 	X, Y           float64
 	PrevX, PrevY   float64
@@ -184,7 +187,6 @@ func (p *Player) Shoot() {
 
 	switch p.CurrentWeapon {
 	case Revolver:
-		bulletSpeed := 4.0
 		bulletDuration := 500
 		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
 	}

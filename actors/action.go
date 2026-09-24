@@ -16,6 +16,15 @@ const (
 	MoveAndShoot
 )
 
+const (
+	// enemyLeadFactor scales how far the enemies lead a moving target, a
+	// value of 1 produces exact intercept courses.
+	enemyLeadFactor = 0.75
+	// enemyMaxLead caps how far ahead of the player the enemies may aim so
+	// the prediction never carries the shots out of the play field.
+	enemyMaxLead = 140.0
+)
+
 type Action struct {
 	Duration int
 	MoveDir  Direction
@@ -118,8 +127,18 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			a.Actor.Move(Down)
 		}
 
-		// the enemy aims straight at the player and faces the shot quadrant
-		a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
+		// the enemy leads the running player so the bullets land where he
+		// will be when they arrive, the player keeps aiming at the cursor
+		if a.Actor.IsNpc && !player.Dead {
+			a.Actor.AimAngle = utils.LeadAngle(
+				a.Actor.X, a.Actor.Y,
+				player.X, player.Y,
+				player.X-player.PrevX, player.Y-player.PrevY,
+				bulletSpeed, enemyLeadFactor, enemyMaxLead,
+			)
+		} else {
+			a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
+		}
 		a.Actor.FaceFromAim()
 
 		if player.Hitbox.CheckCollision(a.Actor.Hitbox) {
