@@ -41,7 +41,7 @@ const (
 	worldTilesX   = 90
 	worldTilesY   = 60
 	worldTileSize = 64.0
-	cactusAmount  = 220
+	cactusAmount  = 100
 
 	// levels
 	initialEnemies   = 6
