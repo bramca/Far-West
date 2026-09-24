@@ -28,7 +28,7 @@ In the town there are `shops` were you can by stuff:
 - [ ] interesting enemy behaviour
 - [X] minimap
 - [X] healthbar
-- [ ] dash mechanics / animation
+- [ ] dodge mechanics / animation
 - [ ] stamina bar
 - [X] ammunition
 - [X] reload
