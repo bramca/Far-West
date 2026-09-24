@@ -29,12 +29,13 @@ In the town there are `shops` were you can by stuff:
 - [X] minimap
 - [X] healthbar
 - [ ] dodge mechanics / animation
-- [ ] stamina bar
+- [X] dodge bar
 - [X] ammunition
 - [X] reload
 - [X] random island world with an ocean border
 - [X] level based progression with tougher enemies
 - [ ] town buildings
+- [ ] bandit camps
 - [ ] spawn random town
 
 ## Survival run
