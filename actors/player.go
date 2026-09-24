@@ -93,6 +93,10 @@ type Player struct {
 	ShootCooldown  int
 	ShootTimer     int
 	Damage         int
+
+	// dodge handling
+	DodgeCooldown      int
+	DodgeCooldownTimer int
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -195,6 +199,24 @@ func (p *Player) Shoot() {
 // CanShoot reports whether the weapon is loaded and ready to fire again.
 func (p *Player) CanShoot() bool {
 	return !p.Reloading && p.Ammo > 0 && p.ShootTimer <= 0
+}
+
+// CanDodge reports whether the player is ready to dodge again.
+func (p *Player) CanDodge() bool {
+	return !p.Dead && p.DodgeCooldownTimer <= 0
+}
+
+// StartDodge begins the dodge cooldown, it has to be called once per dodge
+// to keep the player from spamming the dodge button.
+func (p *Player) StartDodge() {
+	p.DodgeCooldownTimer = p.DodgeCooldown
+}
+
+// UpdateDodge ticks the dodge cooldown timer, it has to be called once per frame.
+func (p *Player) UpdateDodge() {
+	if p.DodgeCooldownTimer > 0 {
+		p.DodgeCooldownTimer -= 1
+	}
 }
 
 // Reload starts the reload of the weapon, during the reload no bullet can be fired.

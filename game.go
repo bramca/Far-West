@@ -68,6 +68,9 @@ const (
 	enemyMagazineSize    = 6
 	enemyReloadDuration  = 150
 
+	// dodge cooldown keeps the player from spamming the dodge button
+	playerDodgeCooldown = 45
+
 	enemyHitboxOffset = 16
 )
 
@@ -325,6 +328,7 @@ func (g *Game) startLevel(level int) {
 	g.player.Ammo = g.player.MagazineSize
 	g.player.Reloading = false
 	g.player.ReloadTimer = 0
+	g.player.DodgeCooldownTimer = 0
 	g.player.Dead = false
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
@@ -376,6 +380,7 @@ func (g *Game) newPlayer() *actors.Player {
 		Ammo:           playerMagazineSize,
 		ReloadDuration: playerReloadDuration,
 		ShootCooldown:  playerShootCooldown,
+		DodgeCooldown:  playerDodgeCooldown,
 		Damage:         3,
 		Hitbox: &actors.HitBox{
 			X: float32(x),
@@ -817,6 +822,7 @@ func (g *Game) Update() error {
 
 		g.player.SavePosition()
 		g.player.UpdateWeapon()
+		g.player.UpdateDodge()
 		g.player.MoveDirs = map[actors.Direction]bool{
 			actors.Up:    false,
 			actors.Down:  false,
@@ -889,8 +895,8 @@ func (g *Game) Update() error {
 		}
 		g.player.FaceFromAim()
 
-		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"] {
-			// TODO: only dodge when stamina is replenished
+		if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
+			g.player.StartDodge()
 			g.player.CurrentAction = actors.Action{
 				Duration: g.player.DodgeDuration,
 				Type:     actors.Dodge,
@@ -1033,6 +1039,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 	}
 
 	g.drawAmmo(screen)
+	g.drawDodgeCooldown(screen)
 
 	miniMapScale := 2.0
 	g.island.DrawMiniMap(
@@ -1049,7 +1056,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 // drawAmmo shows the bullets left in the magazine and the reload progress.
 func (g *Game) drawAmmo(screen *ebiten.Image) {
 	x := 40.0
-	y := float64(ScreenHeight) - 70
+	y := float64(ScreenHeight) - 100
 
 	msg := "AMMO"
 	if g.player.Reloading {
@@ -1075,6 +1082,24 @@ func (g *Game) drawAmmo(screen *ebiten.Image) {
 		}
 		vector.FillRect(screen, float32(x)+float32(i)*(bulletWidth+bulletSpacing), float32(y), bulletWidth, 14, bulletColor, false)
 	}
+}
+
+// drawDodgeCooldown shows the dodge cooldown bar under the ammo, the player
+// can only dodge again once it refills.
+func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
+	x := 40.0
+	y := float64(ScreenHeight) - 56
+
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
+	text.Draw(screen, "DODGE", g.hudFace, drawOptions)
+
+	progress := 1.0
+	if g.player.DodgeCooldown > 0 {
+		progress = 1 - float64(g.player.DodgeCooldownTimer)/float64(g.player.DodgeCooldown)
+	}
+	vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{60, 60, 60, 220}, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, color.RGBA{110, 200, 220, 240}, false)
 }
 
 // enemyPositions returns the position of every living enemy for the mini map.

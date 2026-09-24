@@ -159,6 +159,28 @@ func TestReloadLimitsFireRate(t *testing.T) {
 	}
 }
 
+// TestDodgeCooldownLimitsSpamming makes sure the cooldown stops the player
+// from dodging again before it ran out.
+func TestDodgeCooldownLimitsSpamming(t *testing.T) {
+	game := NewGame()
+	if game.player.DodgeCooldown <= 0 {
+		t.Fatal("the player has no dodge cooldown")
+	}
+
+	game.player.StartDodge()
+	game.player.UpdateDodge()
+	if game.player.CanDodge() {
+		t.Fatal("the player can dodge again immediately after dodging")
+	}
+
+	for range game.player.DodgeCooldown {
+		game.player.UpdateDodge()
+	}
+	if !game.player.CanDodge() {
+		t.Fatal("the player can never dodge again after the cooldown")
+	}
+}
+
 // TestSpritesCoverEveryState guards against drawing a state that has no sprite.
 func TestSpritesCoverEveryState(t *testing.T) {
 	game := NewGame()
