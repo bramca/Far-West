@@ -1098,8 +1098,9 @@ func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *tex
 		if i > 0 {
 			tx = (len(texts[0]) - len(line)) * fontSize / 2
 		}
-		drawOptions.GeoM.Translate(float64(tx), float64(i+fontSize+g.newlinePadding))
+		drawOptions.GeoM.Translate(float64(tx), float64((i+1)*(fontSize+g.newlinePadding)))
 		text.Draw(screen, line, face, drawOptions)
+		drawOptions.GeoM = geoMatrix
 	}
 	drawOptions.GeoM = geoMatrix
 }
