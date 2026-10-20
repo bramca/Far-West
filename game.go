@@ -156,6 +156,14 @@ type Game struct {
 	enemySprites  []*ebiten.Image
 	bulletSprite  *ebiten.Image
 	enemies       []*actors.Enemy
+	particles     []*actors.Particle
+
+	// hit feedback
+	// shakeFrames and shakeStrength control the decaying screen shake.
+	shakeFrames   int
+	shakeStrength float64
+	// freezeFrames holds the game still for a few frames on a kill.
+	freezeFrames int
 
 	// world
 	island         *world.Island
@@ -487,10 +495,11 @@ func (g *Game) spawnEnemy() {
 			DrawOptions:    &ebiten.DrawImageOptions{},
 			FireRate:       max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1)),
 			BulletSprite:   g.bulletSprite,
-			// the higher the level the tougher and deadlier the enemies get
+			// the higher the level the tougher and deadlier the enemies get,
+			// the base damage is low because every bullet deals at least 1
 			Health:         10 + (g.level-1)*levelHealthBonus,
 			MaxHealth:      10 + (g.level-1)*levelHealthBonus,
-			Damage:         3 + (g.level-1)/2*levelDamageBonus,
+			Damage:         2 + (g.level-1)/2*levelDamageBonus,
 			IsNpc:          true,
 			HitboxOffset:   enemyHitboxOffset,
 			MagazineSize:   enemyMagazineSize,
@@ -534,6 +543,50 @@ func (g *Game) aliveEnemies() int {
 	}
 
 	return alive
+}
+
+// addShake triggers a screen shake that decays over the given frames, a
+// higher strength shakes the camera harder.
+func (g *Game) addShake(frames int, strength float64) {
+	g.shakeFrames = frames
+	g.shakeStrength = strength
+}
+
+// spawnHitSparks scatters a few short lived particles around a point so
+// impacts and kills have a bit of visual weight.
+func (g *Game) spawnHitSparks(x, y float64, count int, clr color.RGBA) {
+	for range count {
+		angle := rand.Float64() * 2 * math.Pi
+		speed := 0.8 + rand.Float64()*2.2
+		g.particles = append(g.particles, actors.NewParticle(
+			x, y,
+			math.Cos(angle)*speed, math.Sin(angle)*speed,
+			clr,
+		))
+	}
+}
+
+// updateParticles advances every spark and drops the ones that burned out.
+func (g *Game) updateParticles() {
+	remaining := g.particles[:0]
+	for _, particle := range g.particles {
+		particle.Update()
+		if particle.Life > 0 {
+			remaining = append(remaining, particle)
+		}
+	}
+	g.particles = remaining
+}
+
+// knockbackEnemy pushes an enemy a short distance along the bullet path so
+// every hit that lands has some weight behind it. checkWorldCollisions pulls
+// the enemy back if the push would have put him on the ocean or a cactus.
+func (g *Game) knockbackEnemy(enemy *actors.Enemy, bullet *actors.Bullet) {
+	const knockbackForce = 7.0
+	enemy.X += math.Cos(bullet.R) * knockbackForce
+	enemy.Y += math.Sin(bullet.R) * knockbackForce
+	enemy.UpdateHitboxOffset(enemyHitboxOffset)
+	enemy.UpdateHealhBar()
 }
 
 // removeCorpses drops enemies that have been dead for a while so the world
@@ -581,10 +634,14 @@ func (g *Game) checkBulletCollisions() {
 				continue
 			}
 			enemy.Health -= bullet.Damage
+			enemy.HitFlash = 6
 			g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(bullet.Damage), color.RGBA{255, 255, 255, 240})
 			enemy.UpdateHealhBar()
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 6, color.RGBA{255, 200, 100, 240})
 			if enemy.Health <= 0 {
 				g.killEnemy(enemy)
+			} else {
+				g.knockbackEnemy(enemy, bullet)
 			}
 			hitEnemy = true
 
@@ -627,6 +684,7 @@ func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
 
 	for _, cactus := range g.cacti {
 		if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
 			return true
 		}
 	}
@@ -693,7 +751,10 @@ func (g *Game) checkActorCollisions() {
 // damagePlayer applies bullet damage to the player and ends the run when he dies.
 func (g *Game) damagePlayer(damage int) {
 	g.player.Health -= damage
+	g.player.HitFlash = 8
 	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 255, 255, 240})
+	g.addShake(8, 4)
+	g.spawnHitSparks(g.player.X+g.player.W/2, g.player.Y+g.player.H/2, 6, color.RGBA{230, 70, 60, 240})
 
 	if g.player.Health <= 0 {
 		g.player.Health = 0
@@ -713,6 +774,9 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	enemy.UpdateCurrentState(actors.PlayerDead)
 	g.score += scorePerKill
 	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill), color.RGBA{255, 215, 0, 240})
+	g.addShake(5, 3)
+	g.freezeFrames = 3
+	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
 }
 
 func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor color.RGBA) {
@@ -800,6 +864,11 @@ func (g *Game) Update() error {
 	// Calculate the position of the screen center based on the player's position
 	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
 	g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
+	if g.shakeFrames > 0 {
+		g.camX += (rand.Float64()*2 - 1) * g.shakeStrength
+		g.camY += (rand.Float64()*2 - 1) * g.shakeStrength
+		g.shakeFrames--
+	}
 
 	// controls
 	switch g.mode {
@@ -818,6 +887,13 @@ func (g *Game) Update() error {
 			g.mode = ModeGame
 		}
 	case ModeGame:
+		// a kill freezes the game for a couple of frames, the hit-stop
+		// gives the fight a bit more punch
+		if g.freezeFrames > 0 {
+			g.freezeFrames -= 1
+			return nil
+		}
+
 		g.elapsedFrames += 1
 		g.removeCorpses()
 
@@ -916,7 +992,11 @@ func (g *Game) Update() error {
 		}
 
 		if ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"] {
+			ammoBefore := g.player.Ammo
 			g.player.Shoot()
+			if g.player.Ammo != ammoBefore {
+				g.addShake(2, 1.5)
+			}
 		}
 
 		if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RL"] {
@@ -931,6 +1011,7 @@ func (g *Game) Update() error {
 		}
 
 		g.CheckCollisions()
+		g.updateParticles()
 
 		// a level is cleared when every enemy of it is dead, the player can
 		// keep walking around until he presses N or the A button to continue
@@ -1023,6 +1104,10 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 
 	g.player.Draw(screen, g.camX, g.camY)
 	g.player.DrawBullets(screen, g.camX, g.camY)
+
+	for _, particle := range g.particles {
+		particle.Draw(screen, g.camX, g.camY)
+	}
 }
 
 // drawHud renders the survival timer, the score, the ammo and the mini map.

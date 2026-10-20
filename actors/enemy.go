@@ -24,7 +24,17 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	e.DrawOptions.GeoM.Reset()
 	e.DrawOptions.GeoM.Scale(e.Scale, e.Scale)
 	e.DrawOptions.GeoM.Translate(float64(e.X-camX), float64(e.Y-camY))
+	e.DrawOptions.ColorScale.Reset()
+	if e.HitFlash > 0 {
+		// a bright flash makes every bullet that lands feel like it lands
+		e.DrawOptions.ColorScale.Scale(3, 3, 3, 1)
+		e.HitFlash--
+	}
 	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
+	e.DrawOptions.ColorScale.Reset()
+	if e.MuzzleFlash > 0 && !e.Dead && e.CurrentWeapon != Fists {
+		drawMuzzleFlash(screen, e.X+e.W/2-camX, e.Y+e.H/2-camY, e.AimAngle)
+	}
 	if !e.Dead {
 		e.Healthbar.Draw(screen, camX-16, camY-16)
 	}

@@ -38,6 +38,22 @@ In the town there are `shops` were you can by stuff:
 - [ ] bandit camps
 - [ ] spawn random town
 
+## Gameplay improvements
+### Quick wins (feel/juice) - DONE
+1. Kill the 0-damage roll — actors/player.go:542 uses rand.Intn(damage+1), so with Damage: 3 every shot has a 25% chance to deal 0 (and the hit text even prints -0). Minimum 1 damage would remove the most frustrating moment in combat. This is arguably a bug, not a feature.
+2. Enemy hit reaction — enemies currently don't react at all when shot (game.go:583 just subtracts HP). A 3-frame white flash (DrawOptions.ColorScale is already set up per-draw) plus a small knockback along the bullet direction would make every hit land. README already lists "bullet hit animation" as a TODO.
+3. Screen shake + hit-stop — camera position is computed at game.go:800; a decaying random offset there, plus a 2–3 frame freeze on a kill, is the classic "weight" upgrade. Cheap to build.
+4. Muzzle flash & impact sparks — the gun fires silently into nothing (Draw has no flash); 4–5 short-lived particles at bullet impact using the existing Hit-style lifecycle would help.
+5. Show the i-frames — the dodge now grants invulnerability but nothing communicates it; blinking the player sprite during IsDodging() teaches players to trust it.
+### Combat depth - TODO
+6. Make Fists real — the Fists weapon exists (key 0) but Shoot() bails at player.go:175, so it's a dead button. A short-range punch with high damage vs. closing distance through bullets = actual risk/reward.
+7. Cleverer AI — ActionType already declares Shoot and FindCover (actors/action.go:13) but neither is ever used. Enemies could retreat behind cacti, which already block bullets (game.go:627) — instant tactical depth from existing systems.
+8. Enemy archetypes — only one enemy type exists. A charger (melee, fast, low HP), shotgunner (spread, short range), and heavy (slow, tanky) would all slot into ThinkAndAct/Action. Melee enemies especially: right now enemies can't hurt you up close, so dodge i-frames only matter against bullets.
+9. Melee pressure for you too — enemies only body-block; a lunge attack would make positioning and the dodge meaningful under pressure.
+### Bigger swings - TODO
+10. Ammo economy — reload exists but ammo is infinite; limited ammo + drops makes each shot count (gunshop/ammo is already in the README roadmap).
+11. Health drops or slow regen — 20 HP with zero recovery mid-level means one rough level ends the run; the planned grocery store could cover this.
+
 ## Survival run
 
 The game is played in levels. Every level drops you on a randomly shaped

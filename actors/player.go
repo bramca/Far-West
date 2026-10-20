@@ -87,6 +87,13 @@ type Player struct {
 	Hits          []Hit
 	Dead          bool
 
+	// hit feedback
+	// HitFlash counts the frames the sprite is drawn brightened after a hit.
+	HitFlash int
+	// MuzzleFlash counts the frames a muzzle flash is drawn after a shot,
+	// it also telegraphs when the enemies pull the trigger.
+	MuzzleFlash int
+
 	// weapon handling
 	MagazineSize   int
 	Ammo           int
@@ -112,7 +119,21 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 		// a small reticle hovering at a fixed distance in front of the gun
 		drawAimCursor(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle, color.RGBA{255, 255, 255, 140})
 	}
+	p.DrawOptions.ColorScale.Reset()
+	if p.HitFlash > 0 {
+		// a red tint tells the player he got hit
+		p.DrawOptions.ColorScale.Scale(3, 0.6, 0.6, 1)
+		p.HitFlash--
+	}
+	if p.IsDodging() && p.CurrentAction.Duration%8 < 4 {
+		// blink while the dodge makes the player untouchable
+		p.DrawOptions.ColorScale.SetA(0.45)
+	}
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
+	p.DrawOptions.ColorScale.Reset()
+	if p.MuzzleFlash > 0 && !p.Dead && p.CurrentWeapon != Fists {
+		drawMuzzleFlash(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle)
+	}
 	p.Healthbar.Draw(screen, camX, camY)
 	for i := len(p.Hits) - 1; i >= 0; i-- {
 		if p.Hits[i].Duration > 0 {
@@ -142,6 +163,16 @@ func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) 
 	ay := cy + math.Sin(angle)*distance
 	vector.StrokeLine(screen, float32(ax-size), float32(ay), float32(ax+size), float32(ay), width, clr, true)
 	vector.StrokeLine(screen, float32(ax), float32(ay-size), float32(ax), float32(ay+size), width, clr, true)
+}
+
+// drawMuzzleFlash draws a brief flash at the tip of the gun, it gives the
+// shots some punch and shows the player when an enemy pulls the trigger.
+func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
+	const distance = 26.0
+	x := cx + math.Cos(angle)*distance
+	y := cy + math.Sin(angle)*distance
+	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
+	vector.FillCircle(screen, float32(x), float32(y), 3, color.RGBA{255, 255, 230, 255}, true)
 }
 
 func (p *Player) UpdateHitbox() {
@@ -190,6 +221,7 @@ func (p *Player) Shoot() {
 		// the lifetime is scaled down with the speed to keep the range the same
 		bulletDuration := 340
 		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
+		p.MuzzleFlash = 3
 	}
 
 	p.Ammo -= 1
@@ -241,6 +273,9 @@ func (p *Player) Reload() {
 func (p *Player) UpdateWeapon() {
 	if p.ShootTimer > 0 {
 		p.ShootTimer -= 1
+	}
+	if p.MuzzleFlash > 0 {
+		p.MuzzleFlash -= 1
 	}
 
 	if !p.Reloading {
@@ -546,7 +581,7 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 		Scale:       scale,
 		Speed:       bulletSpeed,
 		Sprite:      bulletSprite,
-		Damage:      rand.Intn(damage + 1),
+		Damage:      1 + rand.Intn(damage),
 		Duration:    duration,
 		Hitbox: &HitBox{
 			X: float32(x + offset*scale),

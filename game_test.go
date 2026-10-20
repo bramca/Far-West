@@ -90,8 +90,12 @@ func TestLevelClearsAndAdvances(t *testing.T) {
 		game.killEnemy(enemy)
 	}
 
-	if err := game.Update(); err != nil {
-		t.Fatal(err)
+	// the kill hit-stop holds the game still for a few frames before the
+	// level complete overlay is flagged
+	for range 5 {
+		if err := game.Update(); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if game.mode != ModeGame {
@@ -225,6 +229,59 @@ func TestDodgeGivesIFrames(t *testing.T) {
 	game.CheckCollisions()
 	if game.player.Health >= healthBefore {
 		t.Fatal("the player took no damage after the dodge ended")
+	}
+}
+
+// TestBulletsAlwaysDealDamage makes sure the damage roll never produces a
+// zero damage bullet, a shot that does nothing is not fun.
+func TestBulletsAlwaysDealDamage(t *testing.T) {
+	game := NewGame()
+	game.player.DrawWeapon(actors.Revolver)
+
+	for range 50 {
+		game.player.ShootTimer = 0
+		game.player.Ammo = game.player.MagazineSize
+		game.player.Reloading = false
+		game.player.ReloadTimer = 0
+		game.player.Shoot()
+	}
+
+	if len(game.player.Bullets) != 50 {
+		t.Fatalf("expected 50 bullets, got %d", len(game.player.Bullets))
+	}
+	for _, bullet := range game.player.Bullets {
+		if bullet.Damage < 1 {
+			t.Fatalf("a bullet dealt %d damage, every shot should hurt", bullet.Damage)
+		}
+	}
+}
+
+// TestKillTriggersHitStop makes sure a kill freezes the game for a couple of
+// frames before it keeps running.
+func TestKillTriggersHitStop(t *testing.T) {
+	game := NewGame()
+	game.mode = ModeGame
+
+	game.killEnemy(game.enemies[0])
+	if game.freezeFrames <= 0 {
+		t.Fatal("a kill did not start the hit-stop")
+	}
+
+	framesBefore := game.elapsedFrames
+	if err := game.Update(); err != nil {
+		t.Fatal(err)
+	}
+	if game.elapsedFrames != framesBefore {
+		t.Fatal("the game kept running during the kill hit-stop")
+	}
+
+	for range 3 {
+		if err := game.Update(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if game.elapsedFrames <= framesBefore {
+		t.Fatal("the game never resumed after the kill hit-stop")
 	}
 }
 
