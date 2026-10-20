@@ -52,24 +52,24 @@ const (
 	// and they get two more hitpoints every level
 	levelHealthBonus = 2
 	// the enemies shoot a bit faster every level, never faster than this
-	enemyFireRateFloor = 15
+	enemyFireRateFloor = 11
 	// enemies spawn at least this far away from the player
 	enemyMinSpawnDistance = 600.0
 	enemyMaxSpawnDistance = 1600.0
 	// amount of frames a corpse stays on the field
-	corpseDuration = 300
+	corpseDuration = 240
 
 	scorePerKill = 100
 
 	// weapons
 	playerMagazineSize   = 6
-	playerReloadDuration = 90
-	playerShootCooldown  = 12
+	playerReloadDuration = 60
+	playerShootCooldown  = 8
 	enemyMagazineSize    = 6
-	enemyReloadDuration  = 150
+	enemyReloadDuration  = 110
 
 	// dodge cooldown keeps the player from spamming the dodge button
-	playerDodgeCooldown = 45
+	playerDodgeCooldown = 30
 
 	enemyHitboxOffset = 16
 )
@@ -368,10 +368,10 @@ func (g *Game) newPlayer() *actors.Player {
 		H:              float64(g.playerSprites[0].Bounds().Dy()),
 		Sprites:        g.playerSprites,
 		Scale:          2,
-		Speed:          2.0,
-		DodgeSpeed:     1.7,
-		DodgeDuration:  20,
-		AnimationSpeed: 15,
+		Speed:          2.8,
+		DodgeSpeed:     4.5,
+		DodgeDuration:  15,
+		AnimationSpeed: 11,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   g.bulletSprite,
 		Health:         20,
@@ -481,11 +481,11 @@ func (g *Game) spawnEnemy() {
 			CurrentState:   state,
 			CurrentWeapon:  actors.Revolver,
 			Scale:          2,
-			Speed:          0.5 + rand.Float64(),
-			DodgeSpeed:     0.3 + rand.Float64()*0.4,
-			AnimationSpeed: 15,
+			Speed:          0.7 + rand.Float64()*1.4,
+			DodgeSpeed:     0.4 + rand.Float64()*0.6,
+			AnimationSpeed: 11,
 			DrawOptions:    &ebiten.DrawImageOptions{},
-			FireRate:       max(enemyFireRateFloor, 25+rand.Intn(15)-(g.level-1)),
+			FireRate:       max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1)),
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get
 			Health:         10 + (g.level-1)*levelHealthBonus,
@@ -605,7 +605,8 @@ func (g *Game) checkBulletCollisions() {
 				continue
 			}
 
-			if !g.player.Dead && bullet.Hitbox.CheckCollision(g.player.Hitbox) {
+			// a dodging player is untouchable, the bullet flies through him
+			if !g.player.Dead && !g.player.IsDodging() && bullet.Hitbox.CheckCollision(g.player.Hitbox) {
 				g.damagePlayer(bullet.Damage)
 
 				continue
@@ -721,7 +722,7 @@ func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor col
 		Color:    hitColor,
 		Msg:      msg,
 		TextFont: g.hitFace,
-		Duration: 2 * g.framesPerSecond / 3,
+		Duration: g.framesPerSecond / 2,
 	}
 	hit.SetDrawOptions()
 	*hits = append(*hits, hit)

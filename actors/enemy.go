@@ -69,7 +69,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			actionType = Dodge
 		}
 		e.CurrentAction = Action{
-			Duration: 120 + rand.Intn(240),
+			Duration: 85 + rand.Intn(170),
 			Type:     actionType,
 			Actor:    e.Player,
 		}
@@ -94,7 +94,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			moveDir = e.directionTowards(player)
 		}
 		e.CurrentAction = Action{
-			Duration: 120 + rand.Intn(240),
+			Duration: 85 + rand.Intn(170),
 			Type:     actionType,
 			MoveDir:  moveDir,
 			LookDir:  dirs[rand.Intn(len(dirs))],

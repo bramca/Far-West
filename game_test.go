@@ -181,6 +181,53 @@ func TestDodgeCooldownLimitsSpamming(t *testing.T) {
 	}
 }
 
+// TestDodgeGivesIFrames makes sure the player takes no damage while the
+// dodge roll lasts, that the bullet flies through him and that he can be
+// hit again once the roll is over.
+func TestDodgeGivesIFrames(t *testing.T) {
+	game := NewGame()
+
+	enemy := game.enemies[0]
+	enemy.Bullets = []*actors.Bullet{
+		{
+			X:        game.player.X,
+			Y:        game.player.Y,
+			W:        12,
+			H:        12,
+			Speed:    0,
+			Damage:   3,
+			Duration: 100,
+			Hitbox: &actors.HitBox{
+				X: game.player.Hitbox.X,
+				Y: game.player.Hitbox.Y,
+				W: game.player.Hitbox.W,
+				H: game.player.Hitbox.H,
+			},
+		},
+	}
+	healthBefore := game.player.Health
+
+	game.player.CurrentAction = actors.Action{
+		Duration: game.player.DodgeDuration,
+		Type:     actors.Dodge,
+		Actor:    game.player,
+	}
+
+	game.CheckCollisions()
+	if game.player.Health != healthBefore {
+		t.Fatal("the player took damage while dodging")
+	}
+	if len(enemy.Bullets) != 1 {
+		t.Fatal("the bullet should fly through the dodging player")
+	}
+
+	game.player.CurrentAction.Duration = 0
+	game.CheckCollisions()
+	if game.player.Health >= healthBefore {
+		t.Fatal("the player took no damage after the dodge ended")
+	}
+}
+
 // TestSpritesCoverEveryState guards against drawing a state that has no sprite.
 func TestSpritesCoverEveryState(t *testing.T) {
 	game := NewGame()

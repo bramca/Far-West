@@ -52,7 +52,7 @@ const (
 )
 
 // bulletSpeed is the speed every revolver bullet travels at in pixels/frame.
-const bulletSpeed = 4.0
+const bulletSpeed = 6.0
 
 type Player struct {
 	X, Y           float64
@@ -187,7 +187,8 @@ func (p *Player) Shoot() {
 
 	switch p.CurrentWeapon {
 	case Revolver:
-		bulletDuration := 500
+		// the lifetime is scaled down with the speed to keep the range the same
+		bulletDuration := 340
 		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
 	}
 
@@ -206,6 +207,12 @@ func (p *Player) CanShoot() bool {
 // CanDodge reports whether the player is ready to dodge again.
 func (p *Player) CanDodge() bool {
 	return !p.Dead && p.DodgeCooldownTimer <= 0
+}
+
+// IsDodging reports whether the actor is in the middle of a dodge roll,
+// while it lasts the player takes no damage from bullets.
+func (p *Player) IsDodging() bool {
+	return !p.Dead && p.CurrentAction.Type == Dodge && p.CurrentAction.Duration > 0
 }
 
 // StartDodge begins the dodge cooldown, it has to be called once per dodge
