@@ -31,8 +31,8 @@ const (
 )
 
 const (
-	ScreenWidth  = 1280
-	ScreenHeight = 860
+	ScreenWidth  = 960
+	ScreenHeight = 645
 
 	playerHealthBarSize = 9.0
 	enemyHealthBarSize  = 7.0
@@ -197,9 +197,9 @@ func NewGame() *Game {
 		titleTexts:              []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
 		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
 		pauseTexts:              []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
-		fontSize:                24,
-		titleFontSize:           36,
-		hudFontSize:             16,
+		fontSize:                18,
+		titleFontSize:           13,
+		hudFontSize:             12,
 		playerHealthBarFontSize: playerHealthBarSize,
 		enemyHealthBarFontSize:  enemyHealthBarSize,
 		hitFontSize:             8,
@@ -960,10 +960,30 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
+		lookDirX := 0.0
+		lookDirY := 0.0
+		if ebiten.IsKeyPressed(ebiten.KeyL) {
+			lookDirX = 1
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyH) {
+			lookDirX = -1
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyK) {
+			lookDirY = -1
+		}
+
+		if ebiten.IsKeyPressed(ebiten.KeyJ) {
+			lookDirY = 1
+		}
+
 		// free-angle aim: while the right stick is pushed out of its deadzone
 		// it takes over, otherwise the gun follows the mouse cursor
 		if math.Hypot(g.xRightAxis, g.yRightAxis) > 0.5 {
 			g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
+		} else if lookDirX != 0 || lookDirY != 0 {
+			g.player.AimAngle = math.Atan2(lookDirY, lookDirX)
 		} else {
 			mx, my := ebiten.CursorPosition()
 			worldX := float64(mx) + g.camX
