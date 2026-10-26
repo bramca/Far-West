@@ -29,6 +29,7 @@ const (
 const (
 	Fists Weapon = iota
 	Revolver
+	Shotgun
 )
 
 const (
@@ -48,6 +49,18 @@ const (
 	PlayerRevolverRunLeft
 	PlayerRevolverRunLeftUp
 	PlayerRevolverRunLeftDown
+	PlayerShotgunRight
+	PlayerShotgunRightUp
+	PlayerShotgunRightDown
+	PlayerShotgunLeft
+	PlayerShotgunLeftUp
+	PlayerShotgunLeftDown
+	PlayerShotgunRunRight
+	PlayerShotgunRunRightUp
+	PlayerShotgunRunRightDown
+	PlayerShotgunRunLeft
+	PlayerShotgunRunLeftUp
+	PlayerShotgunRunLeftDown
 	PlayerDead
 )
 
@@ -95,14 +108,16 @@ type Player struct {
 	MuzzleFlash int
 
 	// weapon handling
-	MagazineSize   int
-	Ammo           int
-	ReloadDuration int
-	ReloadTimer    int
-	Reloading      bool
-	ShootCooldown  int
-	ShootTimer     int
-	Damage         int
+	MagazineSize        map[Weapon]int
+	Ammo                int
+	ReloadDuration      int
+	ReloadTimer         int
+	Reloading           bool
+	ShootCooldown       int
+	ShootTimer          int
+	Damage              int
+	ShotgunBulletSpread int
+	ShotgunBulletCount  int
 
 	// dodge handling
 	DodgeCooldown      int
@@ -219,8 +234,14 @@ func (p *Player) Shoot() {
 	switch p.CurrentWeapon {
 	case Revolver:
 		// the lifetime is scaled down with the speed to keep the range the same
-		bulletDuration := 340
+		bulletDuration := 120
 		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
+		p.MuzzleFlash = 3
+	case Shotgun:
+		bulletDuration := 50
+		for i := range p.ShotgunBulletCount {
+			p.addBullet(p.BulletSprite, bulletSpeed+rand.Float64(), p.AimAngle-(float64(i-p.ShotgunBulletCount/2)*math.Pi)/float64(p.ShotgunBulletSpread), bulletDuration, int(float64(p.Damage)*rand.Float64())+1)
+		}
 		p.MuzzleFlash = 3
 	}
 
@@ -262,7 +283,7 @@ func (p *Player) UpdateDodge() {
 
 // Reload starts the reload of the weapon, during the reload no bullet can be fired.
 func (p *Player) Reload() {
-	if p.Reloading || p.Ammo >= p.MagazineSize {
+	if p.Reloading || p.Ammo >= p.MagazineSize[p.CurrentWeapon] {
 		return
 	}
 	p.Reloading = true
@@ -285,7 +306,7 @@ func (p *Player) UpdateWeapon() {
 	p.ReloadTimer -= 1
 	if p.ReloadTimer <= 0 {
 		p.Reloading = false
-		p.Ammo = p.MagazineSize
+		p.Ammo = p.MagazineSize[p.CurrentWeapon]
 	}
 }
 
@@ -437,6 +458,45 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 				p.UpdateCurrentState(PlayerRevolverRightDown)
 			}
 		}
+	case Shotgun:
+		switch p.VisualDir {
+		case Left:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunLeft)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunLeft)
+			}
+		case LeftUp:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunLeftUp)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunLeftUp)
+			}
+		case LeftDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunLeftDown)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunLeftDown)
+			}
+		case Right:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunRight)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunRight)
+			}
+		case RightUp:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunRightUp)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunRightUp)
+			}
+		case RightDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerShotgunRunRightDown)
+			} else {
+				p.UpdateCurrentState(PlayerShotgunRightDown)
+			}
+		}
 	case Fists:
 		switch p.VisualDir {
 		case Left, LeftUp, LeftDown:
@@ -459,6 +519,7 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 	switch weapon {
 	case Revolver:
 		p.CurrentWeapon = Revolver
+		p.Ammo = p.MagazineSize[p.CurrentWeapon]
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerRevolverLeft)
@@ -472,6 +533,23 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 			p.UpdateCurrentState(PlayerRevolverRightUp)
 		case RightDown:
 			p.UpdateCurrentState(PlayerRevolverRightDown)
+		}
+	case Shotgun:
+		p.CurrentWeapon = Shotgun
+		p.Ammo = p.MagazineSize[p.CurrentWeapon]
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerShotgunLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerShotgunLeftUp)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerShotgunLeftDown)
+		case Right:
+			p.UpdateCurrentState(PlayerShotgunRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerShotgunRightUp)
+		case RightDown:
+			p.UpdateCurrentState(PlayerShotgunRightDown)
 		}
 	case Fists:
 		p.CurrentWeapon = Fists
@@ -541,6 +619,42 @@ func (p *Player) Animate() {
 		p.Running = false
 	case PlayerRevolverRunLeftDown:
 		p.UpdateCurrentState(PlayerRevolverLeftDown)
+		p.Running = false
+	case PlayerShotgunRight:
+		p.UpdateCurrentState(PlayerShotgunRunRight)
+		p.Running = true
+	case PlayerShotgunRightUp:
+		p.UpdateCurrentState(PlayerShotgunRunRightUp)
+		p.Running = true
+	case PlayerShotgunRightDown:
+		p.UpdateCurrentState(PlayerShotgunRunRightDown)
+		p.Running = true
+	case PlayerShotgunLeft:
+		p.UpdateCurrentState(PlayerShotgunRunLeft)
+		p.Running = true
+	case PlayerShotgunLeftUp:
+		p.UpdateCurrentState(PlayerShotgunRunLeftUp)
+		p.Running = true
+	case PlayerShotgunLeftDown:
+		p.UpdateCurrentState(PlayerShotgunRunLeftDown)
+		p.Running = true
+	case PlayerShotgunRunRight:
+		p.UpdateCurrentState(PlayerShotgunRight)
+		p.Running = false
+	case PlayerShotgunRunRightUp:
+		p.UpdateCurrentState(PlayerShotgunRightUp)
+		p.Running = false
+	case PlayerShotgunRunRightDown:
+		p.UpdateCurrentState(PlayerShotgunRightDown)
+		p.Running = false
+	case PlayerShotgunRunLeft:
+		p.UpdateCurrentState(PlayerShotgunLeft)
+		p.Running = false
+	case PlayerShotgunRunLeftUp:
+		p.UpdateCurrentState(PlayerShotgunLeftUp)
+		p.Running = false
+	case PlayerShotgunRunLeftDown:
+		p.UpdateCurrentState(PlayerShotgunLeftDown)
 		p.Running = false
 	}
 }

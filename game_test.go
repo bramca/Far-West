@@ -154,7 +154,7 @@ func TestReloadLimitsFireRate(t *testing.T) {
 		game.player.UpdateWeapon()
 	}
 
-	if shots > playerMagazineSize+1 {
+	if shots > game.player.MagazineSize[game.player.CurrentWeapon]+1 {
 		t.Fatalf("fired %d bullets in a second, the reload is not slowing the player down", shots)
 	}
 
@@ -240,7 +240,7 @@ func TestBulletsAlwaysDealDamage(t *testing.T) {
 
 	for range 50 {
 		game.player.ShootTimer = 0
-		game.player.Ammo = game.player.MagazineSize
+		game.player.Ammo = game.player.MagazineSize[game.player.CurrentWeapon]
 		game.player.Reloading = false
 		game.player.ReloadTimer = 0
 		game.player.Shoot()

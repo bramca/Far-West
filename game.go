@@ -62,16 +62,23 @@ const (
 	scorePerKill = 100
 
 	// weapons
-	playerMagazineSize   = 6
-	playerReloadDuration = 60
-	playerShootCooldown  = 8
-	enemyMagazineSize    = 6
-	enemyReloadDuration  = 110
+	playerReloadDuration       = 60
+	playerShootCooldown        = 16
+	enemyReloadDuration        = 110
+	defaultShotgunBulletSpread = 30 // lower number is more spread
+	defaultShotgunBulletCount  = 4
 
 	// dodge cooldown keeps the player from spamming the dodge button
 	playerDodgeCooldown = 30
 
 	enemyHitboxOffset = 16
+)
+
+var (
+	defaultMagazineSize = map[actors.Weapon]int{
+		actors.Revolver: 6,
+		actors.Shotgun:  2,
+	}
 )
 
 //go:embed assets/*
@@ -283,12 +290,14 @@ func NewGame() *Game {
 	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/player-no-gun.png",
 		"assets/player-revolver.png",
+		"assets/player-shotgun.png",
 		"assets/player-dead.png",
 	}, 32, 32)
 
 	game.enemySprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-1-no-gun.png",
 		"assets/enemy-1-revolver.png",
+		"assets/enemy-1-shotgun.png",
 		"assets/enemy-1-dead.png",
 	}, 32, 32)
 
@@ -333,7 +342,7 @@ func (g *Game) startLevel(level int) {
 	g.player.Bullets = nil
 	g.player.Hits = nil
 	g.player.Health = g.player.MaxHealth
-	g.player.Ammo = g.player.MagazineSize
+	g.player.Ammo = g.player.MagazineSize[g.player.CurrentWeapon]
 	g.player.Reloading = false
 	g.player.ReloadTimer = 0
 	g.player.DodgeCooldownTimer = 0
@@ -370,26 +379,28 @@ func enemyCountForLevel(level int) int {
 func (g *Game) newPlayer() *actors.Player {
 	x, y := g.island.Center()
 	player := &actors.Player{
-		X:              x,
-		Y:              y,
-		W:              float64(g.playerSprites[0].Bounds().Dx()),
-		H:              float64(g.playerSprites[0].Bounds().Dy()),
-		Sprites:        g.playerSprites,
-		Scale:          2,
-		Speed:          2.8,
-		DodgeSpeed:     4.5,
-		DodgeDuration:  15,
-		AnimationSpeed: 11,
-		DrawOptions:    &ebiten.DrawImageOptions{},
-		BulletSprite:   g.bulletSprite,
-		Health:         20,
-		MaxHealth:      20,
-		MagazineSize:   playerMagazineSize,
-		Ammo:           playerMagazineSize,
-		ReloadDuration: playerReloadDuration,
-		ShootCooldown:  playerShootCooldown,
-		DodgeCooldown:  playerDodgeCooldown,
-		Damage:         3,
+		X:                   x,
+		Y:                   y,
+		W:                   float64(g.playerSprites[0].Bounds().Dx()),
+		H:                   float64(g.playerSprites[0].Bounds().Dy()),
+		Sprites:             g.playerSprites,
+		Scale:               2,
+		Speed:               2.8,
+		DodgeSpeed:          4.5,
+		DodgeDuration:       15,
+		AnimationSpeed:      11,
+		DrawOptions:         &ebiten.DrawImageOptions{},
+		BulletSprite:        g.bulletSprite,
+		Health:              20,
+		MaxHealth:           20,
+		MagazineSize:        defaultMagazineSize,
+		Ammo:                0,
+		ShotgunBulletSpread: defaultShotgunBulletSpread,
+		ShotgunBulletCount:  defaultShotgunBulletCount,
+		ReloadDuration:      playerReloadDuration,
+		ShootCooldown:       playerShootCooldown,
+		DodgeCooldown:       playerDodgeCooldown,
+		Damage:              3,
 		Hitbox: &actors.HitBox{
 			X: float32(x),
 			Y: float32(y),
@@ -478,7 +489,15 @@ func (g *Game) spawnEnemy() {
 		return
 	}
 
+	weapon := actors.Revolver
+	if rand.Float64() > 0.75 {
+		weapon = actors.Shotgun
+	}
+
 	state := actors.PlayerRevolverLeft
+	if weapon == actors.Shotgun {
+		state = actors.PlayerShotgunLeft
+	}
 	enemy := &actors.Enemy{
 		Player: &actors.Player{
 			X:              x,
@@ -487,7 +506,7 @@ func (g *Game) spawnEnemy() {
 			H:              float64(g.enemySprites[state].Bounds().Dy()),
 			Sprites:        g.enemySprites,
 			CurrentState:   state,
-			CurrentWeapon:  actors.Revolver,
+			CurrentWeapon:  weapon,
 			Scale:          2,
 			Speed:          0.7 + rand.Float64()*1.4,
 			DodgeSpeed:     0.4 + rand.Float64()*0.6,
@@ -497,14 +516,16 @@ func (g *Game) spawnEnemy() {
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
-			Health:         10 + (g.level-1)*levelHealthBonus,
-			MaxHealth:      10 + (g.level-1)*levelHealthBonus,
-			Damage:         2 + (g.level-1)/2*levelDamageBonus,
-			IsNpc:          true,
-			HitboxOffset:   enemyHitboxOffset,
-			MagazineSize:   enemyMagazineSize,
-			Ammo:           enemyMagazineSize,
-			ReloadDuration: enemyReloadDuration,
+			Health:              10 + (g.level-1)*levelHealthBonus,
+			MaxHealth:           10 + (g.level-1)*levelHealthBonus,
+			Damage:              2 + (g.level-1)/2*levelDamageBonus,
+			ShotgunBulletCount:  defaultShotgunBulletCount,
+			ShotgunBulletSpread: defaultShotgunBulletSpread,
+			IsNpc:               true,
+			HitboxOffset:        enemyHitboxOffset,
+			MagazineSize:        defaultMagazineSize,
+			Ammo:                0,
+			ReloadDuration:      enemyReloadDuration,
 			Hitbox: &actors.HitBox{
 				X: float32(x) + enemyHitboxOffset,
 				Y: float32(y) + enemyHitboxOffset,
@@ -978,6 +999,10 @@ func (g *Game) Update() error {
 		g.player.UpdateBullets()
 
 		// weapon switching
+		if inpututil.IsKeyJustPressed(ebiten.Key2) {
+			g.player.DrawWeapon(actors.Shotgun)
+		}
+
 		if inpututil.IsKeyJustPressed(ebiten.Key1) {
 			g.player.DrawWeapon(actors.Revolver)
 		}
@@ -987,7 +1012,7 @@ func (g *Game) Update() error {
 		}
 
 		if buttonsJustPressed["RT"] {
-			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Revolver + 1))
+			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Shotgun + 1))
 		}
 
 		directionKeyPressed := false
@@ -1239,7 +1264,7 @@ func (g *Game) drawAmmo(screen *ebiten.Image) {
 	}
 
 	bulletWidth, bulletSpacing := float32(6), float32(6)
-	for i := range g.player.MagazineSize {
+	for i := range g.player.MagazineSize[g.player.CurrentWeapon] {
 		bulletColor := color.RGBA{90, 70, 40, 200}
 		if i < g.player.Ammo {
 			bulletColor = color.RGBA{240, 220, 120, 240}
