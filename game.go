@@ -566,6 +566,59 @@ func (g *Game) spawnHitSparks(x, y float64, count int, clr color.RGBA) {
 	}
 }
 
+// dodgeDirection returns the direction the player is dashing in, it reports
+// false when no movement key is held.
+func (g *Game) dodgeDirection() (float64, float64, bool) {
+	dirX, dirY := 0.0, 0.0
+	if g.player.MoveDirs[actors.Right] {
+		dirX += 1
+	}
+	if g.player.MoveDirs[actors.Left] {
+		dirX -= 1
+	}
+	if g.player.MoveDirs[actors.Down] {
+		dirY += 1
+	}
+	if g.player.MoveDirs[actors.Up] {
+		dirY -= 1
+	}
+
+	length := math.Hypot(dirX, dirY)
+	if length == 0 {
+		return 0, 0, false
+	}
+
+	return dirX / length, dirY / length, true
+}
+
+// spawnDodgeDust kicks up a puff of dust behind the dashing player so the
+// dodge reads as a quick burst of movement.
+func (g *Game) spawnDodgeDust(count int) {
+	dirX, dirY, moving := g.dodgeDirection()
+	cx := g.player.X + g.player.W/2
+	cy := g.player.Y + g.player.H - 6
+
+	for range count {
+		x := cx + (rand.Float64()*2-1)*7
+		y := cy + (rand.Float64()*2-1)*4
+		vx := (rand.Float64()*2 - 1) * 0.7
+		vy := -rand.Float64() * 0.8
+
+		if moving {
+			spread := (rand.Float64()*2 - 1) * 10
+			x += -dirY * spread
+			y += dirX * spread
+
+			speed := 0.5 + rand.Float64()*1.3
+			vx = -dirX*speed + (rand.Float64()*2-1)*0.6
+			vy = -dirY*speed - rand.Float64()*0.8
+		}
+
+		clr := color.RGBA{205, 185, 135, 200}
+		g.particles = append(g.particles, actors.NewParticle(x, y, vx, vy, clr))
+	}
+}
+
 // updateParticles advances every spark and drops the ones that burned out.
 func (g *Game) updateParticles() {
 	remaining := g.particles[:0]
@@ -999,9 +1052,14 @@ func (g *Game) Update() error {
 				Type:     actors.Dodge,
 				Actor:    g.player,
 			}
+			g.spawnDodgeDust(10)
 		}
 
 		g.player.Act(g.frameCount)
+
+		if g.player.IsDodging() && g.frameCount%2 == 0 {
+			g.spawnDodgeDust(2)
+		}
 
 		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
 			g.player.Animate()
