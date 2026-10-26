@@ -62,11 +62,12 @@ const (
 	scorePerKill = 100
 
 	// weapons
-	playerReloadDuration       = 60
-	playerShootCooldown        = 16
-	enemyReloadDuration        = 110
-	defaultShotgunBulletSpread = 30 // lower number is more spread
-	defaultShotgunBulletCount  = 4
+	playerReloadDuration          = 60
+	playerShootCooldown           = 16
+	enemyReloadDuration           = 110
+	defaultShotgunBulletSpread    = 30 // lower number is more spread
+	defaultMachineGunBulletSpread = 40 // lower number is more spread
+	defaultShotgunBulletCount     = 4
 
 	// dodge cooldown keeps the player from spamming the dodge button
 	playerDodgeCooldown = 30
@@ -76,8 +77,9 @@ const (
 
 var (
 	defaultMagazineSize = map[actors.Weapon]int{
-		actors.Revolver: 6,
-		actors.Shotgun:  2,
+		actors.Revolver:   6,
+		actors.Shotgun:    2,
+		actors.MachineGun: 15,
 	}
 )
 
@@ -291,14 +293,16 @@ func NewGame() *Game {
 		"assets/player-no-gun.png",
 		"assets/player-revolver.png",
 		"assets/player-shotgun.png",
+		"assets/player-machine-gun.png",
 		"assets/player-dead.png",
 	}, 32, 32)
 
 	game.enemySprites = helpers.LoadSprites(assets, []string{
-		"assets/enemy-1-no-gun.png",
-		"assets/enemy-1-revolver.png",
-		"assets/enemy-1-shotgun.png",
-		"assets/enemy-1-dead.png",
+		"assets/enemy-common-no-gun.png",
+		"assets/enemy-common-revolver.png",
+		"assets/enemy-common-shotgun.png",
+		"assets/enemy-common-machine-gun.png",
+		"assets/enemy-common-dead.png",
 	}, 32, 32)
 
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
@@ -379,28 +383,29 @@ func enemyCountForLevel(level int) int {
 func (g *Game) newPlayer() *actors.Player {
 	x, y := g.island.Center()
 	player := &actors.Player{
-		X:                   x,
-		Y:                   y,
-		W:                   float64(g.playerSprites[0].Bounds().Dx()),
-		H:                   float64(g.playerSprites[0].Bounds().Dy()),
-		Sprites:             g.playerSprites,
-		Scale:               2,
-		Speed:               2.8,
-		DodgeSpeed:          4.5,
-		DodgeDuration:       15,
-		AnimationSpeed:      11,
-		DrawOptions:         &ebiten.DrawImageOptions{},
-		BulletSprite:        g.bulletSprite,
-		Health:              20,
-		MaxHealth:           20,
-		MagazineSize:        defaultMagazineSize,
-		Ammo:                0,
-		ShotgunBulletSpread: defaultShotgunBulletSpread,
-		ShotgunBulletCount:  defaultShotgunBulletCount,
-		ReloadDuration:      playerReloadDuration,
-		ShootCooldown:       playerShootCooldown,
-		DodgeCooldown:       playerDodgeCooldown,
-		Damage:              3,
+		X:                      x,
+		Y:                      y,
+		W:                      float64(g.playerSprites[0].Bounds().Dx()),
+		H:                      float64(g.playerSprites[0].Bounds().Dy()),
+		Sprites:                g.playerSprites,
+		Scale:                  2,
+		Speed:                  2.8,
+		DodgeSpeed:             4.5,
+		DodgeDuration:          15,
+		AnimationSpeed:         11,
+		DrawOptions:            &ebiten.DrawImageOptions{},
+		BulletSprite:           g.bulletSprite,
+		Health:                 20,
+		MaxHealth:              20,
+		MagazineSize:           defaultMagazineSize,
+		Ammo:                   0,
+		ShotgunBulletSpread:    defaultShotgunBulletSpread,
+		ShotgunBulletCount:     defaultShotgunBulletCount,
+		MachineGunBulletSpread: defaultShotgunBulletSpread,
+		ReloadDuration:         playerReloadDuration,
+		ShootCooldown:          playerShootCooldown,
+		DodgeCooldown:          playerDodgeCooldown,
+		Damage:                 3,
 		Hitbox: &actors.HitBox{
 			X: float32(x),
 			Y: float32(y),
@@ -490,13 +495,22 @@ func (g *Game) spawnEnemy() {
 	}
 
 	weapon := actors.Revolver
-	if rand.Float64() > 0.75 {
+	fireRate := max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1))
+	randomWeapon := rand.Float64()
+	if randomWeapon > 0.75 {
 		weapon = actors.Shotgun
+	}
+	if randomWeapon < 0.25 {
+		weapon = actors.MachineGun
 	}
 
 	state := actors.PlayerRevolverLeft
-	if weapon == actors.Shotgun {
+	switch weapon {
+	case actors.Shotgun:
 		state = actors.PlayerShotgunLeft
+	case actors.MachineGun:
+		state = actors.PlayerMachineGunLeft
+		fireRate = fireRate / 2
 	}
 	enemy := &actors.Enemy{
 		Player: &actors.Player{
@@ -512,20 +526,21 @@ func (g *Game) spawnEnemy() {
 			DodgeSpeed:     0.4 + rand.Float64()*0.6,
 			AnimationSpeed: 11,
 			DrawOptions:    &ebiten.DrawImageOptions{},
-			FireRate:       max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1)),
+			FireRate:       fireRate,
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
-			Health:              10 + (g.level-1)*levelHealthBonus,
-			MaxHealth:           10 + (g.level-1)*levelHealthBonus,
-			Damage:              2 + (g.level-1)/2*levelDamageBonus,
-			ShotgunBulletCount:  defaultShotgunBulletCount,
-			ShotgunBulletSpread: defaultShotgunBulletSpread,
-			IsNpc:               true,
-			HitboxOffset:        enemyHitboxOffset,
-			MagazineSize:        defaultMagazineSize,
-			Ammo:                0,
-			ReloadDuration:      enemyReloadDuration,
+			Health:                 10 + (g.level-1)*levelHealthBonus,
+			MaxHealth:              10 + (g.level-1)*levelHealthBonus,
+			Damage:                 2 + (g.level-1)/2*levelDamageBonus,
+			ShotgunBulletCount:     defaultShotgunBulletCount,
+			ShotgunBulletSpread:    defaultShotgunBulletSpread,
+			MachineGunBulletSpread: defaultMachineGunBulletSpread,
+			IsNpc:                  true,
+			HitboxOffset:           enemyHitboxOffset,
+			MagazineSize:           defaultMagazineSize,
+			Ammo:                   0,
+			ReloadDuration:         enemyReloadDuration,
 			Hitbox: &actors.HitBox{
 				X: float32(x) + enemyHitboxOffset,
 				Y: float32(y) + enemyHitboxOffset,
@@ -999,6 +1014,10 @@ func (g *Game) Update() error {
 		g.player.UpdateBullets()
 
 		// weapon switching
+		if inpututil.IsKeyJustPressed(ebiten.Key3) {
+			g.player.DrawWeapon(actors.MachineGun)
+		}
+
 		if inpututil.IsKeyJustPressed(ebiten.Key2) {
 			g.player.DrawWeapon(actors.Shotgun)
 		}
@@ -1012,7 +1031,7 @@ func (g *Game) Update() error {
 		}
 
 		if buttonsJustPressed["RT"] {
-			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Shotgun + 1))
+			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.MachineGun + 1))
 		}
 
 		directionKeyPressed := false
