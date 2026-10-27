@@ -134,7 +134,7 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 				a.Actor.X, a.Actor.Y,
 				player.X, player.Y,
 				player.X-player.PrevX, player.Y-player.PrevY,
-				bulletSpeed, enemyLeadFactor, enemyMaxLead,
+				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
 			)
 		} else {
 			a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)

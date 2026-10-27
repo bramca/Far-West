@@ -77,10 +77,6 @@ const (
 	PlayerDead
 )
 
-// bulletSpeed is the speed every revolver bullet travels at in pixels/frame.
-const bulletSpeed = 6.0
-const playerShootCooldown = 16
-
 type Player struct {
 	X, Y           float64
 	PrevX, PrevY   float64
@@ -100,7 +96,7 @@ type Player struct {
 	// bullets fly along this angle while VisualDir only selects the sprite.
 	AimAngle      float64
 	MoveDirs      map[Direction]bool
-	CurrentWeapon Weapon
+	CurrentWeapon int
 	Hitbox        *HitBox
 	HitboxOffset  float64
 	Bullets       []*Bullet
@@ -122,17 +118,12 @@ type Player struct {
 	MuzzleFlash int
 
 	// weapon handling
-	MagazineSize           map[Weapon]int
-	Ammo                   int
-	ReloadDuration         int
-	ReloadTimer            int
-	Reloading              bool
-	ShootCooldown          int
-	ShootTimer             int
-	Damage                 int
-	ShotgunBulletSpread    int
-	MachineGunBulletSpread int
-	ShotgunBulletCount     int
+	GunBelt        []*Gun
+	GunBeltSize    int
+	ReloadDuration int
+	ReloadTimer    int
+	Reloading      bool
+	ShootTimer     int
 
 	// dodge handling
 	DodgeCooldown      int
@@ -145,7 +136,7 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
-	if !p.Dead && p.CurrentWeapon != Fists {
+	if !p.Dead && p.GunBelt[p.GunBelt[p.CurrentWeapon].GunType].GunType != Fists {
 		// a small reticle hovering at a fixed distance in front of the gun
 		drawAimCursor(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle, color.RGBA{255, 255, 255, 140})
 	}
@@ -161,7 +152,7 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	}
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.DrawOptions.ColorScale.Reset()
-	if p.MuzzleFlash > 0 && !p.Dead && p.CurrentWeapon != Fists {
+	if p.MuzzleFlash > 0 && !p.Dead && p.GunBelt[p.CurrentWeapon].GunType != Fists {
 		drawMuzzleFlash(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle)
 	}
 	p.Healthbar.Draw(screen, camX, camY)
@@ -178,6 +169,12 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 
 func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
 	p.Hitbox.Draw(screen, camX, camY)
+}
+
+func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
+	for _, gun := range p.GunBelt {
+		gun.Draw(screen, camX, camY)
+	}
 }
 
 // drawAimCursor draws a small cross reticle at a fixed distance from the actor
@@ -233,47 +230,48 @@ func (p *Player) UpdateHealhBar() {
 }
 
 func (p *Player) Shoot() {
-	if p.CurrentWeapon == Fists || p.Dead {
+	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.GunType == Fists || p.Dead {
 		return
 	}
 
 	if !p.CanShoot() {
 		// running dry automatically starts a reload
-		if p.Ammo <= 0 {
+		if gun.CurrentMagazineSize <= 0 {
 			p.Reload()
 		}
 
 		return
 	}
 
-	switch p.CurrentWeapon {
+	switch gun.GunType {
 	case Revolver:
 		// the lifetime is scaled down with the speed to keep the range the same
-		bulletDuration := 120
-		p.addBullet(p.BulletSprite, bulletSpeed, p.AimAngle, bulletDuration, p.Damage)
-		p.MuzzleFlash = 3
+		p.addBullet(p.BulletSprite, gun.BulletSpeed, p.AimAngle, gun.BulletDuration, gun.Damage)
 	case Shotgun:
-		bulletDuration := 50
-		for i := range p.ShotgunBulletCount {
-			p.addBullet(p.BulletSprite, bulletSpeed+rand.Float64(), p.AimAngle-(float64(i-p.ShotgunBulletCount/2)*math.Pi)/float64(p.ShotgunBulletSpread), bulletDuration, int(float64(p.Damage)*rand.Float64())+1)
+		for i := range gun.BulletCount {
+			p.addBullet(p.BulletSprite, gun.BulletSpeed+rand.Float64(), p.AimAngle-(float64(i-gun.BulletCount/2)*math.Pi)/float64(gun.BulletSpread), gun.BulletDuration, int(float64(gun.Damage)*rand.Float64())+1)
 		}
-		p.MuzzleFlash = 3
 	case MachineGun:
-		bulletDuration := 90
-		p.addBullet(p.BulletSprite, bulletSpeed*1.5, p.AimAngle-((0.5+rand.Float64())*math.Pi/float64(p.MachineGunBulletSpread)), bulletDuration, p.Damage/2)
-		p.MuzzleFlash = 3
+		p.addBullet(p.BulletSprite, gun.BulletSpeed, p.AimAngle-((0.5+rand.Float64())*math.Pi/float64(gun.BulletSpread)), gun.BulletDuration, gun.Damage)
 	}
 
-	p.Ammo -= 1
-	p.ShootTimer = p.ShootCooldown
-	if p.Ammo <= 0 {
+	p.GunBelt[p.CurrentWeapon].Ammo -= 1
+	p.GunBelt[p.CurrentWeapon].CurrentMagazineSize -= 1
+	p.ShootTimer = gun.ShootCooldown
+	if p.GunBelt[p.CurrentWeapon].CurrentMagazineSize <= 0 {
 		p.Reload()
 	}
 }
 
 // CanShoot reports whether the weapon is loaded and ready to fire again.
 func (p *Player) CanShoot() bool {
-	return !p.Reloading && p.Ammo > 0 && p.ShootTimer <= 0
+	return !p.Reloading && p.GunBelt[p.CurrentWeapon].CurrentMagazineSize > 0 && p.ShootTimer <= 0 && p.GunBelt[p.CurrentWeapon].Ammo > 0
+}
+
+// CanReload reports whether the weapon can be reloaded according to it's ammo status.
+func (p *Player) CanReload() bool {
+	return !p.Reloading && p.GunBelt[p.CurrentWeapon].Ammo > p.GunBelt[p.CurrentWeapon].CurrentMagazineSize
 }
 
 // CanDodge reports whether the player is ready to dodge again.
@@ -302,7 +300,7 @@ func (p *Player) UpdateDodge() {
 
 // Reload starts the reload of the weapon, during the reload no bullet can be fired.
 func (p *Player) Reload() {
-	if p.Reloading || p.Ammo >= p.MagazineSize[p.CurrentWeapon] {
+	if !p.CanReload() || p.Reloading || p.GunBelt[p.CurrentWeapon].CurrentMagazineSize >= p.GunBelt[p.CurrentWeapon].MagazineSize {
 		return
 	}
 	p.Reloading = true
@@ -325,7 +323,7 @@ func (p *Player) UpdateWeapon() {
 	p.ReloadTimer -= 1
 	if p.ReloadTimer <= 0 {
 		p.Reloading = false
-		p.Ammo = p.MagazineSize[p.CurrentWeapon]
+		p.GunBelt[p.CurrentWeapon].CurrentMagazineSize = min(p.GunBelt[p.CurrentWeapon].MagazineSize, p.GunBelt[p.CurrentWeapon].Ammo)
 	}
 }
 
@@ -437,7 +435,7 @@ func (p *Player) UpdateCurrentState(newState PlayerState) {
 
 func (p *Player) ChangeVisualDirection(newDir Direction) {
 	p.VisualDir = newDir
-	switch p.CurrentWeapon {
+	switch p.GunBelt[p.CurrentWeapon].GunType {
 	case Revolver:
 		switch p.VisualDir {
 		case Left:
@@ -573,12 +571,11 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 	}
 }
 
-func (p *Player) DrawWeapon(weapon Weapon) {
+func (p *Player) DrawWeapon(beltIndex int) {
+	p.CurrentWeapon = beltIndex
+	weapon := p.GunBelt[beltIndex].GunType
 	switch weapon {
 	case Revolver:
-		p.CurrentWeapon = Revolver
-		p.Ammo = p.MagazineSize[p.CurrentWeapon]
-		p.ShootCooldown = playerShootCooldown
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerRevolverLeft)
@@ -594,9 +591,6 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 			p.UpdateCurrentState(PlayerRevolverRightDown)
 		}
 	case Shotgun:
-		p.CurrentWeapon = Shotgun
-		p.Ammo = p.MagazineSize[p.CurrentWeapon]
-		p.ShootCooldown = playerShootCooldown
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerShotgunLeft)
@@ -612,9 +606,6 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 			p.UpdateCurrentState(PlayerShotgunRightDown)
 		}
 	case MachineGun:
-		p.CurrentWeapon = MachineGun
-		p.Ammo = p.MagazineSize[p.CurrentWeapon]
-		p.ShootCooldown = playerShootCooldown / 2
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerMachineGunLeft)
@@ -630,8 +621,6 @@ func (p *Player) DrawWeapon(weapon Weapon) {
 			p.UpdateCurrentState(PlayerMachineGunRightDown)
 		}
 	case Fists:
-		p.CurrentWeapon = Fists
-		p.ShootCooldown = playerShootCooldown / 2
 		switch p.VisualDir {
 		case Left:
 			p.UpdateCurrentState(PlayerNoGunLeft)
@@ -777,6 +766,14 @@ func (p *Player) Animate() {
 func (p *Player) StopAnimation() {
 	p.Running = false
 	switch p.CurrentState {
+	case PlayerMachineGunRunRight:
+		p.UpdateCurrentState(PlayerMachineGunRight)
+	case PlayerMachineGunRunLeft:
+		p.UpdateCurrentState(PlayerMachineGunLeft)
+	case PlayerShotgunRunRight:
+		p.UpdateCurrentState(PlayerShotgunRight)
+	case PlayerShotgunRunLeft:
+		p.UpdateCurrentState(PlayerShotgunLeft)
 	case PlayerRevolverRunRight:
 		p.UpdateCurrentState(PlayerRevolverRight)
 	case PlayerRevolverRunLeft:

@@ -142,7 +142,7 @@ func TestEnemyCountForLevel(t *testing.T) {
 // the player from spamming bullets.
 func TestReloadLimitsFireRate(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(actors.Revolver)
+	game.player.DrawWeapon(1)
 
 	shots := 0
 	for range game.framesPerSecond {
@@ -154,7 +154,7 @@ func TestReloadLimitsFireRate(t *testing.T) {
 		game.player.UpdateWeapon()
 	}
 
-	if shots > game.player.MagazineSize[game.player.CurrentWeapon]+1 {
+	if shots > game.player.GunBelt[game.player.CurrentWeapon].MagazineSize+1 {
 		t.Fatalf("fired %d bullets in a second, the reload is not slowing the player down", shots)
 	}
 
@@ -236,11 +236,11 @@ func TestDodgeGivesIFrames(t *testing.T) {
 // zero damage bullet, a shot that does nothing is not fun.
 func TestBulletsAlwaysDealDamage(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(actors.Revolver)
+	game.player.DrawWeapon(1)
 
 	for range 50 {
 		game.player.ShootTimer = 0
-		game.player.Ammo = game.player.MagazineSize[game.player.CurrentWeapon]
+		game.player.GunBelt[game.player.CurrentWeapon].CurrentMagazineSize = game.player.GunBelt[game.player.CurrentWeapon].MagazineSize
 		game.player.Reloading = false
 		game.player.ReloadTimer = 0
 		game.player.Shoot()
