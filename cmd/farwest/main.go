@@ -12,7 +12,7 @@ func main() {
 	game := farwest.NewGame()
 
 	ebiten.SetWindowSize(farwest.ScreenWidth, farwest.ScreenHeight)
-	ebiten.SetWindowResizable(true)
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowTitle("Far West")
 	// ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
