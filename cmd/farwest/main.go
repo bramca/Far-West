@@ -10,8 +10,9 @@ import (
 
 func main() {
 	game := farwest.NewGame()
-	// Sepcify the window size as you like. Here, a doulbed size is specified.
+
 	ebiten.SetWindowSize(farwest.ScreenWidth, farwest.ScreenHeight)
+	ebiten.SetWindowResizable(true)
 	ebiten.SetWindowTitle("Far West")
 	// ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
