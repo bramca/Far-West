@@ -142,7 +142,7 @@ func TestEnemyCountForLevel(t *testing.T) {
 // the player from spamming bullets.
 func TestReloadLimitsFireRate(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(1)
+	game.player.DrawWeapon(2)
 
 	shots := 0
 	for range game.framesPerSecond {
@@ -236,7 +236,7 @@ func TestDodgeGivesIFrames(t *testing.T) {
 // zero damage bullet, a shot that does nothing is not fun.
 func TestBulletsAlwaysDealDamage(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(1)
+	game.player.DrawWeapon(2)
 
 	for range 50 {
 		game.player.ShootTimer = 0
@@ -480,8 +480,8 @@ func TestPickUpLootWithFistsKeepsFists(t *testing.T) {
 	if game.player.CurrentWeapon != 0 {
 		t.Fatal("picking up a gun switched the held weapon")
 	}
-	if game.player.GunBelt[0].GunType != actors.Fists {
-		t.Fatal("the fists were replaced")
+	if game.player.GunBelt[0].GunType != actors.Whisky {
+		t.Fatal("the whisky was replaced")
 	}
 	if game.player.GunBelt[revolverIndex] != &lootGun {
 		t.Fatal("the revolver slot was not replaced")

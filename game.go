@@ -298,6 +298,7 @@ func NewGame() *Game {
 
 	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/player-no-gun.png",
+		"assets/player-whisky.png",
 		"assets/player-revolver.png",
 		"assets/player-shotgun.png",
 		"assets/player-machine-gun.png",
@@ -306,6 +307,7 @@ func NewGame() *Game {
 
 	game.enemyCommonSprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-common-no-gun.png",
+		"assets/enemy-common-whisky.png",
 		"assets/enemy-common-revolver.png",
 		"assets/enemy-common-shotgun.png",
 		"assets/enemy-common-machine-gun.png",
@@ -314,6 +316,7 @@ func NewGame() *Game {
 
 	game.enemyRareSprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-rare-no-gun.png",
+		"assets/enemy-rare-whisky.png",
 		"assets/enemy-rare-revolver.png",
 		"assets/enemy-rare-shotgun.png",
 		"assets/enemy-rare-machine-gun.png",
@@ -322,6 +325,7 @@ func NewGame() *Game {
 
 	game.enemyLegendarySprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-legendary-no-gun.png",
+		"assets/enemy-legendary-whisky.png",
 		"assets/enemy-legendary-revolver.png",
 		"assets/enemy-legendary-shotgun.png",
 		"assets/enemy-legendary-machine-gun.png",
@@ -338,6 +342,7 @@ func NewGame() *Game {
 
 	game.gunSprites = helpers.LoadSprites(assets, []string{
 		"assets/fist.png",
+		"assets/whisky.png",
 		"assets/revolver.png",
 		"assets/shotgun.png",
 		"assets/machine-gun.png",
@@ -383,7 +388,7 @@ func (g *Game) startLevel(level int) {
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
 	g.player.UpdateHealhBar()
-	g.player.DrawWeapon(0)
+	g.player.DrawWeapon(g.player.CurrentWeapon)
 	g.clearSpawnArea()
 
 	g.enemies = nil
@@ -413,14 +418,30 @@ func enemyCountForLevel(level int) int {
 func (g *Game) newPlayer() *actors.Player {
 	x, y := g.island.Center()
 	defaultGunBelt := []*actors.Gun{
+		// TODO: Whisky should act as a healing potion
+		// - it should heal the player according to the Damage
+		// - it should animate as drinking during the ShootCooldown (see PlayerWhiskyLeftUp, PlayerWhiskyRunRightUp etc)
+		// - after the shootcooldown it should display the amount healed (see hit.go)
+		{
+			Damage:        10,
+			GunType:       actors.Whisky,
+			Sprite:        g.gunSprites[actors.Whisky],
+			DrawOptions:   &ebiten.DrawImageOptions{},
+			ShootCooldown: 32,
+			Ammo:          5,
+			Scale:         2.0,
+			X:             ScreenWidth/2 - 128,
+			Y:             ScreenHeight - 64,
+			AmmoFace:      g.hitFace,
+		},
 		{
 			Damage:        3,
 			ShootCooldown: playerShootCooldown,
 			GunType:       actors.Fists,
-			Sprite:        g.gunSprites[0],
+			Sprite:        g.gunSprites[actors.Fists],
 			DrawOptions:   &ebiten.DrawImageOptions{},
 			Scale:         2.0,
-			X:             ScreenWidth/2 - 128,
+			X:             ScreenWidth/2 - 96,
 			Y:             ScreenHeight - 64,
 			AmmoFace:      g.hitFace,
 		},
@@ -434,10 +455,10 @@ func (g *Game) newPlayer() *actors.Player {
 			BulletSpeed:         6.0,
 			GunType:             actors.Revolver,
 			MuzzleFlash:         3,
-			Sprite:              g.gunSprites[1],
+			Sprite:              g.gunSprites[actors.Revolver],
 			DrawOptions:         &ebiten.DrawImageOptions{},
 			Scale:               2.0,
-			X:                   ScreenWidth/2 - 96,
+			X:                   ScreenWidth/2 - 64,
 			Y:                   ScreenHeight - 64,
 			AmmoFace:            g.hitFace,
 		},
@@ -453,10 +474,10 @@ func (g *Game) newPlayer() *actors.Player {
 			BulletCount:         defaultShotgunBulletCount,
 			BulletSpeed:         6.0,
 			MuzzleFlash:         3,
-			Sprite:              g.gunSprites[2],
+			Sprite:              g.gunSprites[actors.Shotgun],
 			DrawOptions:         &ebiten.DrawImageOptions{},
 			Scale:               2.0,
-			X:                   ScreenWidth/2 - 64,
+			X:                   ScreenWidth/2 - 32,
 			Y:                   ScreenHeight - 64,
 			AmmoFace:            g.hitFace,
 		},
@@ -471,10 +492,10 @@ func (g *Game) newPlayer() *actors.Player {
 			BulletSpread:        defaultMachineGunBulletSpread,
 			BulletSpeed:         9.0,
 			MuzzleFlash:         3,
-			Sprite:              g.gunSprites[3],
+			Sprite:              g.gunSprites[actors.MachineGun],
 			DrawOptions:         &ebiten.DrawImageOptions{},
 			Scale:               2.0,
-			X:                   ScreenWidth/2 - 32,
+			X:                   ScreenWidth / 2,
 			Y:                   ScreenHeight - 64,
 			AmmoFace:            g.hitFace,
 		},
@@ -485,6 +506,8 @@ func (g *Game) newPlayer() *actors.Player {
 		W:              float64(g.playerSprites[0].Bounds().Dx()),
 		H:              float64(g.playerSprites[0].Bounds().Dy()),
 		Sprites:        g.playerSprites,
+		CurrentState:   actors.PlayerNoGunRight,
+		CurrentWeapon:  1,
 		Scale:          2,
 		Speed:          2.8,
 		DodgeSpeed:     4.5,
@@ -743,7 +766,7 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletCount = defaultShotgunBulletCount
 		gun.Ammo = 15 + rand.Intn(10)
 		gun.BulletSpeed = 6.0
-		gun.Sprite = g.gunSprites[2]
+		gun.Sprite = g.gunSprites[actors.Shotgun]
 	case actors.MachineGun:
 		gun.MagazineSize = defaultMagazineSize[actors.MachineGun]
 		gun.BulletDuration = 90
@@ -751,13 +774,13 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletSpeed = 9.0
 		gun.Ammo = 100 + rand.Intn(50)
 		gun.ShootCooldown = playerShootCooldown / 2
-		gun.Sprite = g.gunSprites[3]
-	default:
+		gun.Sprite = g.gunSprites[actors.MachineGun]
+	case actors.Revolver:
 		gun.MagazineSize = defaultMagazineSize[actors.Revolver]
 		gun.BulletDuration = 120
 		gun.Ammo = 50 + rand.Intn(50)
 		gun.BulletSpeed = 6.0
-		gun.Sprite = g.gunSprites[1]
+		gun.Sprite = g.gunSprites[actors.Revolver]
 	}
 
 	stats := rollGunTierStats(tier)
@@ -1403,6 +1426,10 @@ func (g *Game) Update() error {
 		g.player.UpdateBullets()
 
 		// weapon switching
+		if inpututil.IsKeyJustPressed(ebiten.Key5) && len(g.player.GunBelt) > 4 {
+			g.player.DrawWeapon(4)
+		}
+
 		if inpututil.IsKeyJustPressed(ebiten.Key4) && len(g.player.GunBelt) > 3 {
 			g.player.DrawWeapon(3)
 		}

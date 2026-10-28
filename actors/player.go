@@ -28,6 +28,7 @@ const (
 
 const (
 	Fists Weapon = iota
+	Whisky
 	Revolver
 	Shotgun
 	MachineGun
@@ -38,6 +39,14 @@ const (
 	PlayerNoGunLeft
 	PlayerNoGunRunRight
 	PlayerNoGunRunLeft
+	PlayerWhiskyRight
+	PlayerWhiskyRightUp
+	PlayerWhiskyLeft
+	PlayerWhiskyLeftUp
+	PlayerWhiskyRunRight
+	PlayerWhiskyRunRightUp
+	PlayerWhiskyRunLeft
+	PlayerWhiskyRunLeftUp
 	PlayerRevolverRight
 	PlayerRevolverRightUp
 	PlayerRevolverRightDown
@@ -136,7 +145,7 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(-float64(p.W/2), -float64(p.H/2))
 	p.DrawOptions.GeoM.Translate(p.X-camX, p.Y-camY)
-	if !p.Dead && p.GunBelt[p.GunBelt[p.CurrentWeapon].GunType].GunType != Fists {
+	if !p.Dead {
 		// a small reticle hovering at a fixed distance in front of the gun
 		drawAimCursor(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle, color.RGBA{255, 255, 255, 140})
 	}
@@ -623,6 +632,22 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 				p.UpdateCurrentState(PlayerNoGunRight)
 			}
 		}
+
+	case Whisky:
+		switch p.VisualDir {
+		case Left, LeftUp, LeftDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerWhiskyRunLeft)
+			} else {
+				p.UpdateCurrentState(PlayerWhiskyLeft)
+			}
+		case Right, RightUp, RightDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerWhiskyRunRight)
+			} else {
+				p.UpdateCurrentState(PlayerWhiskyRight)
+			}
+		}
 	}
 }
 
@@ -690,6 +715,21 @@ func (p *Player) DrawWeapon(beltIndex int) {
 		case RightDown:
 			p.UpdateCurrentState(PlayerNoGunRight)
 		}
+	case Whisky:
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerWhiskyLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerWhiskyLeft)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerWhiskyLeft)
+		case Right:
+			p.UpdateCurrentState(PlayerWhiskyRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerWhiskyRight)
+		case RightDown:
+			p.UpdateCurrentState(PlayerWhiskyRight)
+		}
 	}
 }
 
@@ -706,6 +746,18 @@ func (p *Player) Animate() {
 		p.Running = false
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
+		p.Running = false
+	case PlayerWhiskyRight:
+		p.UpdateCurrentState(PlayerWhiskyRunRight)
+		p.Running = true
+	case PlayerWhiskyLeft:
+		p.UpdateCurrentState(PlayerWhiskyRunLeft)
+		p.Running = true
+	case PlayerWhiskyRunRight:
+		p.UpdateCurrentState(PlayerWhiskyRight)
+		p.Running = false
+	case PlayerWhiskyRunLeft:
+		p.UpdateCurrentState(PlayerWhiskyLeft)
 		p.Running = false
 	case PlayerRevolverRight:
 		p.UpdateCurrentState(PlayerRevolverRunRight)
@@ -837,6 +889,10 @@ func (p *Player) StopAnimation() {
 		p.UpdateCurrentState(PlayerNoGunRight)
 	case PlayerNoGunRunLeft:
 		p.UpdateCurrentState(PlayerNoGunLeft)
+	case PlayerWhiskyRunRight:
+		p.UpdateCurrentState(PlayerWhiskyRight)
+	case PlayerWhiskyRunLeft:
+		p.UpdateCurrentState(PlayerWhiskyLeft)
 	}
 }
 
