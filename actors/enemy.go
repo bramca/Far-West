@@ -33,7 +33,7 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
 	e.DrawOptions.ColorScale.Reset()
 	if e.MuzzleFlash > 0 && !e.Dead && e.GunBelt[e.CurrentWeapon].GunType != Fists {
-		drawMuzzleFlash(screen, e.X+e.W/2-camX, e.Y+e.H/2-camY, e.AimAngle)
+		drawMuzzleFlash(screen, e.X+e.W-camX, e.Y+e.H-camY, e.AimAngle)
 	}
 	if !e.Dead {
 		e.Healthbar.Draw(screen, camX-16, camY-16)

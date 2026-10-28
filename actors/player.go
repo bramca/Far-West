@@ -196,6 +196,35 @@ func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) 
 // shots some punch and shows the player when an enemy pulls the trigger.
 func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
 	const distance = 26.0
+
+	angle = math.Mod(angle, 2*math.Pi)
+	if angle < 0 {
+		angle += 2 * math.Pi
+	}
+	switch {
+	case angle < math.Pi/4:
+		// dir = Right
+		angle = 2 * math.Pi
+	case angle < math.Pi/2:
+		// dir = RightDown
+		angle = 3 * math.Pi / 8
+	case angle < 3*math.Pi/4:
+		// dir = LeftDown
+		angle = 5 * math.Pi / 8
+	case angle < 5*math.Pi/4:
+		// dir = Left
+		angle = math.Pi
+	case angle < 3*math.Pi/2:
+		// dir = LeftUp
+		angle = 23 * math.Pi / 16
+	case angle < 7*math.Pi/4:
+		// dir = RightUp
+		angle = 25 * math.Pi / 16
+	default:
+		// dir = Right
+		angle = 2 * math.Pi
+	}
+
 	x := cx + math.Cos(angle)*distance
 	y := cy + math.Sin(angle)*distance
 	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
@@ -248,12 +277,15 @@ func (p *Player) Shoot() {
 	case Revolver:
 		// the lifetime is scaled down with the speed to keep the range the same
 		p.addBullet(p.BulletSprite, gun.BulletSpeed, p.AimAngle, gun.BulletDuration, gun.Damage)
+		p.MuzzleFlash = gun.MuzzleFlash
 	case Shotgun:
 		for i := range gun.BulletCount {
 			p.addBullet(p.BulletSprite, gun.BulletSpeed+rand.Float64(), p.AimAngle-(float64(i-gun.BulletCount/2)*math.Pi)/float64(gun.BulletSpread), gun.BulletDuration, int(float64(gun.Damage)*rand.Float64())+1)
 		}
+		p.MuzzleFlash = gun.MuzzleFlash
 	case MachineGun:
 		p.addBullet(p.BulletSprite, gun.BulletSpeed, p.AimAngle-((0.5+rand.Float64())*math.Pi/float64(gun.BulletSpread)), gun.BulletDuration, gun.Damage)
+		p.MuzzleFlash = gun.MuzzleFlash
 	}
 
 	p.GunBelt[p.CurrentWeapon].Ammo -= 1
