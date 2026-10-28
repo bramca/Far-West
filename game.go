@@ -575,85 +575,212 @@ func (g *Game) enemySpawnPoint() (float64, float64, bool) {
 	return 0, 0, false
 }
 
+// enemyTierChances returns how likely a legendary or rare enemy is to spawn
+// on the given level, the tougher tiers get more common as the run goes on.
+func enemyTierChances(level int) (float64, float64) {
+	legendary := min(0.05+float64(level-1)*0.01, 0.25)
+	rare := min(0.15+float64(level-1)*0.02, 0.40)
+
+	return legendary, rare
+}
+
+// rollEnemyTier rolls the tier of a freshly spawned enemy.
+func rollEnemyTier(level int) actors.Tier {
+	return enemyTierForRoll(level, rand.Float64())
+}
+
+// enemyTierForRoll maps a roll in [0, 1) to an enemy tier.
+func enemyTierForRoll(level int, roll float64) actors.Tier {
+	legendary, rare := enemyTierChances(level)
+
+	switch {
+	case roll < legendary:
+		return actors.Legendary
+	case roll < legendary+rare:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+// enemyTierStats holds the extra stats an enemy gets from its tier on top of
+// the level scaling. Tougher tiers are deadlier, faster and shoot more often.
+type enemyTierStats struct {
+	health   int
+	damage   int
+	speed    float64
+	fireRate int
+}
+
+func enemyStatsForTier(tier actors.Tier) enemyTierStats {
+	switch tier {
+	case actors.Legendary:
+		return enemyTierStats{health: 12, damage: 2, speed: 0.5, fireRate: 4}
+	case actors.Rare:
+		return enemyTierStats{health: 5, damage: 1, speed: 0.25, fireRate: 2}
+	default:
+		return enemyTierStats{}
+	}
+}
+
+func (g *Game) enemySpritesForTier(tier actors.Tier) []*ebiten.Image {
+	switch tier {
+	case actors.Legendary:
+		return g.enemyLegendarySprites
+	case actors.Rare:
+		return g.enemyRareSprites
+	default:
+		return g.enemyCommonSprites
+	}
+}
+
+// rollEnemyWeapon picks the kind of gun an enemy carries.
+func rollEnemyWeapon() actors.Weapon {
+	switch roll := rand.Float64(); {
+	case roll > 0.75:
+		return actors.Shotgun
+	case roll < 0.25:
+		return actors.MachineGun
+	default:
+		return actors.Revolver
+	}
+}
+
+// rollGunTier rolls the tier of the gun an enemy carries.
+func rollGunTier(enemyTier actors.Tier) actors.Tier {
+	return gunTierForRoll(enemyTier, rand.Float64())
+}
+
+// gunTierForRoll maps a roll in [0, 1) to a gun tier, the tougher the enemy
+// the higher the chance of a better gun.
+func gunTierForRoll(enemyTier actors.Tier, roll float64) actors.Tier {
+	legendaryChance, rareChance := 0.05, 0.20
+	switch enemyTier {
+	case actors.Rare:
+		legendaryChance, rareChance = 0.15, 0.40
+	case actors.Legendary:
+		legendaryChance, rareChance = 0.40, 0.40
+	}
+
+	switch {
+	case roll < legendaryChance:
+		return actors.Legendary
+	case roll < legendaryChance+rareChance:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+// gunTierStats holds the stat bonuses a gun rolls on top of its base stats.
+// Higher tiers roll on wider and higher ranges so their stats vary more.
+type gunTierStats struct {
+	damage        int
+	magazine      int
+	ammo          int
+	shootCooldown int
+	bulletSpeed   float64
+	bulletSpread  int
+	bulletCount   int
+}
+
+func rollGunTierStats(tier actors.Tier) gunTierStats {
+	switch tier {
+	case actors.Legendary:
+		return gunTierStats{
+			damage:        2 + rand.Intn(3),
+			magazine:      2 + rand.Intn(3),
+			ammo:          400 + rand.Intn(401),
+			shootCooldown: -(4 + rand.Intn(4)),
+			bulletSpeed:   1.0 + rand.Float64()*1.5,
+			bulletSpread:  8 + rand.Intn(9),
+			bulletCount:   2,
+		}
+	case actors.Rare:
+		return gunTierStats{
+			damage:        1 + rand.Intn(2),
+			magazine:      1 + rand.Intn(2),
+			ammo:          150 + rand.Intn(251),
+			shootCooldown: -(2 + rand.Intn(3)),
+			bulletSpeed:   0.5 + rand.Float64(),
+			bulletSpread:  4 + rand.Intn(5),
+			bulletCount:   1,
+		}
+	default:
+		return gunTierStats{
+			damage:      rand.Intn(2),
+			magazine:    rand.Intn(2),
+			ammo:        rand.Intn(101),
+			bulletSpeed: rand.Float64() * 0.5,
+		}
+	}
+}
+
+// newEnemyGun builds the gun an enemy carries. The tier of the gun improves
+// its base stats and widens the random spread of those stats.
+func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) actors.Gun {
+	gun := actors.Gun{
+		Tier:          tier,
+		Damage:        damage,
+		GunType:       gunType,
+		Ammo:          1000,
+		ShootCooldown: playerShootCooldown,
+		MuzzleFlash:   3,
+		DrawOptions:   &ebiten.DrawImageOptions{},
+		Scale:         2.0,
+	}
+
+	switch gunType {
+	case actors.Shotgun:
+		gun.MagazineSize = defaultMagazineSize[actors.Shotgun]
+		gun.BulletDuration = 50
+		gun.BulletSpread = defaultShotgunBulletSpread
+		gun.BulletCount = defaultShotgunBulletCount
+		gun.BulletSpeed = 6.0
+		gun.Sprite = g.gunSprites[2]
+	case actors.MachineGun:
+		gun.MagazineSize = defaultMagazineSize[actors.MachineGun]
+		gun.BulletDuration = 90
+		gun.BulletSpread = defaultMachineGunBulletSpread
+		gun.BulletSpeed = 9.0
+		gun.ShootCooldown = playerShootCooldown / 2
+		gun.Sprite = g.gunSprites[3]
+	default:
+		gun.MagazineSize = defaultMagazineSize[actors.Revolver]
+		gun.BulletDuration = 120
+		gun.BulletSpeed = 6.0
+		gun.Sprite = g.gunSprites[1]
+	}
+
+	stats := rollGunTierStats(tier)
+	gun.Damage += stats.damage
+	gun.MagazineSize += stats.magazine
+	gun.Ammo += stats.ammo
+	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.shootCooldown)
+	gun.BulletSpeed += stats.bulletSpeed
+	gun.BulletSpread += stats.bulletSpread
+	gun.BulletCount += stats.bulletCount
+	gun.CurrentMagazineSize = gun.MagazineSize
+
+	return gun
+}
+
 func (g *Game) spawnEnemy() {
 	x, y, ok := g.enemySpawnPoint()
 	if !ok {
 		return
 	}
 
+	tier := rollEnemyTier(g.level)
+	tierStats := enemyStatsForTier(tier)
+	sprites := g.enemySpritesForTier(tier)
+
 	// the higher the level the tougher and deadlier the enemies get,
 	// the base damage is low because every bullet deals at least 1
-	damage := 2 + (g.level-1)/2*levelDamageBonus
-	gun := actors.Gun{
-		Damage:              damage,
-		MagazineSize:        defaultMagazineSize[actors.Revolver],
-		CurrentMagazineSize: defaultMagazineSize[actors.Revolver],
-		Ammo:                1000,
-		ShootCooldown:       playerShootCooldown,
-		BulletDuration:      120,
-		BulletSpeed:         6.0,
-		GunType:             actors.Revolver,
-		MuzzleFlash:         3,
-		Sprite:              g.gunSprites[1],
-		DrawOptions:         &ebiten.DrawImageOptions{},
-		Scale:               2.0,
-	}
+	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.damage
+	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
 
-	fireRate := max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1))
-	randomWeapon := rand.Float64()
-	// TODO: add more variety into enemy and gun tiers
-	// - enemies of higher tiers (rare, legendary) should more difficult (increasing stats)
-	// - enemies of higher tiers should have an increasing chance of holding a higher tier gun
-	// - guns of higher tiers should have more variety in the stats (ammo, shootcooldown, magazinesize...)
-
-	tier := actors.Common
-	sprites := g.enemyCommonSprites
-	randomTier := rand.Float64()
-	if randomTier > 0.9 {
-		tier = actors.Legendary
-		sprites = g.enemyLegendarySprites
-	}
-
-	if randomTier > 0.8 {
-		tier = actors.Rare
-		sprites = g.enemyRareSprites
-	}
-
-	if randomWeapon > 0.75 {
-		gun = actors.Gun{
-			Damage:              damage,
-			MagazineSize:        defaultMagazineSize[actors.Shotgun],
-			CurrentMagazineSize: defaultMagazineSize[actors.Shotgun],
-			Ammo:                1000,
-			ShootCooldown:       playerShootCooldown,
-			GunType:             actors.Shotgun,
-			BulletDuration:      50,
-			BulletSpread:        defaultShotgunBulletSpread,
-			BulletCount:         defaultShotgunBulletCount,
-			BulletSpeed:         6.0,
-			MuzzleFlash:         3,
-			Sprite:              g.gunSprites[2],
-			DrawOptions:         &ebiten.DrawImageOptions{},
-			Scale:               2.0,
-		}
-	}
-	if randomWeapon < 0.25 {
-		gun = actors.Gun{
-			Damage:              damage,
-			MagazineSize:        defaultMagazineSize[actors.MachineGun],
-			CurrentMagazineSize: defaultMagazineSize[actors.MachineGun],
-			Ammo:                120,
-			ShootCooldown:       playerShootCooldown / 2,
-			GunType:             actors.MachineGun,
-			BulletDuration:      90,
-			BulletSpread:        defaultMachineGunBulletSpread,
-			BulletSpeed:         9.0,
-			MuzzleFlash:         3,
-			Sprite:              g.gunSprites[3],
-			DrawOptions:         &ebiten.DrawImageOptions{},
-			Scale:               2.0,
-		}
-	}
+	fireRate := max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1)-tierStats.fireRate)
 
 	state := actors.PlayerRevolverLeft
 	switch gun.GunType {
@@ -674,7 +801,7 @@ func (g *Game) spawnEnemy() {
 			CurrentState:   state,
 			CurrentWeapon:  0,
 			Scale:          2,
-			Speed:          0.7 + rand.Float64()*1.4,
+			Speed:          0.7 + rand.Float64()*1.4 + tierStats.speed,
 			DodgeSpeed:     0.4 + rand.Float64()*0.6,
 			AnimationSpeed: 11,
 			DrawOptions:    &ebiten.DrawImageOptions{},
@@ -684,8 +811,8 @@ func (g *Game) spawnEnemy() {
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
-			Health:         10 + (g.level-1)*levelHealthBonus,
-			MaxHealth:      10 + (g.level-1)*levelHealthBonus,
+			Health:         10 + (g.level-1)*levelHealthBonus + tierStats.health,
+			MaxHealth:      10 + (g.level-1)*levelHealthBonus + tierStats.health,
 			IsNpc:          true,
 			HitboxOffset:   enemyHitboxOffset,
 			ReloadDuration: enemyReloadDuration,

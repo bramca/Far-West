@@ -285,6 +285,104 @@ func TestKillTriggersHitStop(t *testing.T) {
 	}
 }
 
+// TestEnemyTierRolls makes sure the tier roll is ordered and that the rare and
+// legendary bandits can actually spawn.
+func TestEnemyTierRolls(t *testing.T) {
+	legendary, rare := enemyTierChances(1)
+	if legendary <= 0 || rare <= 0 {
+		t.Fatal("rare and legendary enemies can never spawn")
+	}
+	if legendary+rare >= 1 {
+		t.Fatal("the enemy tier chances overlap")
+	}
+
+	if tier := enemyTierForRoll(1, 0); tier != actors.Legendary {
+		t.Fatalf("the lowest roll should produce a legendary enemy, got %d", tier)
+	}
+	if tier := enemyTierForRoll(1, 0.99); tier != actors.Common {
+		t.Fatalf("the highest roll should produce a common enemy, got %d", tier)
+	}
+
+	for _, roll := range []float64{0, 0.1, 0.3, 0.5, 0.99} {
+		tier := enemyTierForRoll(1, roll)
+		if tier < actors.Common || tier > actors.Legendary {
+			t.Fatalf("roll %f produced the invalid tier %d", roll, tier)
+		}
+	}
+}
+
+// TestEnemyTierStats makes sure a higher tier is tougher in every stat.
+func TestEnemyTierStats(t *testing.T) {
+	common := enemyStatsForTier(actors.Common)
+	rare := enemyStatsForTier(actors.Rare)
+	legendary := enemyStatsForTier(actors.Legendary)
+
+	if common.health >= rare.health || rare.health >= legendary.health {
+		t.Fatal("higher tier enemies should have more health")
+	}
+	if common.damage >= rare.damage || rare.damage >= legendary.damage {
+		t.Fatal("higher tier enemies should deal more damage")
+	}
+	if common.speed >= rare.speed || rare.speed >= legendary.speed {
+		t.Fatal("higher tier enemies should move faster")
+	}
+	if common.fireRate >= rare.fireRate || rare.fireRate >= legendary.fireRate {
+		t.Fatal("higher tier enemies should shoot faster")
+	}
+}
+
+// TestGunTierRolls makes sure tougher enemies are more likely to carry
+// tougher guns and that the highest gun tier is reachable.
+func TestGunTierRolls(t *testing.T) {
+	if tier := gunTierForRoll(actors.Legendary, 0); tier != actors.Legendary {
+		t.Fatalf("a legendary enemy should be able to carry a legendary gun, got %d", tier)
+	}
+	if tier := gunTierForRoll(actors.Common, 0.99); tier != actors.Common {
+		t.Fatalf("a common enemy should not always carry a rare gun, got %d", tier)
+	}
+
+	// the better the enemy the bigger the chance of a better gun
+	for _, roll := range []float64{0.1, 0.3, 0.6, 0.9} {
+		common := gunTierForRoll(actors.Common, roll)
+		rare := gunTierForRoll(actors.Rare, roll)
+		legendary := gunTierForRoll(actors.Legendary, roll)
+		if common > rare || rare > legendary {
+			t.Fatalf("gun tiers do not grow with the enemy tier at roll %f", roll)
+		}
+	}
+}
+
+// TestNewEnemyGunTiers makes sure a gun keeps its tier and that higher tier
+// guns roll better minimum stats.
+func TestNewEnemyGunTiers(t *testing.T) {
+	game := NewGame()
+
+	common := game.newEnemyGun(actors.Revolver, actors.Common, 2)
+	if common.Tier != actors.Common {
+		t.Fatal("the gun did not keep its common tier")
+	}
+	if common.Damage < 2 || common.MagazineSize < defaultMagazineSize[actors.Revolver] {
+		t.Fatal("a common gun rolled worse stats than its base")
+	}
+	if common.CurrentMagazineSize != common.MagazineSize {
+		t.Fatal("the common gun was not loaded")
+	}
+	if common.Ammo <= 0 || common.ShootCooldown <= 0 || common.BulletSpeed <= 0 {
+		t.Fatal("the common gun has invalid stats")
+	}
+
+	legendary := game.newEnemyGun(actors.Revolver, actors.Legendary, 2)
+	if legendary.Tier != actors.Legendary {
+		t.Fatal("the gun did not keep its legendary tier")
+	}
+	if legendary.Damage < 4 || legendary.MagazineSize < defaultMagazineSize[actors.Revolver]+2 {
+		t.Fatal("a legendary gun should roll better stats than its base")
+	}
+	if legendary.CurrentMagazineSize != legendary.MagazineSize {
+		t.Fatal("the legendary gun was not loaded")
+	}
+}
+
 // TestSpritesCoverEveryState guards against drawing a state that has no sprite.
 func TestSpritesCoverEveryState(t *testing.T) {
 	game := NewGame()
