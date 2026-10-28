@@ -1,6 +1,7 @@
 package farwest
 
 import (
+	"math"
 	"testing"
 
 	"github.com/bramca/Far-West/actors"
@@ -457,6 +458,42 @@ func TestPickUpLootSwapsSameTypeGun(t *testing.T) {
 	}
 	if game.loot[0].X != loot.X || game.loot[0].Y != loot.Y {
 		t.Fatal("the old gun was not dropped where the new one was found")
+	}
+}
+
+// TestPickUpLootTossesOldGun makes sure the swapped-out gun slides in the
+// direction the player is aiming.
+func TestPickUpLootTossesOldGun(t *testing.T) {
+	game := NewGame()
+	game.player.AimAngle = math.Pi / 2
+	revolverIndex, ok := game.gunBeltIndexFor(actors.Revolver)
+	if !ok {
+		t.Fatal("the player has no revolver slot")
+	}
+	oldGun := game.player.GunBelt[revolverIndex]
+
+	lootGun := game.newEnemyGun(actors.Revolver, actors.Rare, 2)
+	loot := actors.NewLoot(&lootGun, game.player.X, game.player.Y)
+	game.loot = append(game.loot, loot)
+
+	game.pickUpLoot(loot)
+
+	if len(game.loot) != 1 || game.loot[0].Gun != oldGun {
+		t.Fatal("the old gun was not dropped")
+	}
+
+	dropped := game.loot[0]
+	startX, startY := dropped.X, dropped.Y
+	if math.Abs(dropped.VX) > 0.01 || dropped.VY <= 0 {
+		t.Fatal("the dropped gun was not tossed in the aim direction")
+	}
+
+	dropped.Update()
+	if dropped.Y <= startY {
+		t.Fatal("the dropped gun did not move forward")
+	}
+	if math.Abs(dropped.X-startX) > 0.01 {
+		t.Fatal("the dropped gun moved sideways")
 	}
 }
 

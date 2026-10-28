@@ -31,8 +31,8 @@ const (
 )
 
 const (
-	ScreenWidth  = 960
-	ScreenHeight = 645
+	ScreenWidth  = 1280
+	ScreenHeight = 720
 
 	playerHealthBarSize = 9.0
 	enemyHealthBarSize  = 7.0
@@ -59,8 +59,10 @@ const (
 	// amount of frames a corpse stays on the field
 	corpseDuration = 240
 	// how close the player has to be to a gun on the floor to pick it up or
-	// compare it with the gun he is holding
+	// compare it with the matching gun in his gunbelt
 	lootPickupRadius = 90.0
+	// speed at which a swapped gun is tossed in the aim direction
+	lootTossSpeed = 2.4
 
 	scorePerKill = 100
 
@@ -1266,7 +1268,9 @@ func (g *Game) pickUpLoot(loot *actors.Loot) {
 		return
 	}
 
-	g.loot = append(g.loot, actors.NewLoot(oldGun, loot.X, loot.Y))
+	vx := math.Cos(g.player.AimAngle) * lootTossSpeed
+	vy := math.Sin(g.player.AimAngle) * lootTossSpeed
+	g.loot = append(g.loot, actors.NewTossedLoot(oldGun, loot.X, loot.Y, vx, vy))
 }
 
 // removeLoot takes a gun off the floor.
@@ -1450,11 +1454,6 @@ func (g *Game) Update() error {
 			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
 		}
 
-		// picking up a gun swaps it with the one in the player's hands
-		if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
-			g.pickUpLoot(loot)
-		}
-
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
 			g.player.Move(actors.Down)
@@ -1515,6 +1514,12 @@ func (g *Game) Update() error {
 			g.player.AimAngle = math.Atan2(worldY-(g.player.Y+g.player.H/2), worldX-(g.player.X+g.player.W/2))
 		}
 		g.player.FaceFromAim()
+
+		// picking up a gun swaps it with the matching gun in the gunbelt and
+		// tosses the old one in the aim direction
+		if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			g.pickUpLoot(loot)
+		}
 
 		if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
 			g.player.StartDodge()

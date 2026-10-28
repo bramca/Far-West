@@ -9,9 +9,10 @@ import (
 
 // Loot is a gun lying on the floor, waiting to be picked up.
 type Loot struct {
-	Gun   *Gun
-	X, Y  float64
-	timer int
+	Gun    *Gun
+	X, Y   float64
+	VX, VY float64
+	timer  int
 }
 
 // NewLoot creates a gun pickup at the given world position.
@@ -19,9 +20,28 @@ func NewLoot(gun *Gun, x, y float64) *Loot {
 	return &Loot{Gun: gun, X: x, Y: y}
 }
 
-// Update advances the small bob animation of the loot.
+// NewTossedLoot creates a gun pickup that slides in the given direction and
+// slows down until it settles.
+func NewTossedLoot(gun *Gun, x, y, vx, vy float64) *Loot {
+	loot := NewLoot(gun, x, y)
+	loot.VX, loot.VY = vx, vy
+
+	return loot
+}
+
+// Update advances the small bob animation and the toss of the loot.
 func (l *Loot) Update() {
 	l.timer++
+	l.X += l.VX
+	l.Y += l.VY
+	l.VX *= 0.86
+	l.VY *= 0.86
+	if math.Abs(l.VX) < 0.05 {
+		l.VX = 0
+	}
+	if math.Abs(l.VY) < 0.05 {
+		l.VY = 0
+	}
 }
 
 // Draw draws the loot on the ground, it gently bobs so it stands out from the
