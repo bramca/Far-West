@@ -1305,7 +1305,7 @@ func (g *Game) Update() error {
 			g.player.DrawWeapon(0)
 		}
 
-		if buttonsJustPressed["RT"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+		if buttonsJustPressed["LR"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
 		}
 
