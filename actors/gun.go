@@ -7,7 +7,16 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
+type Tier int
+
+const (
+	Common Tier = iota
+	Rare
+	Legendary
+)
+
 type Gun struct {
+	Tier                Tier
 	Damage              int
 	MagazineSize        int
 	CurrentMagazineSize int

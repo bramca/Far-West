@@ -293,7 +293,7 @@ func TestSpritesCoverEveryState(t *testing.T) {
 		t.Fatalf("the player sprites (%d) do not cover the dead state", len(game.playerSprites))
 	}
 
-	if len(game.enemySprites) <= int(actors.PlayerDead) {
-		t.Fatalf("the enemy sprites (%d) do not cover the dead state", len(game.enemySprites))
+	if len(game.enemyCommonSprites) <= int(actors.PlayerDead) {
+		t.Fatalf("the enemy sprites (%d) do not cover the dead state", len(game.enemyCommonSprites))
 	}
 }

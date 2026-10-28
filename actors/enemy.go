@@ -15,6 +15,8 @@ const huntChance = 0.75
 type Enemy struct {
 	*Player
 
+	Tier Tier
+
 	VisualDist int
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int

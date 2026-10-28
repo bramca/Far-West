@@ -160,13 +160,15 @@ type Game struct {
 	pauseDrawOptions    *text.DrawOptions
 
 	// actors
-	player        *actors.Player
-	playerSprites []*ebiten.Image
-	enemySprites  []*ebiten.Image
-	gunSprites    []*ebiten.Image
-	bulletSprite  *ebiten.Image
-	enemies       []*actors.Enemy
-	particles     []*actors.Particle
+	player                *actors.Player
+	playerSprites         []*ebiten.Image
+	enemyCommonSprites    []*ebiten.Image
+	enemyRareSprites      []*ebiten.Image
+	enemyLegendarySprites []*ebiten.Image
+	gunSprites            []*ebiten.Image
+	bulletSprite          *ebiten.Image
+	enemies               []*actors.Enemy
+	particles             []*actors.Particle
 
 	// hit feedback
 	// shakeFrames and shakeStrength control the decaying screen shake.
@@ -298,12 +300,28 @@ func NewGame() *Game {
 		"assets/player-dead.png",
 	}, 32, 32)
 
-	game.enemySprites = helpers.LoadSprites(assets, []string{
+	game.enemyCommonSprites = helpers.LoadSprites(assets, []string{
 		"assets/enemy-common-no-gun.png",
 		"assets/enemy-common-revolver.png",
 		"assets/enemy-common-shotgun.png",
 		"assets/enemy-common-machine-gun.png",
 		"assets/enemy-common-dead.png",
+	}, 32, 32)
+
+	game.enemyRareSprites = helpers.LoadSprites(assets, []string{
+		"assets/enemy-rare-no-gun.png",
+		"assets/enemy-rare-revolver.png",
+		"assets/enemy-rare-shotgun.png",
+		"assets/enemy-rare-machine-gun.png",
+		"assets/enemy-rare-dead.png",
+	}, 32, 32)
+
+	game.enemyLegendarySprites = helpers.LoadSprites(assets, []string{
+		"assets/enemy-legendary-no-gun.png",
+		"assets/enemy-legendary-revolver.png",
+		"assets/enemy-legendary-shotgun.png",
+		"assets/enemy-legendary-machine-gun.png",
+		"assets/enemy-legendary-dead.png",
 	}, 32, 32)
 
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
@@ -530,8 +548,8 @@ func (g *Game) clearSpawnArea() {
 // found, spawning an enemy on an invalid position would leave it stuck there
 // for the rest of the run.
 func (g *Game) enemySpawnPoint() (float64, float64, bool) {
-	spriteWidth := float32(g.enemySprites[actors.PlayerRevolverLeft].Bounds().Dx() - 5)
-	spriteHeight := float32(g.enemySprites[actors.PlayerRevolverLeft].Bounds().Dy())
+	spriteWidth := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dx() - 5)
+	spriteHeight := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dy())
 
 	// the first pass keeps the enemies at a distance, the second pass drops
 	// that requirement for the islands that are too small for it
@@ -583,6 +601,24 @@ func (g *Game) spawnEnemy() {
 
 	fireRate := max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1))
 	randomWeapon := rand.Float64()
+	// TODO: add more variety into enemy and gun tiers
+	// - enemies of higher tiers (rare, legendary) should more difficult (increasing stats)
+	// - enemies of higher tiers should have an increasing chance of holding a higher tier gun
+	// - guns of higher tiers should have more variety in the stats (ammo, shootcooldown, magazinesize...)
+
+	tier := actors.Common
+	sprites := g.enemyCommonSprites
+	randomTier := rand.Float64()
+	if randomTier > 0.9 {
+		tier = actors.Legendary
+		sprites = g.enemyLegendarySprites
+	}
+
+	if randomTier > 0.8 {
+		tier = actors.Rare
+		sprites = g.enemyRareSprites
+	}
+
 	if randomWeapon > 0.75 {
 		gun = actors.Gun{
 			Damage:              damage,
@@ -628,12 +664,13 @@ func (g *Game) spawnEnemy() {
 		fireRate = fireRate / 2
 	}
 	enemy := &actors.Enemy{
+		Tier: tier,
 		Player: &actors.Player{
 			X:              x,
 			Y:              y,
-			W:              float64(g.enemySprites[state].Bounds().Dx() - 5),
-			H:              float64(g.enemySprites[state].Bounds().Dy()),
-			Sprites:        g.enemySprites,
+			W:              float64(g.enemyCommonSprites[state].Bounds().Dx() - 5),
+			H:              float64(g.enemyCommonSprites[state].Bounds().Dy()),
+			Sprites:        sprites,
 			CurrentState:   state,
 			CurrentWeapon:  0,
 			Scale:          2,
@@ -655,8 +692,8 @@ func (g *Game) spawnEnemy() {
 			Hitbox: &actors.HitBox{
 				X: float32(x) + enemyHitboxOffset,
 				Y: float32(y) + enemyHitboxOffset,
-				W: float32(g.enemySprites[state].Bounds().Dx() - 5),
-				H: float32(g.enemySprites[state].Bounds().Dy()),
+				W: float32(g.enemyCommonSprites[state].Bounds().Dx() - 5),
+				H: float32(g.enemyCommonSprites[state].Bounds().Dy()),
 			},
 		},
 		VisualDist: rand.Intn(350) + 400,
