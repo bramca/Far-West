@@ -58,6 +58,9 @@ const (
 	enemyMaxSpawnDistance = 1600.0
 	// amount of frames a corpse stays on the field
 	corpseDuration = 240
+	// how close the player has to be to a gun on the floor to pick it up or
+	// compare it with the gun he is holding
+	lootPickupRadius = 90.0
 
 	scorePerKill = 100
 
@@ -169,6 +172,7 @@ type Game struct {
 	bulletSprite          *ebiten.Image
 	enemies               []*actors.Enemy
 	particles             []*actors.Particle
+	loot                  []*actors.Loot
 
 	// hit feedback
 	// shakeFrames and shakeStrength control the decaying screen shake.
@@ -383,6 +387,7 @@ func (g *Game) startLevel(level int) {
 	g.clearSpawnArea()
 
 	g.enemies = nil
+	g.loot = nil
 	g.spawnLevel()
 }
 
@@ -690,7 +695,7 @@ func rollGunTierStats(tier actors.Tier) gunTierStats {
 		return gunTierStats{
 			damage:        2 + rand.Intn(3),
 			magazine:      2 + rand.Intn(3),
-			ammo:          400 + rand.Intn(401),
+			ammo:          rand.Intn(20),
 			shootCooldown: -(4 + rand.Intn(4)),
 			bulletSpeed:   1.0 + rand.Float64()*1.5,
 			bulletSpread:  8 + rand.Intn(9),
@@ -700,7 +705,7 @@ func rollGunTierStats(tier actors.Tier) gunTierStats {
 		return gunTierStats{
 			damage:        1 + rand.Intn(2),
 			magazine:      1 + rand.Intn(2),
-			ammo:          150 + rand.Intn(251),
+			ammo:          rand.Intn(20),
 			shootCooldown: -(2 + rand.Intn(3)),
 			bulletSpeed:   0.5 + rand.Float64(),
 			bulletSpread:  4 + rand.Intn(5),
@@ -710,7 +715,7 @@ func rollGunTierStats(tier actors.Tier) gunTierStats {
 		return gunTierStats{
 			damage:      rand.Intn(2),
 			magazine:    rand.Intn(2),
-			ammo:        rand.Intn(101),
+			ammo:        rand.Intn(20),
 			bulletSpeed: rand.Float64() * 0.5,
 		}
 	}
@@ -723,11 +728,11 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		Tier:          tier,
 		Damage:        damage,
 		GunType:       gunType,
-		Ammo:          1000,
 		ShootCooldown: playerShootCooldown,
 		MuzzleFlash:   3,
 		DrawOptions:   &ebiten.DrawImageOptions{},
 		Scale:         2.0,
+		AmmoFace:      g.hitFace,
 	}
 
 	switch gunType {
@@ -736,6 +741,7 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletDuration = 50
 		gun.BulletSpread = defaultShotgunBulletSpread
 		gun.BulletCount = defaultShotgunBulletCount
+		gun.Ammo = 15 + rand.Intn(10)
 		gun.BulletSpeed = 6.0
 		gun.Sprite = g.gunSprites[2]
 	case actors.MachineGun:
@@ -743,11 +749,13 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletDuration = 90
 		gun.BulletSpread = defaultMachineGunBulletSpread
 		gun.BulletSpeed = 9.0
+		gun.Ammo = 100 + rand.Intn(50)
 		gun.ShootCooldown = playerShootCooldown / 2
 		gun.Sprite = g.gunSprites[3]
 	default:
 		gun.MagazineSize = defaultMagazineSize[actors.Revolver]
 		gun.BulletDuration = 120
+		gun.Ammo = 50 + rand.Intn(50)
 		gun.BulletSpeed = 6.0
 		gun.Sprite = g.gunSprites[1]
 	}
@@ -1130,8 +1138,13 @@ func (g *Game) damagePlayer(damage int) {
 	g.player.UpdateHealhBar()
 }
 
-// killEnemy turns the enemy into a corpse and rewards the player with points.
+// killEnemy turns the enemy into a corpse, drops his gun and rewards the
+// player with points.
 func (g *Game) killEnemy(enemy *actors.Enemy) {
+	if enemy.Dead {
+		return
+	}
+
 	enemy.Health = 0
 	enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
 	enemy.Dead = true
@@ -1141,6 +1154,107 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	g.addShake(5, 3)
 	g.freezeFrames = 3
 	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
+	g.dropEnemyGun(enemy)
+}
+
+// dropEnemyGun leaves the gun of a dead enemy on the floor so the player can
+// pick it up.
+func (g *Game) dropEnemyGun(enemy *actors.Enemy) {
+	if enemy.CurrentWeapon < 0 || enemy.CurrentWeapon >= len(enemy.GunBelt) || enemy.GunBelt[enemy.CurrentWeapon] == nil {
+		return
+	}
+
+	gun := *enemy.GunBelt[enemy.CurrentWeapon]
+	g.loot = append(g.loot, actors.NewLoot(&gun, enemy.X+enemy.W/2, enemy.Y+enemy.H/2))
+}
+
+// gunBeltIndexFor returns the belt slot of the gun with the given type.
+func (g *Game) gunBeltIndexFor(weapon actors.Weapon) (int, bool) {
+	for i, gun := range g.player.GunBelt {
+		if gun.GunType == weapon {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
+// nearestLoot returns the closest gun on the floor within pickup range that
+// has a matching gun type in the player's gunbelt.
+func (g *Game) nearestLoot() *actors.Loot {
+	var nearest *actors.Loot
+	nearestDist := lootPickupRadius
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+
+	for _, loot := range g.loot {
+		if loot.Gun == nil {
+			continue
+		}
+		if _, ok := g.gunBeltIndexFor(loot.Gun.GunType); !ok {
+			continue
+		}
+
+		dist := utils.DistanceBetweenPoints(px, py, loot.X, loot.Y)
+		if dist <= nearestDist {
+			nearest = loot
+			nearestDist = dist
+		}
+	}
+
+	return nearest
+}
+
+// comparingLoot returns the nearby gun on the floor while the compare input
+// is held.
+func (g *Game) comparingLoot() *actors.Loot {
+	if !ebiten.IsKeyPressed(ebiten.KeyQ) && !g.buttonsPressed["RL"] {
+		return nil
+	}
+
+	return g.nearestLoot()
+}
+
+// pickUpLoot swaps the gun on the floor with the gun of the same type in the
+// gunbelt and drops the old gun where the new one was found.
+func (g *Game) pickUpLoot(loot *actors.Loot) {
+	if loot.Gun == nil {
+		return
+	}
+
+	index, ok := g.gunBeltIndexFor(loot.Gun.GunType)
+	if !ok {
+		return
+	}
+
+	oldGun := g.player.GunBelt[index]
+	newGun := loot.Gun
+	newGun.X, newGun.Y = oldGun.X, oldGun.Y
+	g.player.GunBelt[index] = newGun
+	if g.player.CurrentWeapon == index {
+		g.player.Reloading = false
+		g.player.ReloadTimer = 0
+		g.player.DrawWeapon(index)
+	}
+
+	g.removeLoot(loot)
+
+	if oldGun.GunType == actors.Fists {
+		return
+	}
+
+	g.loot = append(g.loot, actors.NewLoot(oldGun, loot.X, loot.Y))
+}
+
+// removeLoot takes a gun off the floor.
+func (g *Game) removeLoot(target *actors.Loot) {
+	for i, loot := range g.loot {
+		if loot == target {
+			g.loot = append(g.loot[:i], g.loot[i+1:]...)
+
+			return
+		}
+	}
 }
 
 func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor color.RGBA) {
@@ -1309,6 +1423,11 @@ func (g *Game) Update() error {
 			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
 		}
 
+		// picking up a gun swaps it with the one in the player's hands
+		if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			g.pickUpLoot(loot)
+		}
+
 		directionKeyPressed := false
 		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
 			g.player.Move(actors.Down)
@@ -1326,7 +1445,13 @@ func (g *Game) Update() error {
 			directionKeyPressed = true
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
+		movingLeft := ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5
+		// Q moves left like on an AZERTY keyboard, unless it is being used to
+		// compare a nearby gun
+		if ebiten.IsKeyPressed(ebiten.KeyQ) && g.comparingLoot() == nil {
+			movingLeft = true
+		}
+		if movingLeft {
 			g.player.Move(actors.Left)
 			g.player.UpdateHitbox()
 			directionKeyPressed = true
@@ -1410,6 +1535,10 @@ func (g *Game) Update() error {
 		g.CheckCollisions()
 		g.updateParticles()
 
+		for _, loot := range g.loot {
+			loot.Update()
+		}
+
 		// a level is cleared when every enemy of it is dead, the player can
 		// keep walking around until he presses N or the A button to continue
 		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
@@ -1459,6 +1588,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeGame:
 		g.drawWorld(screen)
 		g.drawHud(screen)
+		if loot := g.comparingLoot(); loot != nil {
+			g.drawLootComparison(screen, loot)
+		}
 		if g.levelComplete {
 			g.drawLevelCompleteOverlay(screen)
 		}
@@ -1483,6 +1615,10 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 
 	for _, cactus := range g.cacti {
 		cactus.Draw(screen, g.camX, g.camY)
+	}
+
+	for _, loot := range g.loot {
+		loot.Draw(screen, g.camX, g.camY)
 	}
 
 	// dead enemies are drawn first so corpses never cover a living actor
@@ -1524,6 +1660,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 	g.drawAmmo(screen)
 	g.drawDodgeCooldown(screen)
 	g.player.DrawGunBelt(screen, 0, 0)
+	g.drawLootPrompt(screen)
 
 	miniMapScale := 2.0
 	g.island.DrawMiniMap(
@@ -1535,6 +1672,146 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 		g.player.Y,
 		g.enemyPositions(),
 	)
+}
+
+// drawLootPrompt shows the controls of the gun lying next to the player.
+func (g *Game) drawLootPrompt(screen *ebiten.Image) {
+	if g.mode != ModeGame || g.player.Dead || g.nearestLoot() == nil {
+		return
+	}
+
+	msg := "E TAKE   Q COMPARE"
+	x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+	g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+}
+
+// gunStatRow is one line of the gun comparison overlay.
+type gunStatRow struct {
+	label          string
+	now, loot      float64
+	higherIsBetter bool
+	decimals       int
+}
+
+// gunStatRows returns the stats that matter when comparing two guns.
+func gunStatRows(current, loot *actors.Gun) []gunStatRow {
+	rows := []gunStatRow{
+		{"DAMAGE", float64(current.Damage), float64(loot.Damage), true, 0},
+		{"MAGAZINE", float64(current.MagazineSize), float64(loot.MagazineSize), true, 0},
+		{"AMMO", float64(current.Ammo), float64(loot.Ammo), true, 0},
+		{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		{"SPEED", current.BulletSpeed, loot.BulletSpeed, true, 1},
+	}
+
+	switch loot.GunType {
+	case actors.Shotgun:
+		rows = append(rows, gunStatRow{"PELLETS", float64(current.BulletCount), float64(loot.BulletCount), true, 0})
+	case actors.MachineGun:
+		rows = append(rows, gunStatRow{"ACCURACY", float64(current.BulletSpread), float64(loot.BulletSpread), true, 0})
+	}
+
+	return rows
+}
+
+// statIsBetter reports whether a stat difference is an improvement.
+func statIsBetter(delta float64, higherIsBetter bool) bool {
+	if delta == 0 {
+		return false
+	}
+	if higherIsBetter {
+		return delta > 0
+	}
+
+	return delta < 0
+}
+
+func formatStatValue(value float64, decimals int) string {
+	if decimals == 0 {
+		return strconv.Itoa(int(math.Round(value)))
+	}
+
+	return strconv.FormatFloat(value, 'f', decimals, 64)
+}
+
+func formatStatDelta(delta float64, decimals int) string {
+	if math.Abs(delta) < math.Pow10(-decimals)/2 {
+		return "0"
+	}
+
+	sign := "+"
+	if delta < 0 {
+		sign = "-"
+		delta = -delta
+	}
+
+	return sign + formatStatValue(delta, decimals)
+}
+
+// drawSmallText draws a hud sized line of text in the given color.
+func (g *Game) drawSmallText(screen *ebiten.Image, msg string, x, y float64, clr color.RGBA) {
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(x, y)
+	drawOptions.ColorScale.ScaleWithColor(clr)
+	text.Draw(screen, msg, g.hudFace, drawOptions)
+}
+
+// drawLootComparison shows the stats of the gun on the floor next to the
+// stats of the gun the player is holding.
+func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
+	index, ok := g.gunBeltIndexFor(loot.Gun.GunType)
+	if !ok {
+		return
+	}
+	beltGun := g.player.GunBelt[index]
+	tierColor := actors.TierColor(loot.Gun.Tier)
+
+	const (
+		panelW = 370.0
+		panelH = 336.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
+
+	g.drawSmallText(screen, "GUN ON THE FLOOR", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+
+	iconX := panelX + panelW/2
+	iconY := panelY + 66
+	loot.DrawIcon(screen, iconX, iconY, 2.0)
+
+	tierText := loot.Gun.Tier.String()
+	g.drawSmallText(screen, tierText, iconX-float64(len(tierText)*g.hudFontSize)/2, iconY+40, tierColor)
+
+	nameText := loot.Gun.GunType.String()
+	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
+
+	headerY := panelY + 150
+	headerColor := color.RGBA{170, 160, 140, 255}
+	g.drawSmallText(screen, "STAT", panelX+20, headerY, headerColor)
+	g.drawSmallText(screen, "YOURS", panelX+170, headerY, headerColor)
+	g.drawSmallText(screen, "LOOT", panelX+240, headerY, headerColor)
+	g.drawSmallText(screen, "DIFF", panelX+310, headerY, headerColor)
+
+	for i, row := range gunStatRows(beltGun, loot.Gun) {
+		y := headerY + 24 + float64(i)*22
+		g.drawSmallText(screen, row.label, panelX+20, y, color.RGBA{220, 215, 200, 255})
+		g.drawSmallText(screen, formatStatValue(row.now, row.decimals), panelX+170, y, color.RGBA{180, 175, 160, 255})
+		g.drawSmallText(screen, formatStatValue(row.loot, row.decimals), panelX+240, y, color.RGBA{240, 235, 220, 255})
+
+		delta := row.loot - row.now
+		diffColor := color.RGBA{170, 165, 150, 255}
+		switch {
+		case statIsBetter(delta, row.higherIsBetter):
+			diffColor = color.RGBA{100, 225, 100, 255}
+		case delta != 0:
+			diffColor = color.RGBA{235, 85, 75, 255}
+		}
+		g.drawSmallText(screen, formatStatDelta(delta, row.decimals), panelX+310, y, diffColor)
+	}
+
+	g.drawSmallText(screen, "E TAKE", panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
 }
 
 // drawAmmo shows the bullets left in the magazine and the reload progress.

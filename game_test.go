@@ -383,6 +383,195 @@ func TestNewEnemyGunTiers(t *testing.T) {
 	}
 }
 
+// TestKillEnemyDropsGun makes sure an enemy leaves his gun on the floor.
+func TestKillEnemyDropsGun(t *testing.T) {
+	game := NewGame()
+	enemy := game.enemies[0]
+	enemyGun := enemy.GunBelt[0]
+
+	game.killEnemy(enemy)
+
+	if len(game.loot) != 1 {
+		t.Fatalf("expected one gun on the floor, got %d", len(game.loot))
+	}
+	dropped := game.loot[0]
+	if dropped.Gun.GunType != enemyGun.GunType || dropped.Gun.Tier != enemyGun.Tier {
+		t.Fatal("the dropped gun does not match the enemy gun")
+	}
+	if dropped.X != enemy.X+enemy.W/2 || dropped.Y != enemy.Y+enemy.H/2 {
+		t.Fatal("the gun was not dropped at the enemy position")
+	}
+}
+
+// TestNearestLoot makes sure only nearby guns are considered for pick up.
+func TestNearestLoot(t *testing.T) {
+	game := NewGame()
+	if game.nearestLoot() != nil {
+		t.Fatal("there is loot on a fresh run")
+	}
+
+	px := game.player.X + game.player.W/2
+	py := game.player.Y + game.player.H/2
+	near := actors.NewLoot(&actors.Gun{}, px+10, py)
+	far := actors.NewLoot(&actors.Gun{}, px+lootPickupRadius+10, py)
+
+	game.loot = []*actors.Loot{far, near}
+	if got := game.nearestLoot(); got != near {
+		t.Fatal("the nearest gun on the floor was not selected")
+	}
+
+	game.loot = []*actors.Loot{far}
+	if game.nearestLoot() != nil {
+		t.Fatal("a gun out of reach was selected")
+	}
+}
+
+// TestPickUpLootSwapsSameTypeGun makes sure picking up a gun replaces the gun
+// of the same type in the belt, not the one the player is holding.
+func TestPickUpLootSwapsSameTypeGun(t *testing.T) {
+	game := NewGame()
+	game.player.DrawWeapon(1)
+	shotgunIndex, ok := game.gunBeltIndexFor(actors.Shotgun)
+	if !ok {
+		t.Fatal("the player has no shotgun slot")
+	}
+	oldGun := game.player.GunBelt[shotgunIndex]
+
+	lootGun := game.newEnemyGun(actors.Shotgun, actors.Rare, 2)
+	loot := actors.NewLoot(&lootGun, game.player.X, game.player.Y)
+	game.loot = append(game.loot, loot)
+
+	game.pickUpLoot(loot)
+
+	if game.player.GunBelt[shotgunIndex] != &lootGun {
+		t.Fatal("the player did not equip the looted gun in the shotgun slot")
+	}
+	if game.player.CurrentWeapon != 1 {
+		t.Fatal("picking up a gun of another type switched the held weapon")
+	}
+	if game.player.GunBelt[shotgunIndex].X != oldGun.X || game.player.GunBelt[shotgunIndex].Y != oldGun.Y {
+		t.Fatal("the looted gun did not take over the HUD slot of the old gun")
+	}
+	if len(game.loot) != 1 || game.loot[0].Gun != oldGun {
+		t.Fatal("the old gun was not dropped on the floor")
+	}
+	if game.loot[0].X != loot.X || game.loot[0].Y != loot.Y {
+		t.Fatal("the old gun was not dropped where the new one was found")
+	}
+}
+
+// TestPickUpLootWithFistsKeepsFists makes sure picking up a gun only touches
+// its matching slot while the player is holding his fists.
+func TestPickUpLootWithFistsKeepsFists(t *testing.T) {
+	game := NewGame()
+	game.player.DrawWeapon(0)
+	revolverIndex, ok := game.gunBeltIndexFor(actors.Revolver)
+	if !ok {
+		t.Fatal("the player has no revolver slot")
+	}
+	oldRevolver := game.player.GunBelt[revolverIndex]
+
+	lootGun := game.newEnemyGun(actors.Revolver, actors.Common, 2)
+	loot := actors.NewLoot(&lootGun, game.player.X, game.player.Y)
+	game.loot = append(game.loot, loot)
+
+	game.pickUpLoot(loot)
+
+	if game.player.CurrentWeapon != 0 {
+		t.Fatal("picking up a gun switched the held weapon")
+	}
+	if game.player.GunBelt[0].GunType != actors.Fists {
+		t.Fatal("the fists were replaced")
+	}
+	if game.player.GunBelt[revolverIndex] != &lootGun {
+		t.Fatal("the revolver slot was not replaced")
+	}
+	if len(game.loot) != 1 || game.loot[0].Gun != oldRevolver {
+		t.Fatal("the old revolver was not dropped")
+	}
+}
+
+// TestPickUpLootRequiresMatchingType makes sure loot without a matching gun
+// type in the belt can neither be selected nor picked up.
+func TestPickUpLootRequiresMatchingType(t *testing.T) {
+	game := NewGame()
+	for _, gun := range game.player.GunBelt {
+		if gun.GunType == actors.Shotgun {
+			gun.GunType = actors.Fists
+		}
+	}
+
+	px := game.player.X + game.player.W/2
+	py := game.player.Y + game.player.H/2
+	lootGun := game.newEnemyGun(actors.Shotgun, actors.Common, 2)
+	loot := actors.NewLoot(&lootGun, px, py)
+	game.loot = []*actors.Loot{loot}
+
+	if game.nearestLoot() != nil {
+		t.Fatal("loot without a matching gun type was selected")
+	}
+
+	game.pickUpLoot(loot)
+	if len(game.loot) != 1 || game.loot[0] != loot {
+		t.Fatal("loot without a matching gun type was picked up")
+	}
+}
+
+// TestGunBeltIndexFor makes sure every gun type can be found in the belt.
+func TestGunBeltIndexFor(t *testing.T) {
+	game := NewGame()
+	for _, weapon := range []actors.Weapon{actors.Fists, actors.Revolver, actors.Shotgun, actors.MachineGun} {
+		index, ok := game.gunBeltIndexFor(weapon)
+		if !ok {
+			t.Fatalf("no belt slot found for weapon %d", weapon)
+		}
+		if game.player.GunBelt[index].GunType != weapon {
+			t.Fatalf("the belt slot of weapon %d holds the wrong gun", weapon)
+		}
+	}
+}
+
+// TestStatIsBetter guards the color logic of the comparison overlay.
+func TestStatIsBetter(t *testing.T) {
+	if !statIsBetter(2, true) || statIsBetter(-2, true) || statIsBetter(0, true) {
+		t.Fatal("higher is better stats are compared incorrectly")
+	}
+	if !statIsBetter(-3, false) || statIsBetter(3, false) || statIsBetter(0, false) {
+		t.Fatal("lower is better stats are compared incorrectly")
+	}
+}
+
+// TestGunStatRows makes sure the comparison only shows the stats that matter.
+func TestGunStatRows(t *testing.T) {
+	current := &actors.Gun{Damage: 3, MagazineSize: 6, Ammo: 99, ShootCooldown: 16, BulletSpeed: 6}
+	loot := &actors.Gun{
+		GunType:       actors.MachineGun,
+		Damage:        5,
+		MagazineSize:  8,
+		Ammo:          120,
+		ShootCooldown: 12,
+		BulletSpeed:   7,
+		BulletSpread:  42,
+	}
+
+	rows := gunStatRows(current, loot)
+	if len(rows) != 6 {
+		t.Fatalf("expected six comparison rows, got %d", len(rows))
+	}
+	if rows[0].now != 3 || rows[0].loot != 5 {
+		t.Fatal("the damage row does not show both guns")
+	}
+	if rows[len(rows)-1].label != "ACCURACY" {
+		t.Fatal("the machine gun accuracy is missing from the comparison")
+	}
+
+	shotgun := &actors.Gun{GunType: actors.Shotgun}
+	rows = gunStatRows(current, shotgun)
+	if rows[len(rows)-1].label != "PELLETS" {
+		t.Fatal("the shotgun pellet count is missing from the comparison")
+	}
+}
+
 // TestSpritesCoverEveryState guards against drawing a state that has no sprite.
 func TestSpritesCoverEveryState(t *testing.T) {
 	game := NewGame()

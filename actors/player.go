@@ -175,6 +175,29 @@ func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
 	for _, gun := range p.GunBelt {
 		gun.Draw(screen, camX, camY)
 	}
+
+	if p.CurrentWeapon < 0 || p.CurrentWeapon >= len(p.GunBelt) {
+		return
+	}
+
+	// a golden bar under the selected gun marks which one is in the player's
+	// hands
+	gun := p.GunBelt[p.CurrentWeapon]
+	const (
+		markerWidth  = 38.0
+		markerHeight = 3.0
+	)
+	spriteWidth := float64(gun.Sprite.Bounds().Dx()) * gun.Scale
+	spriteHeight := float64(gun.Sprite.Bounds().Dy()) * gun.Scale
+	markerX := gun.X + spriteWidth/2 - markerWidth/2
+	markerY := gun.Y + spriteHeight - 14
+	vector.FillRect(
+		screen,
+		float32(markerX-camX), float32(markerY-camY),
+		markerWidth, markerHeight,
+		color.RGBA{245, 205, 55, 255},
+		false,
+	)
 }
 
 // drawAimCursor draws a small cross reticle at a fixed distance from the actor

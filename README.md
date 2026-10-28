@@ -75,10 +75,12 @@ level you are on and pressing `Space` starts a fresh run from level 1.
 | --- | --- | --- |
 | Move | `Z`/`W`, `Q`/`A`, `S`, `D` | Left stick |
 | Aim | Mouse (free angle) | Right stick (free angle) |
-| Shoot | `Space` or left mouse | Right top shoulder |
-| Reload | `R` | Right cluster left button (`X`) |
-| Dodge | `Left Shift` | Left top shoulder |
-| Switch weapon | `0` (fists), `1` (revolver) | Right top face button |
-| Pause | `P` | Start |
-| Continue after level | `N` | Right bottom face button (`A`) |
-| Start / restart | `Space` | Start |
+| Shoot | `Space` or left mouse | Right bumper (`FTR`) |
+| Reload | `R` | Right right face button (`RR`) |
+| Dodge | `Left Shift` | Left bumper (`FTL`) |
+| Switch weapon | `0`-`4`, `Tab` | D-pad right (`LR`) |
+| Pick up gun | `E` | Right top face button (`RT`) |
+| Compare gun | `Q` (hold) | Right left face button (`RL`) |
+| Pause | `P` | Right trigger (`FBR`) |
+| Continue after level | `N` | Right bottom face button (`RB`) |
+| Start / restart | `Space` | Right trigger (`FBR`) |

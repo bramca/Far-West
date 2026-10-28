@@ -2,6 +2,7 @@ package actors
 
 import (
 	"fmt"
+	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -14,6 +15,45 @@ const (
 	Rare
 	Legendary
 )
+
+// String returns the display name of the tier.
+func (t Tier) String() string {
+	switch t {
+	case Rare:
+		return "RARE"
+	case Legendary:
+		return "LEGENDARY"
+	default:
+		return "COMMON"
+	}
+}
+
+// TierColor returns the color that represents the tier, common guns use the
+// default color while rare and legendary guns stand out.
+func TierColor(tier Tier) color.RGBA {
+	switch tier {
+	case Rare:
+		return color.RGBA{70, 140, 235, 240}
+	case Legendary:
+		return color.RGBA{245, 205, 55, 240}
+	default:
+		return color.RGBA{205, 195, 170, 230}
+	}
+}
+
+// String returns the display name of the weapon.
+func (w Weapon) String() string {
+	switch w {
+	case Fists:
+		return "FISTS"
+	case Shotgun:
+		return "SHOTGUN"
+	case MachineGun:
+		return "MACHINE GUN"
+	default:
+		return "REVOLVER"
+	}
+}
 
 type Gun struct {
 	Tier                Tier
