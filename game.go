@@ -82,6 +82,24 @@ const (
 	playerDodgeCooldown = 30
 
 	enemyHitboxOffset = 16
+
+	// sounds
+	soundEmptyClick      = "empty-click"
+	soundEnemyDeath      = "enemy-death"
+	soundGameOver        = "game-over"
+	soundHit             = "hit"
+	soundLevelComplete   = "level-complete"
+	soundPickup          = "pickup"
+	soundShootMachineGun = "shoot-machine-gun"
+	soundShootRevolver   = "shoot-revolver"
+	soundShootShotgun    = "shoot-shotgun"
+
+	soundVolumeEmptyClick    = 0.30
+	soundVolumeHit           = 0.45
+	soundVolumeEnemyDeath    = 0.55
+	soundVolumePickup        = 0.55
+	soundVolumeLevelComplete = 0.65
+	soundVolumeGameOver      = 0.65
 )
 
 var (
@@ -92,6 +110,18 @@ var (
 	}
 
 	buttonsJustPressed = map[string]bool{}
+
+	soundFiles = map[string]string{
+		soundEmptyClick:      "empty-click.wav",
+		soundEnemyDeath:      "enemy-death.wav",
+		soundGameOver:        "game-over.wav",
+		soundHit:             "hit.wav",
+		soundLevelComplete:   "level-complete.wav",
+		soundPickup:          "pickup.wav",
+		soundShootMachineGun: "shoot-machine-gun.wav",
+		soundShootRevolver:   "shoot-revolver.wav",
+		soundShootShotgun:    "shoot-shotgun.wav",
+	}
 )
 
 //go:embed assets/*
@@ -123,6 +153,7 @@ type Game struct {
 	mode Mode
 
 	assets embed.FS
+	sounds *helpers.SoundManager
 
 	titleTexts    []string
 	gameOverTexts []string
@@ -235,6 +266,7 @@ func NewGame() *Game {
 		newlinePadding:          20,
 		framesPerSecond:         60,
 		assets:                  assets,
+		sounds:                  helpers.NewSoundManager(assets, soundFiles),
 		frameCount:              1,
 		maxFramCount:            60,
 		buttonsPressed:          map[string]bool{},
@@ -305,55 +337,55 @@ func NewGame() *Game {
 	}
 
 	game.playerSprites = helpers.LoadSprites(assets, []string{
-		"assets/player-no-gun.png",
-		"assets/player-whisky.png",
-		"assets/player-revolver.png",
-		"assets/player-shotgun.png",
-		"assets/player-machine-gun.png",
-		"assets/player-dead.png",
+		"assets/sprites/player-no-gun.png",
+		"assets/sprites/player-whisky.png",
+		"assets/sprites/player-revolver.png",
+		"assets/sprites/player-shotgun.png",
+		"assets/sprites/player-machine-gun.png",
+		"assets/sprites/player-dead.png",
 	}, 32, 32)
 
 	game.enemyCommonSprites = helpers.LoadSprites(assets, []string{
-		"assets/enemy-common-no-gun.png",
-		"assets/enemy-common-whisky.png",
-		"assets/enemy-common-revolver.png",
-		"assets/enemy-common-shotgun.png",
-		"assets/enemy-common-machine-gun.png",
-		"assets/enemy-common-dead.png",
+		"assets/sprites/enemy-common-no-gun.png",
+		"assets/sprites/enemy-common-whisky.png",
+		"assets/sprites/enemy-common-revolver.png",
+		"assets/sprites/enemy-common-shotgun.png",
+		"assets/sprites/enemy-common-machine-gun.png",
+		"assets/sprites/enemy-common-dead.png",
 	}, 32, 32)
 
 	game.enemyRareSprites = helpers.LoadSprites(assets, []string{
-		"assets/enemy-rare-no-gun.png",
-		"assets/enemy-rare-whisky.png",
-		"assets/enemy-rare-revolver.png",
-		"assets/enemy-rare-shotgun.png",
-		"assets/enemy-rare-machine-gun.png",
-		"assets/enemy-rare-dead.png",
+		"assets/sprites/enemy-rare-no-gun.png",
+		"assets/sprites/enemy-rare-whisky.png",
+		"assets/sprites/enemy-rare-revolver.png",
+		"assets/sprites/enemy-rare-shotgun.png",
+		"assets/sprites/enemy-rare-machine-gun.png",
+		"assets/sprites/enemy-rare-dead.png",
 	}, 32, 32)
 
 	game.enemyLegendarySprites = helpers.LoadSprites(assets, []string{
-		"assets/enemy-legendary-no-gun.png",
-		"assets/enemy-legendary-whisky.png",
-		"assets/enemy-legendary-revolver.png",
-		"assets/enemy-legendary-shotgun.png",
-		"assets/enemy-legendary-machine-gun.png",
-		"assets/enemy-legendary-dead.png",
+		"assets/sprites/enemy-legendary-no-gun.png",
+		"assets/sprites/enemy-legendary-whisky.png",
+		"assets/sprites/enemy-legendary-revolver.png",
+		"assets/sprites/enemy-legendary-shotgun.png",
+		"assets/sprites/enemy-legendary-machine-gun.png",
+		"assets/sprites/enemy-legendary-dead.png",
 	}, 32, 32)
 
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
-		"assets/bullet.png",
+		"assets/sprites/bullet.png",
 	}, 32, 32)[0]
 
 	game.cactusSprites = helpers.LoadSprites(assets, []string{
-		"assets/cactus.png",
+		"assets/sprites/cactus.png",
 	}, 32, 32)
 
 	game.gunSprites = helpers.LoadSprites(assets, []string{
-		"assets/fist.png",
-		"assets/whisky.png",
-		"assets/revolver.png",
-		"assets/shotgun.png",
-		"assets/machine-gun.png",
+		"assets/sprites/fist.png",
+		"assets/sprites/whisky.png",
+		"assets/sprites/revolver.png",
+		"assets/sprites/shotgun.png",
+		"assets/sprites/machine-gun.png",
 	}, 32, 32)
 
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
@@ -526,6 +558,7 @@ func (g *Game) newPlayer() *actors.Player {
 		BulletSprite:   g.bulletSprite,
 		GunBelt:        defaultGunBelt,
 		GunBeltSize:    len(defaultGunBelt),
+		OnShoot:        g.playPlayerShootSound,
 		Health:         20,
 		MaxHealth:      20,
 		ReloadDuration: playerReloadDuration,
@@ -894,6 +927,7 @@ func (g *Game) spawnEnemy() {
 			GunBelt:        gunBelt,
 			GunBeltSize:    len(gunBelt),
 			BulletSprite:   g.bulletSprite,
+			OnShoot:        g.playEnemyShootSound,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
 			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.health,
@@ -1098,6 +1132,7 @@ func (g *Game) checkBulletCollisions() {
 			if enemy.Health <= 0 {
 				g.killEnemy(enemy)
 			} else {
+				g.sounds.Play(soundHit, soundVolumeHit)
 				g.knockbackEnemy(enemy, bullet)
 			}
 			hitEnemy = true
@@ -1222,6 +1257,9 @@ func (g *Game) damagePlayer(damage int) {
 		g.player.Dead = true
 		g.player.UpdateCurrentState(actors.PlayerDead)
 		g.mode = ModeGameOver
+		g.sounds.Play(soundGameOver, soundVolumeGameOver)
+	} else {
+		g.sounds.Play(soundHit, soundVolumeHit)
 	}
 
 	g.player.UpdateHealhBar()
@@ -1243,6 +1281,7 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	g.addShake(5, 3)
 	g.freezeFrames = 3
 	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
+	g.sounds.Play(soundEnemyDeath, soundVolumeEnemyDeath)
 	g.dropEnemyGun(enemy)
 }
 
@@ -1328,6 +1367,7 @@ func (g *Game) pickUpLoot(loot *actors.Loot) {
 	}
 
 	g.removeLoot(loot)
+	g.sounds.Play(soundPickup, soundVolumePickup)
 
 	if oldGun.GunType == actors.Fists {
 		return
@@ -1616,7 +1656,17 @@ func (g *Game) Update() error {
 			g.player.StopAnimation()
 		}
 
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"] {
+		firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"]
+		fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"]
+
+		if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
+			gun := g.player.GunBelt[g.player.CurrentWeapon]
+			if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
+				g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
+			}
+		}
+
+		if firePressed {
 			ammoBefore := g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize
 			g.player.Shoot()
 			if g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize != ammoBefore {
@@ -1646,6 +1696,7 @@ func (g *Game) Update() error {
 		// keep walking around until he presses N or the A button to continue
 		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
 			g.levelComplete = true
+			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
 		}
 		if g.mode == ModeGame && g.levelComplete && (inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
 			g.levelComplete = false
@@ -1858,6 +1909,19 @@ func formatStatDelta(delta float64, decimals int) string {
 	return sign + formatStatValue(delta, decimals)
 }
 
+func shootSound(weapon actors.Weapon) (string, float64, bool) {
+	switch weapon {
+	case actors.Revolver:
+		return soundShootRevolver, 0.40, true
+	case actors.Shotgun:
+		return soundShootShotgun, 0.40, true
+	case actors.MachineGun:
+		return soundShootMachineGun, 0.22, true
+	}
+
+	return "", 0, false
+}
+
 // drawSmallText draws a hud sized line of text in the given color.
 func (g *Game) drawSmallText(screen *ebiten.Image, msg string, x, y float64, clr color.RGBA) {
 	drawOptions := &text.DrawOptions{}
@@ -2010,4 +2074,21 @@ func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *tex
 // If you don't have to adjust the screen size with the outside size, just return a fixed size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return ScreenWidth, ScreenHeight
+}
+
+func (g *Game) playPlayerShootSound(weapon actors.Weapon) {
+	g.playShootSound(weapon, 1)
+}
+
+func (g *Game) playEnemyShootSound(weapon actors.Weapon) {
+	g.playShootSound(weapon, 0.6)
+}
+
+func (g *Game) playShootSound(weapon actors.Weapon, volumeScale float64) {
+	name, volume, ok := shootSound(weapon)
+	if !ok {
+		return
+	}
+
+	g.sounds.Play(name, volume*volumeScale)
 }

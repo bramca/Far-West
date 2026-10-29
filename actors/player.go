@@ -134,6 +134,9 @@ type Player struct {
 	ReloadTimer    int
 	Reloading      bool
 	ShootTimer     int
+	// OnShoot is called after a gun successfully fires, the game uses it to
+	// play the sound that belongs to the weapon.
+	OnShoot func(Weapon)
 
 	// healing handling
 	Healing      bool
@@ -284,6 +287,9 @@ func (p *Player) Shoot() {
 	p.GunBelt[p.CurrentWeapon].Ammo -= 1
 	p.GunBelt[p.CurrentWeapon].CurrentMagazineSize -= 1
 	p.ShootTimer = gun.ShootCooldown
+	if p.OnShoot != nil {
+		p.OnShoot(gun.GunType)
+	}
 	if p.GunBelt[p.CurrentWeapon].CurrentMagazineSize <= 0 {
 		p.Reload()
 	}

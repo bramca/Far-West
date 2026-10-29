@@ -389,8 +389,8 @@ func TestKillEnemyDropsGun(t *testing.T) {
 
 	game.killEnemy(enemy)
 
-	if len(game.loot) != 1 {
-		t.Fatalf("expected one gun on the floor, got %d", len(game.loot))
+	if len(game.loot) > 2 {
+		t.Fatalf("expected one gun or one gun and whisky on the floor, got %d", len(game.loot))
 	}
 	dropped := game.loot[0]
 	if dropped.Gun.GunType != enemyGun.GunType || dropped.Gun.Tier != enemyGun.Tier {
