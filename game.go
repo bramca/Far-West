@@ -86,6 +86,8 @@ var (
 		actors.Shotgun:    2,
 		actors.MachineGun: 15,
 	}
+
+	buttonsJustPressed = map[string]bool{}
 )
 
 //go:embed assets/*
@@ -523,6 +525,12 @@ func (g *Game) newPlayer() *actors.Player {
 		MaxHealth:      20,
 		ReloadDuration: playerReloadDuration,
 		DodgeCooldown:  playerDodgeCooldown,
+		MoveDirs: map[actors.Direction]bool{
+			actors.Up:    false,
+			actors.Down:  false,
+			actors.Right: false,
+			actors.Left:  false,
+		},
 		Hitbox: &actors.HitBox{
 			X: float32(x),
 			Y: float32(y),
@@ -844,8 +852,14 @@ func (g *Game) spawnEnemy() {
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
-			Health:         10 + (g.level-1)*levelHealthBonus + tierStats.health,
-			MaxHealth:      10 + (g.level-1)*levelHealthBonus + tierStats.health,
+			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.health,
+			MaxHealth: 10 + (g.level-1)*levelHealthBonus + tierStats.health,
+			MoveDirs: map[actors.Direction]bool{
+				actors.Up:    false,
+				actors.Down:  false,
+				actors.Right: false,
+				actors.Left:  false,
+			},
 			IsNpc:          true,
 			HitboxOffset:   enemyHitboxOffset,
 			ReloadDuration: enemyReloadDuration,
@@ -1301,7 +1315,10 @@ func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor col
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
 	// gamepad logic
-	buttonsJustPressed := map[string]bool{}
+	for k := range buttonsJustPressed {
+		delete(buttonsJustPressed, k)
+	}
+
 	if g.gamepadIDs == nil {
 		g.gamepadIDs = map[ebiten.GamepadID]struct{}{}
 	}
@@ -1405,23 +1422,18 @@ func (g *Game) Update() error {
 		g.player.SavePosition()
 		g.player.UpdateWeapon()
 		g.player.UpdateDodge()
-		g.player.MoveDirs = map[actors.Direction]bool{
-			actors.Up:    false,
-			actors.Down:  false,
-			actors.Right: false,
-			actors.Left:  false,
-		}
+		g.player.MoveDirs[actors.Up] = false
+		g.player.MoveDirs[actors.Down] = false
+		g.player.MoveDirs[actors.Right] = false
+		g.player.MoveDirs[actors.Left] = false
 
 		for _, enemy := range g.enemies {
 			enemy.SavePosition()
 			enemy.UpdateWeapon()
-			enemy.MoveDirs = map[actors.Direction]bool{
-				actors.Up:    false,
-				actors.Down:  false,
-				actors.Right: false,
-				actors.Left:  false,
-			}
-
+			enemy.MoveDirs[actors.Up] = false
+			enemy.MoveDirs[actors.Down] = false
+			enemy.MoveDirs[actors.Right] = false
+			enemy.MoveDirs[actors.Left] = false
 			enemy.UpdateBullets()
 		}
 
