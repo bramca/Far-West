@@ -4,7 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -62,7 +62,7 @@ func NewIsland(width, height int, tileSize float64) *Island {
 	for x := range island.shade {
 		island.shade[x] = make([]int, height)
 		for y := range island.shade[x] {
-			island.shade[x][y] = rand.Intn(15) - 7
+			island.shade[x][y] = rand.IntN(15) - 7
 		}
 	}
 
@@ -85,7 +85,7 @@ func (i *Island) generateLandMask() [][]bool {
 	maxRadius := math.Min(centerX, centerY) - oceanMargin
 
 	blobs := []blob{{x: centerX, y: centerY, r: maxRadius * 0.45}}
-	nBlobs := 5 + rand.Intn(4)
+	nBlobs := 5 + rand.IntN(4)
 	for range nBlobs {
 		angle := rand.Float64() * 2 * math.Pi
 		dist := (0.3 + rand.Float64()*0.6) * maxRadius
@@ -310,8 +310,8 @@ func (i *Island) IsRectWalkable(x, y, w, h float64) bool {
 // RandomLandPoint returns the center of a random land tile.
 func (i *Island) RandomLandPoint() (float64, float64) {
 	for range 10000 {
-		x := rand.Intn(i.Width)
-		y := rand.Intn(i.Height)
+		x := rand.IntN(i.Width)
+		y := rand.IntN(i.Height)
 		if i.tiles[x][y] == Land {
 			return (float64(x) + 0.5) * i.TileSize, (float64(y) + 0.5) * i.TileSize
 		}

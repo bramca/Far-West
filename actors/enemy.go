@@ -2,7 +2,7 @@ package actors
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/bramca/Far-West/utils"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -81,7 +81,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			actionType = Dodge
 		}
 		e.CurrentAction = Action{
-			Duration: 85 + rand.Intn(170),
+			Duration: 85 + rand.IntN(170),
 			Type:     actionType,
 			Actor:    e.Player,
 		}
@@ -99,17 +99,17 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount 
 			Left,
 			Right,
 		}
-		moveDir := dirs[rand.Intn(len(dirs))]
+		moveDir := dirs[rand.IntN(len(dirs))]
 		// most of the time the enemy roams towards the player, that way the
 		// player is always hunted instead of being left alone on the island
 		if rand.Float64() < huntChance {
 			moveDir = e.directionTowards(player)
 		}
 		e.CurrentAction = Action{
-			Duration: 85 + rand.Intn(170),
+			Duration: 85 + rand.IntN(170),
 			Type:     actionType,
 			MoveDir:  moveDir,
-			LookDir:  dirs[rand.Intn(len(dirs))],
+			LookDir:  dirs[rand.IntN(len(dirs))],
 			Actor:    e.Player,
 		}
 	}

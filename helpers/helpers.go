@@ -4,7 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"image"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/world"
@@ -101,7 +101,7 @@ func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSpr
 	cacti := []*world.Cactus{}
 	for range amount {
 		x, y := island.RandomLandPoint()
-		i := rand.Intn(len(cactusSprites))
+		i := rand.IntN(len(cactusSprites))
 		sprite := cactusSprites[i]
 		hitbox := hitboxes[i]
 		cactus := &world.Cactus{

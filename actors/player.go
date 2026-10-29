@@ -3,7 +3,8 @@ package actors
 import (
 	"image/color"
 	"math"
-	"math/rand"
+	"math/rand/v2"
+	"strconv"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -134,6 +135,13 @@ type Player struct {
 	Reloading      bool
 	ShootTimer     int
 
+	// healing handling
+	Healing      bool
+	HealTimer    int
+	HealDuration int
+	HealTotal    int
+	HealApplied  int
+
 	// dodge handling
 	DodgeCooldown      int
 	DodgeCooldownTimer int
@@ -204,63 +212,9 @@ func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
 		screen,
 		float32(markerX-camX), float32(markerY-camY),
 		markerWidth, markerHeight,
-		color.RGBA{245, 205, 55, 255},
+		TierColor(gun.Tier),
 		false,
 	)
-}
-
-// drawAimCursor draws a small cross reticle at a fixed distance from the actor
-// along the aim angle, it shows where the bullets go without cluttering the
-// middle of the screen.
-func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) {
-	const (
-		distance = 52.0
-		size     = 7.0
-		width    = 2.0
-	)
-	ax := cx + math.Cos(angle)*distance
-	ay := cy + math.Sin(angle)*distance
-	vector.StrokeLine(screen, float32(ax-size), float32(ay), float32(ax+size), float32(ay), width, clr, true)
-	vector.StrokeLine(screen, float32(ax), float32(ay-size), float32(ax), float32(ay+size), width, clr, true)
-}
-
-// drawMuzzleFlash draws a brief flash at the tip of the gun, it gives the
-// shots some punch and shows the player when an enemy pulls the trigger.
-func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
-	const distance = 26.0
-
-	angle = math.Mod(angle, 2*math.Pi)
-	if angle < 0 {
-		angle += 2 * math.Pi
-	}
-	switch {
-	case angle < math.Pi/4:
-		// dir = Right
-		angle = 2 * math.Pi
-	case angle < math.Pi/2:
-		// dir = RightDown
-		angle = 3 * math.Pi / 8
-	case angle < 3*math.Pi/4:
-		// dir = LeftDown
-		angle = 5 * math.Pi / 8
-	case angle < 5*math.Pi/4:
-		// dir = Left
-		angle = math.Pi
-	case angle < 3*math.Pi/2:
-		// dir = LeftUp
-		angle = 23 * math.Pi / 16
-	case angle < 7*math.Pi/4:
-		// dir = RightUp
-		angle = 25 * math.Pi / 16
-	default:
-		// dir = Right
-		angle = 2 * math.Pi
-	}
-
-	x := cx + math.Cos(angle)*distance
-	y := cy + math.Sin(angle)*distance
-	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
-	vector.FillCircle(screen, float32(x), float32(y), 3, color.RGBA{255, 255, 230, 255}, true)
 }
 
 func (p *Player) UpdateHitbox() {
@@ -293,6 +247,12 @@ func (p *Player) UpdateHealhBar() {
 func (p *Player) Shoot() {
 	gun := p.GunBelt[p.CurrentWeapon]
 	if gun.GunType == Fists || p.Dead {
+		return
+	}
+
+	if gun.GunType == Whisky {
+		p.drinkWhisky(gun)
+
 		return
 	}
 
@@ -330,7 +290,12 @@ func (p *Player) Shoot() {
 
 // CanShoot reports whether the weapon is loaded and ready to fire again.
 func (p *Player) CanShoot() bool {
-	return !p.Reloading && p.GunBelt[p.CurrentWeapon].CurrentMagazineSize > 0 && p.ShootTimer <= 0 && p.GunBelt[p.CurrentWeapon].Ammo > 0
+	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.GunType == Whisky {
+		return !p.Reloading && !p.Healing && p.ShootTimer <= 0 && gun.Ammo > 0 && p.Health < p.MaxHealth
+	}
+
+	return !p.Reloading && gun.CurrentMagazineSize > 0 && p.ShootTimer <= 0 && gun.Ammo > 0
 }
 
 // CanReload reports whether the weapon can be reloaded according to it's ammo status.
@@ -378,6 +343,9 @@ func (p *Player) UpdateWeapon() {
 	}
 	if p.MuzzleFlash > 0 {
 		p.MuzzleFlash -= 1
+	}
+	if p.Healing {
+		p.updateHealing()
 	}
 
 	if !p.Reloading {
@@ -648,6 +616,27 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 				p.UpdateCurrentState(PlayerWhiskyRight)
 			}
 		}
+		p.UpdateDrinkingState()
+	}
+}
+
+// UpdateDrinkingState shows the drinking pose while the whisky is being
+// consumed, the up-facing frames hold the bottle to the player's mouth.
+func (p *Player) UpdateDrinkingState() {
+	if !p.Healing {
+		return
+	}
+
+	left := p.VisualDir == Left || p.VisualDir == LeftUp || p.VisualDir == LeftDown
+	switch {
+	case left && p.Running:
+		p.UpdateCurrentState(PlayerWhiskyRunLeftUp)
+	case left:
+		p.UpdateCurrentState(PlayerWhiskyLeftUp)
+	case p.Running:
+		p.UpdateCurrentState(PlayerWhiskyRunRightUp)
+	default:
+		p.UpdateCurrentState(PlayerWhiskyRightUp)
 	}
 }
 
@@ -730,6 +719,7 @@ func (p *Player) DrawWeapon(beltIndex int) {
 		case RightDown:
 			p.UpdateCurrentState(PlayerWhiskyRight)
 		}
+		p.UpdateDrinkingState()
 	}
 }
 
@@ -758,6 +748,18 @@ func (p *Player) Animate() {
 		p.Running = false
 	case PlayerWhiskyRunLeft:
 		p.UpdateCurrentState(PlayerWhiskyLeft)
+		p.Running = false
+	case PlayerWhiskyRightUp:
+		p.UpdateCurrentState(PlayerWhiskyRunRightUp)
+		p.Running = true
+	case PlayerWhiskyLeftUp:
+		p.UpdateCurrentState(PlayerWhiskyRunLeftUp)
+		p.Running = true
+	case PlayerWhiskyRunRightUp:
+		p.UpdateCurrentState(PlayerWhiskyRightUp)
+		p.Running = false
+	case PlayerWhiskyRunLeftUp:
+		p.UpdateCurrentState(PlayerWhiskyLeftUp)
 		p.Running = false
 	case PlayerRevolverRight:
 		p.UpdateCurrentState(PlayerRevolverRunRight)
@@ -893,11 +895,11 @@ func (p *Player) StopAnimation() {
 		p.UpdateCurrentState(PlayerWhiskyRight)
 	case PlayerWhiskyRunLeft:
 		p.UpdateCurrentState(PlayerWhiskyLeft)
+	case PlayerWhiskyRunRightUp:
+		p.UpdateCurrentState(PlayerWhiskyRightUp)
+	case PlayerWhiskyRunLeftUp:
+		p.UpdateCurrentState(PlayerWhiskyLeftUp)
 	}
-}
-
-func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
-	return append(bullets[:index], bullets[index+1:]...)
 }
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int, damage int) {
@@ -918,7 +920,7 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 		Scale:       scale,
 		Speed:       bulletSpeed,
 		Sprite:      bulletSprite,
-		Damage:      1 + rand.Intn(damage),
+		Damage:      1 + rand.IntN(damage),
 		Duration:    duration,
 		Hitbox: &HitBox{
 			X: float32(x + offset*scale),
@@ -930,4 +932,137 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	}
 
 	p.Bullets = append(p.Bullets, bullet)
+}
+
+// drawAimCursor draws a small cross reticle at a fixed distance from the actor
+// along the aim angle, it shows where the bullets go without cluttering the
+// middle of the screen.
+func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) {
+	const (
+		distance = 52.0
+		size     = 7.0
+		width    = 2.0
+	)
+	ax := cx + math.Cos(angle)*distance
+	ay := cy + math.Sin(angle)*distance
+	vector.StrokeLine(screen, float32(ax-size), float32(ay), float32(ax+size), float32(ay), width, clr, true)
+	vector.StrokeLine(screen, float32(ax), float32(ay-size), float32(ax), float32(ay+size), width, clr, true)
+}
+
+// drawMuzzleFlash draws a brief flash at the tip of the gun, it gives the
+// shots some punch and shows the player when an enemy pulls the trigger.
+func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
+	const distance = 26.0
+
+	angle = math.Mod(angle, 2*math.Pi)
+	if angle < 0 {
+		angle += 2 * math.Pi
+	}
+	switch {
+	case angle < math.Pi/4:
+		// dir = Right
+		angle = 2 * math.Pi
+	case angle < math.Pi/2:
+		// dir = RightDown
+		angle = 3 * math.Pi / 8
+	case angle < 3*math.Pi/4:
+		// dir = LeftDown
+		angle = 5 * math.Pi / 8
+	case angle < 5*math.Pi/4:
+		// dir = Left
+		angle = math.Pi
+	case angle < 3*math.Pi/2:
+		// dir = LeftUp
+		angle = 23 * math.Pi / 16
+	case angle < 7*math.Pi/4:
+		// dir = RightUp
+		angle = 25 * math.Pi / 16
+	default:
+		// dir = Right
+		angle = 2 * math.Pi
+	}
+
+	x := cx + math.Cos(angle)*distance
+	y := cy + math.Sin(angle)*distance
+	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
+	vector.FillCircle(screen, float32(x), float32(y), 3, color.RGBA{255, 255, 230, 255}, true)
+}
+
+// drinkWhisky starts healing the player over the shoot cooldown, the damage of
+// the whisky is the amount of health it restores.
+func (p *Player) drinkWhisky(gun *Gun) {
+	if !p.CanShoot() {
+		return
+	}
+
+	heal := min(gun.Damage, p.MaxHealth-p.Health)
+	if heal <= 0 {
+		return
+	}
+
+	gun.Ammo -= 1
+	p.ShootTimer = gun.ShootCooldown
+	p.Healing = true
+	p.HealTimer = gun.ShootCooldown
+	p.HealDuration = gun.ShootCooldown
+	p.HealTotal = heal
+	p.HealApplied = 0
+	p.UpdateDrinkingState()
+}
+
+// updateHealing spreads the health gain evenly over the duration of the drink
+// and shows the restored amount once the cooldown ran out.
+func (p *Player) updateHealing() {
+	if p.HealDuration <= 0 {
+		p.finishHealing()
+
+		return
+	}
+
+	if p.HealTimer > 0 {
+		p.HealTimer -= 1
+	}
+	elapsed := p.HealDuration - p.HealTimer
+
+	if elapsed >= p.HealDuration {
+		p.finishHealing()
+	}
+}
+
+func (p *Player) finishHealing() {
+	heal := p.HealTotal
+	if heal > 0 {
+		p.Health += heal
+		p.HealApplied += heal
+		p.UpdateHealhBar()
+	}
+	healed := p.HealApplied
+	p.Healing = false
+	p.HealTimer = 0
+	p.HealDuration = 0
+	p.HealTotal = 0
+	p.HealApplied = 0
+
+	if healed <= 0 {
+		return
+	}
+
+	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.AmmoFace == nil {
+		return
+	}
+	hit := Hit{
+		X:        p.X,
+		Y:        p.Y - p.H/2,
+		Color:    color.RGBA{90, 220, 100, 240},
+		Msg:      "+" + strconv.Itoa(healed),
+		TextFont: gun.AmmoFace,
+		Duration: 30,
+	}
+	hit.SetDrawOptions()
+	p.Hits = append(p.Hits, hit)
+}
+
+func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
+	return append(bullets[:index], bullets[index+1:]...)
 }

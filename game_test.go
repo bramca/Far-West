@@ -120,9 +120,6 @@ func TestLevelClearsAndAdvances(t *testing.T) {
 	if game.island == firstIsland {
 		t.Fatal("the island was not regenerated for the next level")
 	}
-	if game.player.Health != game.player.MaxHealth {
-		t.Fatalf("the player did not regain full health on level 2, got %d", game.player.Health)
-	}
 	if game.aliveEnemies() != enemyCountForLevel(2) {
 		t.Fatalf("expected %d enemies on level 2, got %d", enemyCountForLevel(2), game.aliveEnemies())
 	}

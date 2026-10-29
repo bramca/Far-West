@@ -2,7 +2,7 @@ package actors
 
 import (
 	"image/color"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -21,7 +21,7 @@ type Particle struct {
 // NewParticle spawns a particle at the given position that flies along the
 // given velocity and fades out over its lifetime.
 func NewParticle(x, y, vx, vy float64, clr color.RGBA) *Particle {
-	life := 14 + rand.Intn(8)
+	life := 14 + rand.IntN(8)
 	return &Particle{
 		X:       x,
 		Y:       y,

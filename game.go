@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 
 	"github.com/bramca/Far-West/actors"
@@ -214,7 +214,7 @@ func NewGame() *Game {
 	game := &Game{
 		titleTexts:              []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
 		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
-		pauseTexts:              []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
+		pauseTexts:              []string{"PAUSED", "PRESS SPACE OR START BUTTON"},
 		fontSize:                18,
 		titleFontSize:           13,
 		hudFontSize:             12,
@@ -382,9 +382,13 @@ func (g *Game) startLevel(level int) {
 	g.player.Y = y
 	g.player.Bullets = nil
 	g.player.Hits = nil
-	g.player.Health = g.player.MaxHealth
 	g.player.Reloading = false
 	g.player.ReloadTimer = 0
+	g.player.Healing = false
+	g.player.HealTimer = 0
+	g.player.HealDuration = 0
+	g.player.HealTotal = 0
+	g.player.HealApplied = 0
 	g.player.DodgeCooldownTimer = 0
 	g.player.Dead = false
 	g.player.CurrentAction = actors.Action{}
@@ -420,17 +424,13 @@ func enemyCountForLevel(level int) int {
 func (g *Game) newPlayer() *actors.Player {
 	x, y := g.island.Center()
 	defaultGunBelt := []*actors.Gun{
-		// TODO: Whisky should act as a healing potion
-		// - it should heal the player according to the Damage
-		// - it should animate as drinking during the ShootCooldown (see PlayerWhiskyLeftUp, PlayerWhiskyRunRightUp etc)
-		// - after the shootcooldown it should display the amount healed (see hit.go)
 		{
-			Damage:        10,
+			Damage:        2,
 			GunType:       actors.Whisky,
 			Sprite:        g.gunSprites[actors.Whisky],
 			DrawOptions:   &ebiten.DrawImageOptions{},
 			ShootCooldown: 32,
-			Ammo:          5,
+			Ammo:          20,
 			Scale:         2.0,
 			X:             ScreenWidth/2 - 128,
 			Y:             ScreenHeight - 64,
@@ -718,29 +718,29 @@ func rollGunTierStats(tier actors.Tier) gunTierStats {
 	switch tier {
 	case actors.Legendary:
 		return gunTierStats{
-			damage:        2 + rand.Intn(3),
-			magazine:      2 + rand.Intn(3),
-			ammo:          rand.Intn(20),
-			shootCooldown: -(4 + rand.Intn(4)),
+			damage:        2 + rand.IntN(3),
+			magazine:      2 + rand.IntN(3),
+			ammo:          rand.IntN(20),
+			shootCooldown: -(4 + rand.IntN(4)),
 			bulletSpeed:   1.0 + rand.Float64()*1.5,
-			bulletSpread:  8 + rand.Intn(9),
+			bulletSpread:  8 + rand.IntN(9),
 			bulletCount:   2,
 		}
 	case actors.Rare:
 		return gunTierStats{
-			damage:        1 + rand.Intn(2),
-			magazine:      1 + rand.Intn(2),
-			ammo:          rand.Intn(20),
-			shootCooldown: -(2 + rand.Intn(3)),
+			damage:        1 + rand.IntN(2),
+			magazine:      1 + rand.IntN(2),
+			ammo:          rand.IntN(20),
+			shootCooldown: -(2 + rand.IntN(3)),
 			bulletSpeed:   0.5 + rand.Float64(),
-			bulletSpread:  4 + rand.Intn(5),
+			bulletSpread:  4 + rand.IntN(5),
 			bulletCount:   1,
 		}
 	default:
 		return gunTierStats{
-			damage:      rand.Intn(2),
-			magazine:    rand.Intn(2),
-			ammo:        rand.Intn(20),
+			damage:      rand.IntN(2),
+			magazine:    rand.IntN(2),
+			ammo:        rand.IntN(20),
 			bulletSpeed: rand.Float64() * 0.5,
 		}
 	}
@@ -766,7 +766,7 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletDuration = 50
 		gun.BulletSpread = defaultShotgunBulletSpread
 		gun.BulletCount = defaultShotgunBulletCount
-		gun.Ammo = 15 + rand.Intn(10)
+		gun.Ammo = 15 + rand.IntN(10)
 		gun.BulletSpeed = 6.0
 		gun.Sprite = g.gunSprites[actors.Shotgun]
 	case actors.MachineGun:
@@ -774,13 +774,13 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.BulletDuration = 90
 		gun.BulletSpread = defaultMachineGunBulletSpread
 		gun.BulletSpeed = 9.0
-		gun.Ammo = 100 + rand.Intn(50)
+		gun.Ammo = 100 + rand.IntN(50)
 		gun.ShootCooldown = playerShootCooldown / 2
 		gun.Sprite = g.gunSprites[actors.MachineGun]
 	case actors.Revolver:
 		gun.MagazineSize = defaultMagazineSize[actors.Revolver]
 		gun.BulletDuration = 120
-		gun.Ammo = 50 + rand.Intn(50)
+		gun.Ammo = 50 + rand.IntN(50)
 		gun.BulletSpeed = 6.0
 		gun.Sprite = g.gunSprites[actors.Revolver]
 	}
@@ -813,7 +813,7 @@ func (g *Game) spawnEnemy() {
 	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.damage
 	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
 
-	fireRate := max(enemyFireRateFloor, 18+rand.Intn(11)-(g.level-1)-tierStats.fireRate)
+	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.fireRate)
 
 	state := actors.PlayerRevolverLeft
 	switch gun.GunType {
@@ -856,7 +856,7 @@ func (g *Game) spawnEnemy() {
 				H: float32(g.enemyCommonSprites[state].Bounds().Dy()),
 			},
 		},
-		VisualDist: rand.Intn(350) + 400,
+		VisualDist: rand.IntN(350) + 400,
 	}
 	enemy.Healthbar = &actors.HealthBar{
 		X:               enemy.X,
@@ -1450,8 +1450,16 @@ func (g *Game) Update() error {
 			g.player.DrawWeapon(0)
 		}
 
-		if buttonsJustPressed["LR"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+		if buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
+		}
+
+		if buttonsJustPressed["LB"] {
+			newWeapon := g.player.CurrentWeapon - 1
+			if newWeapon < 0 {
+				newWeapon = len(g.player.GunBelt) - 1
+			}
+			g.player.DrawWeapon(newWeapon)
 		}
 
 		directionKeyPressed := false
