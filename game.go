@@ -84,6 +84,7 @@ const (
 	enemyHitboxOffset = 16
 
 	// sounds
+	soundDash            = "dash"
 	soundDrink           = "drink"
 	soundEmptyClick      = "empty-click"
 	soundEnemyDeath      = "enemy-death"
@@ -95,6 +96,7 @@ const (
 	soundShootRevolver   = "shoot-revolver"
 	soundShootShotgun    = "shoot-shotgun"
 
+	soundVolumeDash          = 0.35
 	soundVolumeDrink         = 0.50
 	soundVolumeEmptyClick    = 0.30
 	soundVolumeHit           = 0.45
@@ -114,6 +116,7 @@ var (
 	buttonsJustPressed = map[string]bool{}
 
 	soundFiles = map[string]string{
+		soundDash:            "dash.wav",
 		soundDrink:           "drink.wav",
 		soundEmptyClick:      "empty-click.wav",
 		soundEnemyDeath:      "enemy-death.wav",
@@ -1645,6 +1648,7 @@ func (g *Game) Update() error {
 				Actor:    g.player,
 			}
 			g.spawnDodgeDust(10)
+			g.sounds.Play(soundDash, soundVolumeDash)
 		}
 
 		g.player.Act(g.frameCount)
