@@ -8,9 +8,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// huntChance is the chance that an enemy that lost track of the player roams
-// in his direction instead of picking a random direction.
-const huntChance = 0.75
+const (
+	// huntChance is the chance that an enemy that lost track of the player
+	// roams in his direction instead of picking a random direction.
+	huntChance = 0.75
+	// an enemy drinks his whisky when his health drops below this fraction.
+	enemyHealHealthDivisor = 3
+)
 
 type Enemy struct {
 	*Player
@@ -34,7 +38,8 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	}
 	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
 	e.DrawOptions.ColorScale.Reset()
-	if e.MuzzleFlash > 0 && !e.Dead && e.GunBelt[e.CurrentWeapon].GunType != Fists {
+	weapon := e.GunBelt[e.CurrentWeapon].GunType
+	if e.MuzzleFlash > 0 && !e.Dead && weapon != Fists && weapon != Whisky {
 		drawMuzzleFlash(screen, e.X+e.W-camX, e.Y+e.H-camY, e.AimAngle)
 	}
 	if !e.Dead {
@@ -72,9 +77,81 @@ func (e *Enemy) Move(d Direction) {
 	e.Healthbar.Update(e.X-e.W/2, e.Y-(e.H-e.H/3), e.Health, e.MaxHealth)
 }
 
+// whiskyIndex returns the belt slot of a whisky that still has a sip left.
+func (e *Enemy) whiskyIndex() (int, bool) {
+	for i, gun := range e.GunBelt {
+		if gun != nil && gun.GunType == Whisky && gun.Ammo > 0 {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
+// primaryWeaponIndex returns the belt slot of the enemy's fighting gun.
+func (e *Enemy) primaryWeaponIndex() int {
+	for i, gun := range e.GunBelt {
+		if gun != nil && gun.GunType != Whisky {
+			return i
+		}
+	}
+
+	return 0
+}
+
+// shouldHeal reports whether the enemy is hurt enough to reach for his whisky.
+func (e *Enemy) shouldHeal() bool {
+	if e.Dead || e.Health <= 0 || e.Health*enemyHealHealthDivisor > e.MaxHealth {
+		return false
+	}
+
+	_, ok := e.whiskyIndex()
+
+	return ok
+}
+
+func (e *Enemy) switchWeapon(index int) {
+	if index < 0 || index >= len(e.GunBelt) || e.CurrentWeapon == index {
+		return
+	}
+
+	e.Reloading = false
+	e.ReloadTimer = 0
+	e.ShootTimer = 0
+	e.DrawWeapon(index)
+}
+
 func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount int) {
-	// Detect player
 	e.CurrentAction.Duration -= 1
+
+	if e.CurrentAction.Type == Heal {
+		if e.CurrentAction.Duration > 0 {
+			e.CurrentAction.PerformAction(player, frameCount)
+			e.UpdateHitboxOffset(16)
+
+			return
+		}
+
+		e.switchWeapon(e.primaryWeaponIndex())
+		e.CurrentAction = Action{}
+	}
+
+	if e.shouldHeal() && rand.Float64() > 0.99 {
+		if index, ok := e.whiskyIndex(); ok {
+			e.switchWeapon(index)
+			e.CurrentAction = Action{
+				Duration: e.GunBelt[index].ShootCooldown * 2,
+				Type:     Heal,
+				Actor:    e.Player,
+			}
+			e.CurrentAction.PerformAction(player, frameCount)
+			e.UpdateHitboxOffset(16)
+
+			return
+		}
+	}
+
+	// Detect player
 	if utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist) && e.CurrentAction.Type != MoveAndShoot && e.CurrentAction.Duration <= 0 {
 		actionType := MoveAndShoot
 		if rand.Float64() < 0.5 {

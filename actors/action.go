@@ -14,6 +14,7 @@ const (
 	Shoot
 	Move
 	MoveAndShoot
+	Heal
 )
 
 const (
@@ -176,6 +177,43 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 				a.Actor.X -= 16
 				a.Actor.Y -= 16
 			}
+		}
+		actionPerformed = true
+	case Heal:
+		a.Actor.Shoot()
+
+		xDelta := a.Actor.X - player.X
+		yDelta := a.Actor.Y - player.Y
+		if xDelta != 0 {
+			if xDelta > 0 {
+				a.Actor.Move(Right)
+			} else {
+				a.Actor.Move(Left)
+			}
+		}
+		if yDelta != 0 {
+			if yDelta > 0 {
+				a.Actor.Move(Down)
+			} else {
+				a.Actor.Move(Up)
+			}
+		}
+
+		switch {
+		case math.Abs(xDelta) >= math.Abs(yDelta):
+			if xDelta >= 0 {
+				a.Actor.Look(Right)
+			} else {
+				a.Actor.Look(Left)
+			}
+		case yDelta >= 0:
+			a.Actor.Look(Down)
+		default:
+			a.Actor.Look(Up)
+		}
+
+		if frameCount%a.Actor.AnimationSpeed == 0 {
+			a.Actor.Animate()
 		}
 		actionPerformed = true
 	}

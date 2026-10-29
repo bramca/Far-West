@@ -46,6 +46,8 @@ func (w Weapon) String() string {
 	switch w {
 	case Fists:
 		return "FISTS"
+	case Whisky:
+		return "WHISKY"
 	case Shotgun:
 		return "SHOTGUN"
 	case MachineGun:

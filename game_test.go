@@ -606,6 +606,55 @@ func TestGunStatRows(t *testing.T) {
 	}
 }
 
+// TestEnemyWhiskyRolls makes sure tougher enemies are more likely to carry a
+// whisky as a secondary weapon.
+func TestEnemyWhiskyRolls(t *testing.T) {
+	common := enemyWhiskyChance(actors.Common)
+	rare := enemyWhiskyChance(actors.Rare)
+	legendary := enemyWhiskyChance(actors.Legendary)
+
+	if common >= rare || rare >= legendary {
+		t.Fatal("higher tier enemies should be more likely to carry whisky")
+	}
+	if !enemyHasWhisky(actors.Common, 0) || enemyHasWhisky(actors.Common, 0.99) {
+		t.Fatal("the common whisky roll is out of bounds")
+	}
+	if !enemyHasWhisky(actors.Legendary, 0.3) {
+		t.Fatal("a legendary enemy should be able to carry whisky on a moderate roll")
+	}
+}
+
+// TestNewEnemyWhisky makes sure enemy whisky has usable healing stats.
+func TestNewEnemyWhisky(t *testing.T) {
+	game := NewGame()
+	whisky := game.newEnemyGun(actors.Whisky, actors.Legendary, 2)
+
+	if whisky.GunType != actors.Whisky || whisky.Tier != actors.Legendary {
+		t.Fatal("the whisky did not keep its type and tier")
+	}
+	if whisky.Damage < 2 || whisky.Ammo <= 0 || whisky.ShootCooldown <= 0 {
+		t.Fatal("the whisky has invalid stats")
+	}
+	if whisky.Sprite == nil {
+		t.Fatal("the whisky has no sprite")
+	}
+}
+
+// TestGunStatRowsWhisky makes sure the comparison card only shows the stats
+// that matter for a bottle of whisky.
+func TestGunStatRowsWhisky(t *testing.T) {
+	current := &actors.Gun{GunType: actors.Whisky, Damage: 2, Ammo: 3, ShootCooldown: 32}
+	loot := &actors.Gun{GunType: actors.Whisky, Damage: 4, Ammo: 5, ShootCooldown: 24}
+
+	rows := gunStatRows(current, loot)
+	if len(rows) != 3 {
+		t.Fatalf("expected three whisky comparison rows, got %d", len(rows))
+	}
+	if rows[0].label != "HEALING" || rows[0].now != 2 || rows[0].loot != 4 {
+		t.Fatal("the healing row does not compare both bottles")
+	}
+}
+
 // TestSpritesCoverEveryState guards against drawing a state that has no sprite.
 func TestSpritesCoverEveryState(t *testing.T) {
 	game := NewGame()

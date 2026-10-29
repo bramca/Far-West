@@ -56,6 +56,10 @@ const (
 	// enemies spawn at least this far away from the player
 	enemyMinSpawnDistance = 600.0
 	enemyMaxSpawnDistance = 1600.0
+	// chance that an enemy also carries a whisky as a second weapon
+	commonWhiskyChance    = 0.08
+	rareWhiskyChance      = 0.20
+	legendaryWhiskyChance = 0.40
 	// amount of frames a corpse stays on the field
 	corpseDuration = 240
 	// how close the player has to be to a gun on the floor to pick it up or
@@ -642,6 +646,29 @@ func enemyTierForRoll(level int, roll float64) actors.Tier {
 	}
 }
 
+// enemyWhiskyChance returns how likely an enemy of the given tier also
+// carries a whisky in his gunbelt.
+func enemyWhiskyChance(tier actors.Tier) float64 {
+	switch tier {
+	case actors.Legendary:
+		return legendaryWhiskyChance
+	case actors.Rare:
+		return rareWhiskyChance
+	default:
+		return commonWhiskyChance
+	}
+}
+
+// enemyHasWhisky maps a roll in [0, 1) to whether the enemy carries a whisky.
+func enemyHasWhisky(tier actors.Tier, roll float64) bool {
+	return roll < enemyWhiskyChance(tier)
+}
+
+// rollEnemyWhisky rolls whether a freshly spawned enemy carries a whisky.
+func rollEnemyWhisky(tier actors.Tier) bool {
+	return enemyHasWhisky(tier, rand.Float64())
+}
+
 // enemyTierStats holds the extra stats an enemy gets from its tier on top of
 // the level scaling. Tougher tiers are deadlier, faster and shoot more often.
 type enemyTierStats struct {
@@ -762,7 +789,7 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		Tier:          tier,
 		Damage:        damage,
 		GunType:       gunType,
-		ShootCooldown: playerShootCooldown,
+		ShootCooldown: playerShootCooldown * 2,
 		MuzzleFlash:   3,
 		DrawOptions:   &ebiten.DrawImageOptions{},
 		Scale:         2.0,
@@ -792,13 +819,24 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.Ammo = 50 + rand.IntN(50)
 		gun.BulletSpeed = 6.0
 		gun.Sprite = g.gunSprites[actors.Revolver]
+	case actors.Whisky:
+		gun.ShootCooldown = playerShootCooldown * 2
+		gun.Ammo = 5 + rand.IntN(10)
+		gun.MuzzleFlash = 0
+		gun.Sprite = g.gunSprites[actors.Whisky]
 	}
 
 	stats := rollGunTierStats(tier)
 	gun.Damage += stats.damage
+	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.shootCooldown)
+	if gunType == actors.Whisky {
+		gun.Ammo += min(stats.ammo, 2)
+
+		return gun
+	}
+
 	gun.MagazineSize += stats.magazine
 	gun.Ammo += stats.ammo
-	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.shootCooldown)
 	gun.BulletSpeed += stats.bulletSpeed
 	gun.BulletSpread += stats.bulletSpread
 	gun.BulletCount += stats.bulletCount
@@ -821,6 +859,11 @@ func (g *Game) spawnEnemy() {
 	// the base damage is low because every bullet deals at least 1
 	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.damage
 	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
+	gunBelt := []*actors.Gun{&gun}
+	if rollEnemyWhisky(tier) {
+		whisky := g.newEnemyGun(actors.Whisky, rollGunTier(tier), damage)
+		gunBelt = append(gunBelt, &whisky)
+	}
 
 	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.fireRate)
 
@@ -848,8 +891,8 @@ func (g *Game) spawnEnemy() {
 			AnimationSpeed: 11,
 			DrawOptions:    &ebiten.DrawImageOptions{},
 			FireRate:       fireRate,
-			GunBelt:        []*actors.Gun{&gun},
-			GunBeltSize:    1,
+			GunBelt:        gunBelt,
+			GunBeltSize:    len(gunBelt),
 			BulletSprite:   g.bulletSprite,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
@@ -1210,8 +1253,9 @@ func (g *Game) dropEnemyGun(enemy *actors.Enemy) {
 		return
 	}
 
-	gun := *enemy.GunBelt[enemy.CurrentWeapon]
-	g.loot = append(g.loot, actors.NewLoot(&gun, enemy.X+enemy.W/2, enemy.Y+enemy.H/2))
+	for i, gun := range enemy.GunBelt {
+		g.loot = append(g.loot, actors.NewLoot(gun, enemy.X+enemy.W/2+float64(i)*enemy.W, enemy.Y+enemy.H/2+float64(i)*enemy.H))
+	}
 }
 
 // gunBeltIndexFor returns the belt slot of the gun with the given type.
@@ -1754,6 +1798,14 @@ type gunStatRow struct {
 
 // gunStatRows returns the stats that matter when comparing two guns.
 func gunStatRows(current, loot *actors.Gun) []gunStatRow {
+	if loot.GunType == actors.Whisky {
+		return []gunStatRow{
+			{"HEALING", float64(current.Damage), float64(loot.Damage), true, 0},
+			{"AMMO", float64(current.Ammo), float64(loot.Ammo), true, 0},
+			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		}
+	}
+
 	rows := []gunStatRow{
 		{"DAMAGE", float64(current.Damage), float64(loot.Damage), true, 0},
 		{"MAGAZINE", float64(current.MagazineSize), float64(loot.MagazineSize), true, 0},
@@ -1834,7 +1886,11 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
 	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
 
-	g.drawSmallText(screen, "GUN ON THE FLOOR", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+	floorText := "GUN ON THE FLOOR"
+	if loot.Gun.GunType == actors.Whisky {
+		floorText = "WHISKY ON THE FLOOR"
+	}
+	g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
 
 	iconX := panelX + panelW/2
 	iconY := panelY + 66
