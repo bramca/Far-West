@@ -382,7 +382,8 @@ func (g *Game) startLevel(level int) {
 	x, y := g.island.Center()
 	g.player.X = x
 	g.player.Y = y
-	g.player.Bullets = nil
+	clear(g.player.Bullets)
+	g.player.Bullets = g.player.Bullets[:0]
 	g.player.Hits = nil
 	g.player.Reloading = false
 	g.player.ReloadTimer = 0
@@ -1033,8 +1034,10 @@ func (g *Game) CheckCollisions() {
 // checkBulletCollisions lets bullets damage what they hit and removes the
 // bullets that hit something or that left the world.
 func (g *Game) checkBulletCollisions() {
-	remaining := g.player.Bullets[:0]
-	for _, bullet := range g.player.Bullets {
+	old := g.player.Bullets
+	remaining := old[:0]
+	for i := range old {
+		bullet := &old[i]
 		if g.bulletBlocked(bullet) {
 			continue
 		}
@@ -1062,13 +1065,16 @@ func (g *Game) checkBulletCollisions() {
 			continue
 		}
 
-		remaining = append(remaining, bullet)
+		remaining = append(remaining, *bullet)
 	}
+	clear(old[len(remaining):])
 	g.player.Bullets = remaining
 
 	for _, enemy := range g.enemies {
-		remaining := enemy.Bullets[:0]
-		for _, bullet := range enemy.Bullets {
+		old := enemy.Bullets
+		remaining := old[:0]
+		for i := range old {
+			bullet := &old[i]
 			if g.bulletBlocked(bullet) {
 				continue
 			}
@@ -1080,8 +1086,9 @@ func (g *Game) checkBulletCollisions() {
 				continue
 			}
 
-			remaining = append(remaining, bullet)
+			remaining = append(remaining, *bullet)
 		}
+		clear(old[len(remaining):])
 		enemy.Bullets = remaining
 	}
 }

@@ -190,7 +190,7 @@ func TestDodgeGivesIFrames(t *testing.T) {
 	game := NewGame()
 
 	enemy := game.enemies[0]
-	enemy.Bullets = []*actors.Bullet{
+	enemy.Bullets = []actors.Bullet{
 		{
 			X:        game.player.X,
 			Y:        game.player.Y,
@@ -199,7 +199,7 @@ func TestDodgeGivesIFrames(t *testing.T) {
 			Speed:    0,
 			Damage:   3,
 			Duration: 100,
-			Hitbox: &actors.HitBox{
+			Hitbox: actors.HitBox{
 				X: game.player.Hitbox.X,
 				Y: game.player.Hitbox.Y,
 				W: game.player.Hitbox.W,

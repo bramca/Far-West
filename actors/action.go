@@ -39,7 +39,8 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 	case Dodge:
 		if a.Actor.IsNpc {
 			a.Actor.Speed += a.Actor.DodgeSpeed
-			for _, bullet := range player.Bullets {
+			for i := range player.Bullets {
+				bullet := &player.Bullets[i]
 				if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y) < 150 {
 					// dodge perpendicularly to the incoming bullet
 					perpX := -math.Sin(bullet.R)

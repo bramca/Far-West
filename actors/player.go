@@ -109,7 +109,7 @@ type Player struct {
 	CurrentWeapon int
 	Hitbox        *HitBox
 	HitboxOffset  float64
-	Bullets       []*Bullet
+	Bullets       []Bullet
 	BulletSprite  *ebiten.Image
 	FireRate      int
 	Healthbar     *HealthBar
@@ -446,18 +446,21 @@ func (p *Player) FaceFromAim() {
 }
 
 func (p *Player) UpdateBullets() {
-	for i := len(p.Bullets) - 1; i >= 0; i-- {
-		p.Bullets[i].Update()
-		if p.Bullets[i].Duration < 1 {
-			p.Bullets = removeFromBullets(p.Bullets, i)
+	old := p.Bullets
+	alive := old[:0]
+	for i := range old {
+		old[i].Update()
+		if old[i].Duration >= 1 {
+			alive = append(alive, old[i])
 		}
 	}
+	clear(old[len(alive):])
+	p.Bullets = alive
 }
 
 func (p *Player) DrawBullets(screen *ebiten.Image, camX, camY float64) {
-	for _, bullet := range p.Bullets {
-		bullet.Draw(screen, camX, camY)
-		// bullet.DrawHitbox(screen, camX, camY)
+	for i := range p.Bullets {
+		p.Bullets[i].Draw(screen, camX, camY)
 	}
 }
 
@@ -904,25 +907,27 @@ func (p *Player) StopAnimation() {
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int, damage int) {
 	scale := float64(4)
+	bounds := bulletSprite.Bounds()
+	bw := float64(bounds.Dx())
+	bh := float64(bounds.Dy())
 	// The middle of the bullet starts at the middle of the player
-	x := p.X - float64(bulletSprite.Bounds().Dx())*scale/2 + p.W/2
-	y := p.Y - float64(bulletSprite.Bounds().Dy())*scale/2 + p.H/2
+	x := p.X - bw*scale/2 + p.W/2
+	y := p.Y - bh*scale/2 + p.H/2
 	bulletPixelWidth := 3.0
 	bulletPixelHeight := 3.0
 	offset := float64(14)
-	bullet := &Bullet{
-		X:           x,
-		Y:           y,
-		W:           float64(bulletSprite.Bounds().Dx()),
-		H:           float64(bulletSprite.Bounds().Dy()),
-		R:           bulletRotation,
-		DrawOptions: &ebiten.DrawImageOptions{},
-		Scale:       scale,
-		Speed:       bulletSpeed,
-		Sprite:      bulletSprite,
-		Damage:      1 + rand.IntN(damage),
-		Duration:    duration,
-		Hitbox: &HitBox{
+	bullet := Bullet{
+		X:        x,
+		Y:        y,
+		W:        bw,
+		H:        bh,
+		R:        bulletRotation,
+		Scale:    scale,
+		Speed:    bulletSpeed,
+		Sprite:   bulletSprite,
+		Damage:   1 + rand.IntN(damage),
+		Duration: duration,
+		Hitbox: HitBox{
 			X: float32(x + offset*scale),
 			Y: float32(y + offset*scale),
 			W: float32(bulletPixelWidth * scale),
@@ -1061,8 +1066,4 @@ func (p *Player) finishHealing() {
 	}
 	hit.SetDrawOptions()
 	p.Hits = append(p.Hits, hit)
-}
-
-func removeFromBullets(bullets []*Bullet, index int) []*Bullet {
-	return append(bullets[:index], bullets[index+1:]...)
 }

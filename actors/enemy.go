@@ -72,7 +72,7 @@ func (e *Enemy) Move(d Direction) {
 	e.Healthbar.Update(e.X-e.W/2, e.Y-(e.H-e.H/3), e.Health, e.MaxHealth)
 }
 
-func (e *Enemy) ThinkAndAct(player *Player, playerBullets []*Bullet, frameCount int) {
+func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount int) {
 	// Detect player
 	e.CurrentAction.Duration -= 1
 	if utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist) && e.CurrentAction.Type != MoveAndShoot && e.CurrentAction.Duration <= 0 {
