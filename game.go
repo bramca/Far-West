@@ -84,6 +84,7 @@ const (
 	enemyHitboxOffset = 16
 
 	// sounds
+	soundDrink           = "drink"
 	soundEmptyClick      = "empty-click"
 	soundEnemyDeath      = "enemy-death"
 	soundGameOver        = "game-over"
@@ -94,6 +95,7 @@ const (
 	soundShootRevolver   = "shoot-revolver"
 	soundShootShotgun    = "shoot-shotgun"
 
+	soundVolumeDrink         = 0.50
 	soundVolumeEmptyClick    = 0.30
 	soundVolumeHit           = 0.45
 	soundVolumeEnemyDeath    = 0.55
@@ -112,6 +114,7 @@ var (
 	buttonsJustPressed = map[string]bool{}
 
 	soundFiles = map[string]string{
+		soundDrink:           "drink.wav",
 		soundEmptyClick:      "empty-click.wav",
 		soundEnemyDeath:      "enemy-death.wav",
 		soundGameOver:        "game-over.wav",
@@ -559,6 +562,7 @@ func (g *Game) newPlayer() *actors.Player {
 		GunBelt:        defaultGunBelt,
 		GunBeltSize:    len(defaultGunBelt),
 		OnShoot:        g.playPlayerShootSound,
+		OnDrink:        g.playPlayerDrinkSound,
 		Health:         20,
 		MaxHealth:      20,
 		ReloadDuration: playerReloadDuration,
@@ -928,6 +932,7 @@ func (g *Game) spawnEnemy() {
 			GunBeltSize:    len(gunBelt),
 			BulletSprite:   g.bulletSprite,
 			OnShoot:        g.playEnemyShootSound,
+			OnDrink:        g.playEnemyDrinkSound,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
 			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.health,
@@ -2082,6 +2087,18 @@ func (g *Game) playPlayerShootSound(weapon actors.Weapon) {
 
 func (g *Game) playEnemyShootSound(weapon actors.Weapon) {
 	g.playShootSound(weapon, 0.6)
+}
+
+func (g *Game) playPlayerDrinkSound() {
+	g.playDrinkSound(1)
+}
+
+func (g *Game) playEnemyDrinkSound() {
+	g.playDrinkSound(0.6)
+}
+
+func (g *Game) playDrinkSound(volumeScale float64) {
+	g.sounds.Play(soundDrink, soundVolumeDrink*volumeScale)
 }
 
 func (g *Game) playShootSound(weapon actors.Weapon, volumeScale float64) {

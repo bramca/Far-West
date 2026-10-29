@@ -37,6 +37,7 @@ In the town there are `shops` were you can by stuff:
 - [ ] town buildings
 - [ ] bandit camps
 - [ ] spawn random town
+- [ ] more sounds (https://sfxr.me/)
 
 ## Gameplay improvements
 ### Quick wins (feel/juice) - DONE

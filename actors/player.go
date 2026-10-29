@@ -137,6 +137,8 @@ type Player struct {
 	// OnShoot is called after a gun successfully fires, the game uses it to
 	// play the sound that belongs to the weapon.
 	OnShoot func(Weapon)
+	// OnDrink is called when an actor starts drinking a whisky.
+	OnDrink func()
 
 	// healing handling
 	Healing      bool
@@ -1020,6 +1022,9 @@ func (p *Player) drinkWhisky(gun *Gun) {
 	p.HealTotal = heal
 	p.HealApplied = 0
 	p.UpdateDrinkingState()
+	if p.OnDrink != nil {
+		p.OnDrink()
+	}
 }
 
 // updateHealing spreads the health gain evenly over the duration of the drink
