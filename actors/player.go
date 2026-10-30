@@ -948,19 +948,27 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	p.Bullets = append(p.Bullets, bullet)
 }
 
-// drawAimCursor draws a small cross reticle at a fixed distance from the actor
-// along the aim angle, it shows where the bullets go without cluttering the
-// middle of the screen.
+// drawAimCursor draws a small arrow at a fixed distance from the actor
+// pointing along the aim angle, it shows where the bullets go without
+// cluttering the middle of the screen.
 func drawAimCursor(screen *ebiten.Image, cx, cy, angle float64, clr color.RGBA) {
 	const (
-		distance = 52.0
-		size     = 7.0
-		width    = 2.0
+		distance  = 52.0
+		length    = 16.0
+		head      = 8.0
+		headAngle = math.Pi * 3 / 4
+		width     = 2.0
 	)
-	ax := cx + math.Cos(angle)*distance
-	ay := cy + math.Sin(angle)*distance
-	vector.StrokeLine(screen, float32(ax-size), float32(ay), float32(ax+size), float32(ay), width, clr, true)
-	vector.StrokeLine(screen, float32(ax), float32(ay-size), float32(ax), float32(ay+size), width, clr, true)
+	dirX := math.Cos(angle)
+	dirY := math.Sin(angle)
+	tipX := cx + dirX*distance
+	tipY := cy + dirY*distance
+	tailX := tipX - dirX*length
+	tailY := tipY - dirY*length
+
+	vector.StrokeLine(screen, float32(tailX), float32(tailY), float32(tipX), float32(tipY), width, clr, true)
+	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(tipX+math.Cos(angle+headAngle)*head), float32(tipY+math.Sin(angle+headAngle)*head), width, clr, true)
+	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(tipX+math.Cos(angle-headAngle)*head), float32(tipY+math.Sin(angle-headAngle)*head), width, clr, true)
 }
 
 // drawMuzzleFlash draws a brief flash at the tip of the gun, it gives the

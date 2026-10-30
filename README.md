@@ -22,21 +22,26 @@ In the town there are `shops` were you can by stuff:
 - [X] hitboxes
 - [X] collision detection
 - [X] shoot mechanics
-- [ ] bullet hit animation
+- [X] bullet hit animation
 - [ ] environment destructable?
 - [X] enemies
 - [ ] interesting enemy behaviour
 - [X] minimap
 - [X] healthbar
-- [ ] dodge mechanics / animation
+- [X] dodge mechanics / animation
 - [X] dodge bar
 - [X] ammunition
 - [X] reload
 - [X] random island world with an ocean border
 - [X] level based progression with tougher enemies
-- [ ] town buildings
-- [ ] bandit camps
-- [ ] spawn random town
+- [ ] progress bar after each level when going to the next island
+- [ ] island boss (with dynamite sticks as weapon)
+- [ ] town buildings (store, sherrif)
+- [ ] bandit camps (tents, weapon chest, gold chest, ammo chest)
+- [ ] bounty post
+- [ ] boat dock (with ticket to next island when bounty is killed)
+    - [ ] player can choose which island to go next on a map (with difficulty level color coded)
+    - [ ] 4 islands on the map (increased difficulty: green -> yellow -> red and one boss island)
 - [ ] more sounds (https://sfxr.me/)
 
 ## Gameplay improvements
