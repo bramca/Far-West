@@ -31,6 +31,24 @@ func LoadImage(assets embed.FS, imagePath string) (*ebiten.Image, error) {
 	return ebiten.NewImageFromImage(img), nil
 }
 
+func InitializeTentHitbox() *actors.HitBox {
+	return &actors.HitBox{
+		X: 9,
+		Y: 11,
+		W: 13,
+		H: 12,
+	}
+}
+
+func InitializeChestHitbox() *actors.HitBox {
+	return &actors.HitBox{
+		X: 8,
+		Y: 10,
+		W: 16,
+		H: 13,
+	}
+}
+
 func InitializeCactusHitboxes() []*actors.HitBox {
 	result := []*actors.HitBox{
 		{
@@ -123,4 +141,58 @@ func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSpr
 	}
 
 	return cacti
+}
+
+// SpawnTents spreads tents over the land tiles of the given island.
+func SpawnTents(island *world.Island, amount int, spriteScale float64, sprite *ebiten.Image, hitbox *actors.HitBox) []*world.Tent {
+	tents := []*world.Tent{}
+	for range amount {
+		x, y := island.RandomLandPoint()
+		tent := &world.Tent{
+			X:           x,
+			Y:           y,
+			W:           float64(sprite.Bounds().Dx()),
+			H:           float64(sprite.Bounds().Dy()),
+			Sprite:      sprite,
+			DrawOptions: &ebiten.DrawImageOptions{},
+			Scale:       spriteScale,
+			Hitbox: &actors.HitBox{
+				X: float32(x + float64(hitbox.X*float32(spriteScale))),
+				Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+				W: hitbox.W * float32(spriteScale),
+				H: hitbox.H * float32(spriteScale),
+			},
+		}
+		tents = append(tents, tent)
+	}
+
+	return tents
+}
+
+// SpawnChests spreads chests over the land tiles of the given island.
+func SpawnChests(island *world.Island, amount int, spriteScale float64, chestSprites []*ebiten.Image, hitbox *actors.HitBox) []*world.Chest {
+	chests := []*world.Chest{}
+	for range amount {
+		x, y := island.RandomLandPoint()
+		i := rand.IntN(len(chestSprites)/2) * 2
+		sprites := chestSprites[i : i+1]
+		chest := &world.Chest{
+			X:           x,
+			Y:           y,
+			W:           float64(sprites[0].Bounds().Dx()),
+			H:           float64(sprites[0].Bounds().Dy()),
+			Sprites:     sprites,
+			DrawOptions: &ebiten.DrawImageOptions{},
+			Scale:       spriteScale,
+			Hitbox: &actors.HitBox{
+				X: float32(x + float64(hitbox.X*float32(spriteScale))),
+				Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+				W: hitbox.W * float32(spriteScale),
+				H: hitbox.H * float32(spriteScale),
+			},
+		}
+		chests = append(chests, chest)
+	}
+
+	return chests
 }

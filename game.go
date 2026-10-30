@@ -42,6 +42,8 @@ const (
 	worldTilesY   = 60
 	worldTileSize = 64.0
 	cactusAmount  = 100
+	tentAmount    = 10
+	chestAmount   = 20
 
 	// levels
 	initialEnemies   = 6
@@ -97,7 +99,7 @@ const (
 	soundShootShotgun    = "shoot-shotgun"
 
 	soundVolumeDash          = 0.35
-	soundVolumeDrink         = 0.50
+	soundVolumeDrink         = 0.40
 	soundVolumeEmptyClick    = 0.30
 	soundVolumeHit           = 0.45
 	soundVolumeEnemyDeath    = 0.55
@@ -231,6 +233,14 @@ type Game struct {
 	cactusSprites  []*ebiten.Image
 	cactusHitboxes []*actors.HitBox
 	cacti          []*world.Cactus
+
+	tentSprite *ebiten.Image
+	tentHitbox *actors.HitBox
+	tents      []*world.Tent
+
+	chestSprites []*ebiten.Image
+	chestHitbox  *actors.HitBox
+	chests       []*world.Chest
 
 	// gameplay
 	frameCount   int
@@ -386,6 +396,16 @@ func NewGame() *Game {
 		"assets/sprites/cactus.png",
 	}, 32, 32)
 
+	game.tentSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/tent.png",
+	}, 32, 32)[0]
+
+	game.chestSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/gold-chest.png",
+		"assets/sprites/gun-chest.png",
+		"assets/sprites/ammo-chest.png",
+	}, 32, 32)
+
 	game.gunSprites = helpers.LoadSprites(assets, []string{
 		"assets/sprites/fist.png",
 		"assets/sprites/whisky.png",
@@ -395,6 +415,10 @@ func NewGame() *Game {
 	}, 32, 32)
 
 	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
+
+	game.tentHitbox = helpers.InitializeTentHitbox()
+
+	game.chestHitbox = helpers.InitializeChestHitbox()
 
 	game.Initialize()
 
@@ -420,6 +444,8 @@ func (g *Game) startLevel(level int) {
 
 	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
 	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
+	g.tents = helpers.SpawnTents(g.island, tentAmount, 4.0, g.tentSprite, g.tentHitbox)
+	g.chests = helpers.SpawnChests(g.island, chestAmount, 2.0, g.chestSprites, g.chestHitbox)
 
 	x, y := g.island.Center()
 	g.player.X = x
@@ -623,6 +649,7 @@ func (g *Game) clearSpawnArea() {
 		}
 		remaining = append(remaining, cactus)
 	}
+
 	g.cacti = remaining
 }
 
@@ -1193,6 +1220,20 @@ func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
 		}
 	}
 
+	for _, tent := range g.tents {
+		if bullet.Hitbox.CheckCollision(tent.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+			return true
+		}
+	}
+
+	for _, chest := range g.chests {
+		if bullet.Hitbox.CheckCollision(chest.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -1222,6 +1263,18 @@ func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
 
 	for _, cactus := range g.cacti {
 		if hitbox.CheckCollision(cactus.Hitbox) {
+			return false
+		}
+	}
+
+	for _, tent := range g.tents {
+		if hitbox.CheckCollision(tent.Hitbox) {
+			return false
+		}
+	}
+
+	for _, chest := range g.chests {
+		if hitbox.CheckCollision(chest.Hitbox) {
 			return false
 		}
 	}
@@ -1780,6 +1833,13 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 		cactus.Draw(screen, g.camX, g.camY)
 	}
 
+	for _, tent := range g.tents {
+		tent.Draw(screen, g.camX, g.camY)
+	}
+
+	for _, chest := range g.chests {
+		chest.Draw(screen, g.camX, g.camY)
+	}
 	for _, loot := range g.loot {
 		loot.Draw(screen, g.camX, g.camY)
 	}
