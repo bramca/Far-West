@@ -179,6 +179,7 @@ func SpawnChests(island *world.Island, amount int, spriteScale float64, chestSpr
 		chest := &world.Chest{
 			X:           x,
 			Y:           y,
+			Type:        world.ChestType(i / 2),
 			W:           float64(sprites[0].Bounds().Dx()),
 			H:           float64(sprites[0].Bounds().Dy()),
 			Sprites:     sprites,

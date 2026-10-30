@@ -404,6 +404,7 @@ func NewGame() *Game {
 		"assets/sprites/gold-chest.png",
 		"assets/sprites/gun-chest.png",
 		"assets/sprites/ammo-chest.png",
+		"assets/sprites/whisky-chest.png",
 	}, 32, 32)
 
 	game.gunSprites = helpers.LoadSprites(assets, []string{

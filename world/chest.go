@@ -13,6 +13,7 @@ const (
 	Gold ChestType = iota
 	Gun
 	Ammo
+	Whisky
 )
 
 const (
