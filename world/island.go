@@ -320,6 +320,73 @@ func (i *Island) RandomLandPoint() (float64, float64) {
 	return i.Center()
 }
 
+// RandomLandPointWithin returns the center of a random walkable point inside
+// the circle around centerX, centerY with the given radius.
+func (i *Island) RandomLandPointWithin(centerX, centerY, radius float64) (float64, float64, bool) {
+	for range 1000 {
+		angle := rand.Float64() * 2 * math.Pi
+		distance := math.Sqrt(rand.Float64()) * radius
+		x := centerX + math.Cos(angle)*distance
+		y := centerY + math.Sin(angle)*distance
+		if i.IsWalkable(x, y) {
+			return x, y, true
+		}
+	}
+
+	return 0, 0, false
+}
+
+// RandomOpenLandPoint returns the center of a land tile that has a clear
+// radius around it and lies at least minDistance away from every avoid point.
+func (i *Island) RandomOpenLandPoint(clearRadius, minDistance float64, avoid ...[2]float64) (float64, float64, bool) {
+	for range 2000 {
+		tx := rand.IntN(i.Width)
+		ty := rand.IntN(i.Height)
+		if i.tiles[tx][ty] != Land {
+			continue
+		}
+
+		x := (float64(tx) + 0.5) * i.TileSize
+		y := (float64(ty) + 0.5) * i.TileSize
+		if !i.areaWalkable(x, y, clearRadius) {
+			continue
+		}
+
+		tooClose := false
+		for _, point := range avoid {
+			if math.Hypot(x-point[0], y-point[1]) < minDistance {
+				tooClose = true
+
+				break
+			}
+		}
+		if tooClose {
+			continue
+		}
+
+		return x, y, true
+	}
+
+	return 0, 0, false
+}
+
+// areaWalkable reports whether the whole circle around x, y is on solid ground.
+func (i *Island) areaWalkable(x, y, radius float64) bool {
+	const samples = 12
+	if !i.IsWalkable(x, y) {
+		return false
+	}
+
+	for n := range samples {
+		angle := float64(n) / samples * 2 * math.Pi
+		if !i.IsWalkable(x+math.Cos(angle)*radius, y+math.Sin(angle)*radius) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Center returns the center of the land mass, it is used as the player spawn.
 func (i *Island) Center() (float64, float64) {
 	sumX, sumY, count := 0.0, 0.0, 0.0
@@ -408,8 +475,8 @@ func (i *Island) renderMiniMap() *ebiten.Image {
 }
 
 // DrawMiniMap draws a scaled down version of the world with the position of
-// the player and of every enemy on it.
-func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX, playerY float64, enemies [][2]float64) {
+// the player and of the bandit camps on it.
+func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX, playerY float64, camps [][2]float64) {
 	drawOptions := &ebiten.DrawImageOptions{}
 	drawOptions.GeoM.Scale(scale, scale)
 	drawOptions.GeoM.Translate(x, y)
@@ -422,9 +489,10 @@ func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX,
 		return float32(x + worldX/i.TileSize*scale), float32(y + worldY/i.TileSize*scale)
 	}
 
-	for _, enemy := range enemies {
-		ex, ey := toMiniMap(enemy[0], enemy[1])
-		vector.FillRect(screen, ex, ey, 2, 2, color.RGBA{200, 40, 40, 255}, false)
+	for _, camp := range camps {
+		cx, cy := toMiniMap(camp[0], camp[1])
+		vector.FillRect(screen, cx-3, cy-3, 7, 7, color.RGBA{30, 20, 10, 255}, false)
+		vector.FillRect(screen, cx-2, cy-2, 5, 5, color.RGBA{230, 130, 40, 255}, false)
 	}
 
 	px, py := toMiniMap(playerX, playerY)

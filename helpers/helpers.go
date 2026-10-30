@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"image"
+	"math"
 	"math/rand/v2"
 
 	"github.com/bramca/Far-West/actors"
@@ -143,11 +144,100 @@ func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSpr
 	return cacti
 }
 
-// SpawnTents spreads tents over the land tiles of the given island.
-func SpawnTents(island *world.Island, amount int, spriteScale float64, sprite *ebiten.Image, hitbox *actors.HitBox) []*world.Tent {
+const (
+	// tents are placed on an outer ring and chests on an inner ring so a camp
+	// looks like a small organised settlement instead of a pile of sprites.
+	tentRingFraction  = 0.68
+	chestRingFraction = 0.22
+	ringRadiusJitter  = 0.04
+	tentAngleJitter   = 0.12
+	chestAngleJitter  = 0.08
+)
+
+// campObject is the visual rectangle of a tent or chest, it is used to keep
+// the objects of a camp from overlapping.
+type campObject struct {
+	x, y, w, h float64
+}
+
+func (o campObject) overlaps(other campObject) bool {
+	return o.x < other.x+other.w &&
+		o.x+o.w > other.x &&
+		o.y < other.y+other.h &&
+		o.y+o.h > other.y
+}
+
+func (o campObject) overlapsAny(objects []campObject) bool {
+	for _, other := range objects {
+		if o.overlaps(other) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// placeCampObject looks for a free spot on a ring around the camp center. The
+// first attempts stay close to the ring so the layout stays organised, later
+// attempts may pick any angle to find room when the ring is crowded.
+func placeCampObject(island *world.Island, camp *world.BanditCamp, width, height, baseAngle, ringFraction, angleJitter float64, occupied []campObject) (campObject, bool) {
+	for attempt := range 100 {
+		angle := baseAngle + (rand.Float64()*2-1)*angleJitter
+		if attempt >= 50 {
+			angle = rand.Float64() * 2 * math.Pi
+		}
+		radius := camp.Radius*ringFraction + (rand.Float64()*2-1)*camp.Radius*ringRadiusJitter
+		x := camp.X + math.Cos(angle)*radius - width/2
+		y := camp.Y + math.Sin(angle)*radius - height/2
+		object := campObject{x: x, y: y, w: width, h: height}
+		if !island.IsRectWalkable(object.x, object.y, object.w, object.h) {
+			continue
+		}
+		if object.overlapsAny(occupied) {
+			continue
+		}
+
+		return object, true
+	}
+
+	return campObject{}, false
+}
+
+// fallbackCampObject returns a random free spot in the camp, it is only used
+// when the ring layout could not fit an object.
+func fallbackCampObject(island *world.Island, camp *world.BanditCamp, width, height float64, occupied []campObject) campObject {
+	for range 500 {
+		x, y, ok := island.RandomLandPointWithin(camp.X, camp.Y, camp.Radius*0.8)
+		if !ok {
+			break
+		}
+		object := campObject{x: x - width/2, y: y - height/2, w: width, h: height}
+		if !island.IsRectWalkable(object.x, object.y, object.w, object.h) || object.overlapsAny(occupied) {
+			continue
+		}
+
+		return object
+	}
+
+	return campObject{x: camp.X - width/2, y: camp.Y - height/2, w: width, h: height}
+}
+
+// SpawnTents lays the tents of a bandit camp out on a ring around its center.
+func SpawnTents(island *world.Island, camp *world.BanditCamp, amount int, spriteScale float64, sprite *ebiten.Image, hitbox *actors.HitBox) []*world.Tent {
 	tents := []*world.Tent{}
-	for range amount {
-		x, y := island.RandomLandPoint()
+	width := float64(sprite.Bounds().Dx()) * spriteScale
+	height := float64(sprite.Bounds().Dy()) * spriteScale
+	occupied := make([]campObject, 0, amount)
+	angleOffset := rand.Float64() * 2 * math.Pi
+	for i := range amount {
+		baseAngle := angleOffset + float64(i)/float64(amount)*2*math.Pi
+		object, ok := placeCampObject(island, camp, width, height, baseAngle, tentRingFraction, tentAngleJitter, occupied)
+		if !ok {
+			object = fallbackCampObject(island, camp, width, height, occupied)
+		}
+		occupied = append(occupied, object)
+
+		x, y := object.x, object.y
 		tent := &world.Tent{
 			X:           x,
 			Y:           y,
@@ -169,17 +259,38 @@ func SpawnTents(island *world.Island, amount int, spriteScale float64, sprite *e
 	return tents
 }
 
-// SpawnChests spreads chests over the land tiles of the given island.
-func SpawnChests(island *world.Island, amount int, spriteScale float64, chestSprites []*ebiten.Image, hitbox *actors.HitBox) []*world.Chest {
+// SpawnChests places the chests on a smaller inner ring, keeping them clear of
+// the tents that are already on the camp.
+func SpawnChests(island *world.Island, camp *world.BanditCamp, amount int, spriteScale float64, chestSprites []*ebiten.Image, hitbox *actors.HitBox) []*world.Chest {
 	chests := []*world.Chest{}
-	for range amount {
-		x, y := island.RandomLandPoint()
-		i := rand.IntN(len(chestSprites)/2) * 2
-		sprites := chestSprites[i : i+1]
+	occupied := make([]campObject, 0, len(camp.Tents)+amount)
+	for _, tent := range camp.Tents {
+		occupied = append(occupied, campObject{
+			x: tent.X,
+			y: tent.Y,
+			w: tent.W * tent.Scale,
+			h: tent.H * tent.Scale,
+		})
+	}
+
+	width := float64(chestSprites[0].Bounds().Dx()) * spriteScale
+	height := float64(chestSprites[0].Bounds().Dy()) * spriteScale
+	angleOffset := rand.Float64() * 2 * math.Pi
+	for i := range amount {
+		baseAngle := angleOffset + float64(i)/float64(amount)*2*math.Pi
+		object, ok := placeCampObject(island, camp, width, height, baseAngle, chestRingFraction, chestAngleJitter, occupied)
+		if !ok {
+			object = fallbackCampObject(island, camp, width, height, occupied)
+		}
+		occupied = append(occupied, object)
+
+		x, y := object.x, object.y
+		spriteIndex := rand.IntN(len(chestSprites)/2) * 2
+		sprites := chestSprites[spriteIndex : spriteIndex+1]
 		chest := &world.Chest{
 			X:           x,
 			Y:           y,
-			Type:        world.ChestType(i / 2),
+			Type:        world.ChestType(spriteIndex / 2),
 			W:           float64(sprites[0].Bounds().Dx()),
 			H:           float64(sprites[0].Bounds().Dy()),
 			Sprites:     sprites,

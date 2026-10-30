@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	// huntChance is the chance that an enemy that lost track of the player
-	// roams in his direction instead of picking a random direction.
-	huntChance = 0.75
 	// an enemy drinks his whisky when his health drops below this fraction.
 	enemyHealHealthDivisor = 3
+	// homeLeashFraction is the part of the camp radius an idle enemy wanders
+	// before it turns back towards the camp center.
+	homeLeashFraction = 0.6
 )
 
 type Enemy struct {
@@ -22,6 +22,15 @@ type Enemy struct {
 	Tier Tier
 
 	VisualDist int
+	// HomeX and HomeY are the center of the bandit camp the enemy belongs to
+	// and HomeRadius is how far it may wander away from it.
+	HomeX      float64
+	HomeY      float64
+	HomeRadius float64
+	// Blocked is set when the enemy could not move at all because an obstacle
+	// or another actor was in the way. The game uses it to steer the enemy
+	// into a free direction instead of letting it push against the obstacle.
+	Blocked bool
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int
 }
@@ -176,29 +185,44 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount i
 			Left,
 			Right,
 		}
-		moveDir := dirs[rand.IntN(len(dirs))]
-		// most of the time the enemy roams towards the player, that way the
-		// player is always hunted instead of being left alone on the island
-		if rand.Float64() < huntChance {
-			moveDir = e.directionTowards(player)
-		}
 		e.CurrentAction = Action{
 			Duration: 85 + rand.IntN(170),
 			Type:     actionType,
-			MoveDir:  moveDir,
+			MoveDir:  e.wanderDirection(dirs),
 			LookDir:  dirs[rand.IntN(len(dirs))],
 			Actor:    e.Player,
 		}
+	}
+
+	// a bandit that wandered too far heads back to his camp instead of
+	// drifting over the whole island
+	if e.HomeRadius > 0 && e.CurrentAction.Type == Move && e.distanceFromHome() > e.HomeRadius {
+		e.CurrentAction.MoveDir = e.directionTowardsPoint(e.HomeX, e.HomeY)
 	}
 
 	e.CurrentAction.PerformAction(player, frameCount)
 	e.UpdateHitboxOffset(16)
 }
 
-// directionTowards returns the direction that brings the enemy closer to the player.
-func (e *Enemy) directionTowards(player *Player) Direction {
-	xDelta := player.X - e.X
-	yDelta := player.Y - e.Y
+// wanderDirection picks a direction for an idle bandit. Once he is far enough
+// from the center of his camp he turns back home.
+func (e *Enemy) wanderDirection(dirs []Direction) Direction {
+	if e.HomeRadius > 0 && e.distanceFromHome() > e.HomeRadius*homeLeashFraction {
+		return e.directionTowardsPoint(e.HomeX, e.HomeY)
+	}
+
+	return dirs[rand.IntN(len(dirs))]
+}
+
+func (e *Enemy) distanceFromHome() float64 {
+	return utils.DistanceBetweenPoints(e.X, e.Y, e.HomeX, e.HomeY)
+}
+
+// directionTowardsPoint returns the cardinal direction that brings the enemy
+// closer to the given point.
+func (e *Enemy) directionTowardsPoint(x, y float64) Direction {
+	xDelta := x - e.X
+	yDelta := y - e.Y
 
 	if math.Abs(xDelta) > math.Abs(yDelta) {
 		if xDelta > 0 {

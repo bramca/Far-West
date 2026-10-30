@@ -8,11 +8,23 @@ import (
 )
 
 // TestGameLoop runs the game loop without any player input, the player is
-// expected to stay on the island, to be hunted down by the enemies of the
-// first level and to end up in a game over.
+// expected to stay on the island, to be hunted down by the bandits of the
+// first camp and to end up in a game over.
 func TestGameLoop(t *testing.T) {
 	game := NewGame()
 	game.mode = ModeGame
+
+	// bandits stay near their camp, so put the idle player in the middle of
+	// the first camp to let them find him. Clear the cover of the camp so this
+	// test is about combat and not about the player hiding behind a tent.
+	camp := game.camps[0]
+	game.cacti = nil
+	game.tents = nil
+	game.chests = nil
+	game.player.X = camp.X
+	game.player.Y = camp.Y
+	game.player.UpdateHitbox()
+	game.player.SavePosition()
 
 	for range game.framesPerSecond * 300 {
 		if err := game.Update(); err != nil {
@@ -122,6 +134,114 @@ func TestLevelClearsAndAdvances(t *testing.T) {
 	}
 	if game.aliveEnemies() != enemyCountForLevel(2) {
 		t.Fatalf("expected %d enemies on level 2, got %d", enemyCountForLevel(2), game.aliveEnemies())
+	}
+}
+
+// TestBanditCamps makes sure every level has a small number of camps and that
+// each camp is a real place on the island with enemies, tents and chests.
+func TestBanditCamps(t *testing.T) {
+	game := NewGame()
+
+	if count := len(game.camps); count < 1 || count > maxCamps {
+		t.Fatalf("expected 1 to %d bandit camps, got %d", maxCamps, count)
+	}
+
+	totalEnemies := 0
+	for _, camp := range game.camps {
+		if !game.island.IsWalkable(camp.X, camp.Y) {
+			t.Fatalf("the camp at %f,%f is not on land", camp.X, camp.Y)
+		}
+		if len(camp.Tents) < campTentMin || len(camp.Tents) > campTentMax {
+			t.Fatalf("the camp has %d tents, expected %d to %d", len(camp.Tents), campTentMin, campTentMax)
+		}
+		if len(camp.Chests) < campChestMin || len(camp.Chests) > campChestMax {
+			t.Fatalf("the camp has %d chests, expected %d to %d", len(camp.Chests), campChestMin, campChestMax)
+		}
+		if len(camp.Enemies) == 0 {
+			t.Fatal("a bandit camp spawned without enemies")
+		}
+
+		for _, enemy := range camp.Enemies {
+			if distance := math.Hypot(enemy.X-camp.X, enemy.Y-camp.Y); distance > camp.Radius {
+				t.Fatalf("an enemy spawned %f away from its camp with radius %f", distance, camp.Radius)
+			}
+		}
+
+		type bounds struct {
+			x, y, w, h float64
+		}
+		objects := make([]bounds, 0, len(camp.Tents)+len(camp.Chests))
+		for _, tent := range camp.Tents {
+			objects = append(objects, bounds{tent.X, tent.Y, tent.W * tent.Scale, tent.H * tent.Scale})
+		}
+		for _, chest := range camp.Chests {
+			objects = append(objects, bounds{chest.X, chest.Y, chest.W * chest.Scale, chest.H * chest.Scale})
+		}
+		for i := range objects {
+			for j := i + 1; j < len(objects); j++ {
+				a, b := objects[i], objects[j]
+				if a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y {
+					t.Fatalf("camp objects %d and %d overlap", i, j)
+				}
+			}
+		}
+
+		totalEnemies += len(camp.Enemies)
+	}
+
+	if totalEnemies != game.levelEnemies {
+		t.Fatalf("the camps hold %d enemies while the level has %d", totalEnemies, game.levelEnemies)
+	}
+}
+
+// TestEnemiesWanderAroundTheirCamp makes sure an enemy that is not hunting the
+// player stays close to the center of its camp instead of roaming the island.
+func TestEnemiesWanderAroundTheirCamp(t *testing.T) {
+	game := NewGame()
+	farPlayer := &actors.Player{X: -100000, Y: -100000}
+
+	for _, enemy := range game.enemies {
+		for frame := range 1200 {
+			enemy.ThinkAndAct(farPlayer, nil, frame)
+
+			distance := math.Hypot(enemy.X-enemy.HomeX, enemy.Y-enemy.HomeY)
+			if distance > enemy.HomeRadius+10 {
+				t.Fatalf("an idle enemy wandered %f away from its camp with radius %f", distance, enemy.HomeRadius)
+			}
+		}
+	}
+}
+
+// TestBlockedEnemyPicksFreeDirection makes sure an enemy that walked into an
+// obstacle is steered into a direction it can actually move in.
+func TestBlockedEnemyPicksFreeDirection(t *testing.T) {
+	game := NewGame()
+	enemy := game.enemies[0]
+
+	// isolate the enemy in an open part of the island so the test cannot be
+	// foiled by a neighbouring bandit standing in every free direction
+	game.enemies = []*actors.Enemy{enemy}
+	game.cacti = nil
+	game.tents = nil
+	game.chests = nil
+	game.player.X = -10000
+	game.player.Y = -10000
+	game.player.UpdateHitbox()
+	enemy.X, enemy.Y = game.island.Center()
+	enemy.HomeX, enemy.HomeY = enemy.X, enemy.Y
+	enemy.UpdateHitboxOffset(enemyHitboxOffset)
+	enemy.CurrentAction = actors.Action{}
+	enemy.Blocked = true
+	game.unstickEnemy(enemy)
+
+	if enemy.Blocked {
+		t.Fatal("the blocked enemy was not unstuck")
+	}
+	if enemy.CurrentAction.Type != actors.Move {
+		t.Fatalf("the blocked enemy did not start moving, action type %d", enemy.CurrentAction.Type)
+	}
+	if !game.canEnemyStep(enemy, enemy.CurrentAction.MoveDir) {
+		t.Fatal("the blocked enemy was steered into another obstacle")
 	}
 }
 

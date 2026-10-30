@@ -37,7 +37,7 @@ In the town there are `shops` were you can by stuff:
 - [ ] progress bar after each level when going to the next island
 - [ ] island boss (with dynamite sticks as weapon)
 - [ ] town buildings (store, sherrif)
-- [ ] bandit camps (tents, weapon chest, gold chest, ammo chest)
+- [X] bandit camps (tents, weapon chest, gold chest, ammo chest)
 - [ ] bounty post
 - [ ] boat dock (with ticket to next island when bounty is killed)
     - [ ] player can choose which island to go next on a map (with difficulty level color coded)
@@ -64,7 +64,12 @@ In the town there are `shops` were you can by stuff:
 
 The game is played in levels. Every level drops you on a randomly shaped
 island, the ocean around it is the border of the world. You have to wipe out
-every enemy to advance to the next level.
+every bandit to advance to the next level.
+
+Bandits live in one to three bandit camps per island. Each camp has tents,
+chests and a group of enemies that spawn and wander around it instead of
+roaming the whole island. The minimap shows the location of the camps, not the
+individual bandits.
 
 The first level starts with 6 normal enemies. Every following level the enemies
 get tougher — more health, harder hitting bullets and a faster fire rate — and

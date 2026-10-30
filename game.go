@@ -42,8 +42,14 @@ const (
 	worldTilesY   = 60
 	worldTileSize = 64.0
 	cactusAmount  = 100
-	tentAmount    = 10
-	chestAmount   = 20
+	// bandit camps
+	maxCamps        = 3
+	campRadius      = 280.0
+	campMinDistance = 700.0
+	campTentMin     = 2
+	campTentMax     = 4
+	campChestMin    = 2
+	campChestMax    = 4
 
 	// levels
 	initialEnemies   = 6
@@ -242,6 +248,8 @@ type Game struct {
 	chestHitbox  *actors.HitBox
 	chests       []*world.Chest
 
+	camps []*world.BanditCamp
+
 	// gameplay
 	frameCount   int
 	maxFramCount int
@@ -439,14 +447,11 @@ func (g *Game) Initialize() {
 }
 
 // startLevel drops the player on a brand new island for the given level,
-// spawns the enemies to beat and restores the player.
+// spawns the bandit camps and enemies to beat and restores the player.
 func (g *Game) startLevel(level int) {
 	g.level = level
 
 	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
-	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
-	g.tents = helpers.SpawnTents(g.island, tentAmount, 4.0, g.tentSprite, g.tentHitbox)
-	g.chests = helpers.SpawnChests(g.island, chestAmount, 2.0, g.chestSprites, g.chestHitbox)
 
 	x, y := g.island.Center()
 	g.player.X = x
@@ -467,18 +472,68 @@ func (g *Game) startLevel(level int) {
 	g.player.UpdateHitbox()
 	g.player.UpdateHealhBar()
 	g.player.DrawWeapon(g.player.CurrentWeapon)
+
+	g.camps = nil
+	g.tents = nil
+	g.chests = nil
+	g.spawnCamps()
+
+	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
 	g.clearSpawnArea()
+	g.clearCampAreas()
 
 	g.enemies = nil
 	g.loot = nil
 	g.spawnLevel()
 }
 
-// spawnLevel spawns every enemy the player has to defeat in the current level.
+// spawnCamps picks one to three spots on the island that are far enough away
+// from the player and from each other and fills them with tents and chests.
+func (g *Game) spawnCamps() {
+	count := 1 + rand.IntN(maxCamps)
+	g.camps = make([]*world.BanditCamp, 0, count)
+	avoid := [][2]float64{{g.player.X, g.player.Y}}
+	for range count {
+		x, y, ok := g.island.RandomOpenLandPoint(campRadius, campMinDistance, avoid...)
+		if !ok {
+			x, y = g.island.RandomLandPoint()
+		}
+
+		camp := world.NewBanditCamp(x, y, campRadius)
+		camp.Tents = helpers.SpawnTents(
+			g.island,
+			camp,
+			campTentMin+rand.IntN(campTentMax-campTentMin+1),
+			4.0,
+			g.tentSprite,
+			g.tentHitbox,
+		)
+		camp.Chests = helpers.SpawnChests(
+			g.island,
+			camp,
+			campChestMin+rand.IntN(campChestMax-campChestMin+1),
+			2.0,
+			g.chestSprites,
+			g.chestHitbox,
+		)
+
+		g.tents = append(g.tents, camp.Tents...)
+		g.chests = append(g.chests, camp.Chests...)
+		g.camps = append(g.camps, camp)
+		avoid = append(avoid, [2]float64{x, y})
+	}
+}
+
+// spawnLevel spawns every enemy the player has to defeat in the current level
+// and spreads them evenly over the bandit camps.
 func (g *Game) spawnLevel() {
 	g.levelEnemies = enemyCountForLevel(g.level)
-	for range g.levelEnemies {
-		g.spawnEnemy()
+	if len(g.camps) == 0 {
+		return
+	}
+
+	for i := range g.levelEnemies {
+		g.spawnEnemy(g.camps[i%len(g.camps)])
 	}
 }
 
@@ -632,8 +687,6 @@ func (g *Game) newPlayer() *actors.Player {
 	return player
 }
 
-// enemySpawnPoint looks for a land tile that is far enough from the player so
-// enemies never pop up right next to him.
 // clearSpawnArea removes the cacti that grew on top of the player spawn.
 func (g *Game) clearSpawnArea() {
 	spawnArea := &actors.HitBox{
@@ -654,19 +707,44 @@ func (g *Game) clearSpawnArea() {
 	g.cacti = remaining
 }
 
-// enemySpawnPoint looks for a land tile that is far enough from the player so
-// enemies never pop up right next to him. It reports whether such a spot was
-// found, spawning an enemy on an invalid position would leave it stuck there
-// for the rest of the run.
-func (g *Game) enemySpawnPoint() (float64, float64, bool) {
+// clearCampAreas removes the cacti that grew inside a bandit camp so the tents,
+// chests and bandits have room to move.
+func (g *Game) clearCampAreas() {
+	remaining := g.cacti[:0]
+	for _, cactus := range g.cacti {
+		inCamp := false
+		for _, camp := range g.camps {
+			if camp.Contains(cactus.X+cactus.W/2, cactus.Y+cactus.H/2) {
+				inCamp = true
+
+				break
+			}
+		}
+		if inCamp {
+			continue
+		}
+		remaining = append(remaining, cactus)
+	}
+
+	g.cacti = remaining
+}
+
+// enemySpawnPoint looks for a land tile inside the camp that is far enough from
+// the player so enemies never pop up right next to him. It reports whether such
+// a spot was found, spawning an enemy on an invalid position would leave it
+// stuck there for the rest of the run.
+func (g *Game) enemySpawnPoint(camp *world.BanditCamp) (float64, float64, bool) {
 	spriteWidth := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dx() - 5)
 	spriteHeight := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dy())
 
 	// the first pass keeps the enemies at a distance, the second pass drops
-	// that requirement for the islands that are too small for it
+	// that requirement for camps and islands that are too small for it
 	for pass := range 2 {
 		for range 100 {
-			x, y := g.island.RandomLandPoint()
+			x, y, ok := g.island.RandomLandPointWithin(camp.X, camp.Y, camp.Radius)
+			if !ok {
+				continue
+			}
 			dist := utils.DistanceBetweenPoints(g.player.X, g.player.Y, x, y)
 			if pass == 0 && (dist < enemyMinSpawnDistance || dist > enemyMaxSpawnDistance) {
 				continue
@@ -913,8 +991,8 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 	return gun
 }
 
-func (g *Game) spawnEnemy() {
-	x, y, ok := g.enemySpawnPoint()
+func (g *Game) spawnEnemy(camp *world.BanditCamp) {
+	x, y, ok := g.enemySpawnPoint(camp)
 	if !ok {
 		return
 	}
@@ -985,6 +1063,9 @@ func (g *Game) spawnEnemy() {
 			},
 		},
 		VisualDist: rand.IntN(350) + 400,
+		HomeX:      camp.X,
+		HomeY:      camp.Y,
+		HomeRadius: camp.Radius,
 	}
 	enemy.Healthbar = &actors.HealthBar{
 		X:               enemy.X,
@@ -1003,6 +1084,7 @@ func (g *Game) spawnEnemy() {
 	enemy.SavePosition()
 
 	g.enemies = append(g.enemies, enemy)
+	camp.AddEnemy(enemy)
 }
 
 // aliveEnemies counts the enemies that are still a threat to the player.
@@ -1125,6 +1207,9 @@ func (g *Game) removeCorpses() {
 		enemy.CorpseTimer += 1
 		if enemy.CorpseTimer > corpseDuration {
 			g.enemies = append(g.enemies[:i], g.enemies[i+1:]...)
+			for _, camp := range g.camps {
+				camp.RemoveEnemy(enemy)
+			}
 		}
 	}
 }
@@ -1249,10 +1334,42 @@ func (g *Game) checkWorldCollisions() {
 		if enemy.Dead {
 			continue
 		}
-		if !g.canStandAt(enemy.Hitbox) {
-			enemy.RestorePosition()
+		g.resolveEnemyWorldCollision(enemy)
+	}
+}
+
+// resolveEnemyWorldCollision lets an enemy slide along a wall when possible and
+// otherwise flags it so the AI can pick another direction on the next frame.
+func (g *Game) resolveEnemyWorldCollision(enemy *actors.Enemy) {
+	if g.canStandAt(enemy.Hitbox) {
+		return
+	}
+
+	nextX, nextY := enemy.X, enemy.Y
+	movedX := math.Abs(nextX-enemy.PrevX) > 0.01
+	movedY := math.Abs(nextY-enemy.PrevY) > 0.01
+
+	if movedX {
+		g.setEnemyPosition(enemy, nextX, enemy.PrevY)
+		if g.canStandAt(enemy.Hitbox) {
+			return
 		}
 	}
+	if movedY {
+		g.setEnemyPosition(enemy, enemy.PrevX, nextY)
+		if g.canStandAt(enemy.Hitbox) {
+			return
+		}
+	}
+
+	enemy.RestorePosition()
+	enemy.Blocked = true
+}
+
+func (g *Game) setEnemyPosition(enemy *actors.Enemy, x, y float64) {
+	enemy.X, enemy.Y = x, y
+	enemy.UpdateHitboxOffset(enemyHitboxOffset)
+	enemy.UpdateHealhBar()
 }
 
 // canStandAt reports whether the given hitbox is completely on walkable land
@@ -1293,6 +1410,7 @@ func (g *Game) checkActorCollisions() {
 		if !g.player.Dead && g.player.Hitbox.CheckCollision(enemy.Hitbox) {
 			g.player.RestorePosition()
 			enemy.RestorePosition()
+			enemy.Blocked = true
 		}
 
 		for _, otherEnemy := range g.enemies[i+1:] {
@@ -1301,9 +1419,113 @@ func (g *Game) checkActorCollisions() {
 			}
 			if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
 				enemy.RestorePosition()
+				enemy.Blocked = true
 			}
 		}
 	}
+}
+
+// unstickEnemy steers an enemy that ran into an obstacle or another actor into
+// a free direction instead of letting it push against the same thing forever.
+func (g *Game) unstickEnemy(enemy *actors.Enemy) {
+	if !enemy.Blocked {
+		return
+	}
+	enemy.Blocked = false
+
+	// do not interrupt a bandit that is drinking his whisky or shooting at the
+	// player, he will pick a new direction once his current action is done
+	switch enemy.CurrentAction.Type {
+	case actors.Heal, actors.MoveAndShoot, actors.Shoot:
+		return
+	}
+
+	targetX, targetY := enemy.HomeX, enemy.HomeY
+	if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
+		targetX, targetY = g.player.X, g.player.Y
+	}
+
+	dirs := []actors.Direction{actors.Up, actors.Down, actors.Left, actors.Right}
+	rand.Shuffle(len(dirs), func(i, j int) {
+		dirs[i], dirs[j] = dirs[j], dirs[i]
+	})
+
+	var bestDir actors.Direction
+	bestDistance := math.MaxFloat64
+	for _, dir := range dirs {
+		if !g.canEnemyStep(enemy, dir) {
+			continue
+		}
+
+		distance := enemyStepDistance(enemy, dir, targetX, targetY)
+		if distance < bestDistance {
+			bestDir = dir
+			bestDistance = distance
+		}
+	}
+	if bestDistance == math.MaxFloat64 {
+		return
+	}
+
+	enemy.StopAnimation()
+	enemy.CurrentAction = actors.Action{
+		Duration: 45 + rand.IntN(30),
+		Type:     actors.Move,
+		MoveDir:  bestDir,
+		LookDir:  bestDir,
+		Actor:    enemy.Player,
+	}
+}
+
+// enemyStepDistance returns how close a single step in the given direction
+// brings the enemy to the target point.
+func enemyStepDistance(enemy *actors.Enemy, dir actors.Direction, targetX, targetY float64) float64 {
+	x, y := enemy.X, enemy.Y
+	switch dir {
+	case actors.Up:
+		y -= enemy.Speed
+	case actors.Down:
+		y += enemy.Speed
+	case actors.Left:
+		x -= enemy.Speed
+	case actors.Right:
+		x += enemy.Speed
+	}
+
+	return math.Hypot(targetX-x, targetY-y)
+}
+
+// canEnemyStep reports whether the enemy can take a single step in the given
+// direction without walking into the ocean, an obstacle or another actor.
+func (g *Game) canEnemyStep(enemy *actors.Enemy, dir actors.Direction) bool {
+	hitbox := *enemy.Hitbox
+	switch dir {
+	case actors.Up:
+		hitbox.Y -= float32(enemy.Speed)
+	case actors.Down:
+		hitbox.Y += float32(enemy.Speed)
+	case actors.Left:
+		hitbox.X -= float32(enemy.Speed)
+	case actors.Right:
+		hitbox.X += float32(enemy.Speed)
+	}
+
+	if !g.canStandAt(&hitbox) {
+		return false
+	}
+	if !g.player.Dead && g.player.Hitbox.CheckCollision(&hitbox) {
+		return false
+	}
+	for _, other := range g.enemies {
+		if other == enemy || other.Dead {
+			continue
+		}
+		if other.Hitbox.CheckCollision(&hitbox) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // damagePlayer applies bullet damage to the player and ends the run when he dies.
@@ -1745,6 +1967,7 @@ func (g *Game) Update() error {
 			if enemy.Dead {
 				continue
 			}
+			g.unstickEnemy(enemy)
 			enemy.ThinkAndAct(g.player, g.player.Bullets, g.frameCount)
 		}
 
@@ -1894,7 +2117,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 		miniMapScale,
 		g.player.X,
 		g.player.Y,
-		g.enemyPositions(),
+		g.campPositions(),
 	)
 }
 
@@ -2112,14 +2335,11 @@ func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
 	text.Draw(screen, "HEALTH", g.hudFace, drawOptions)
 }
 
-// enemyPositions returns the position of every living enemy for the mini map.
-func (g *Game) enemyPositions() [][2]float64 {
-	positions := make([][2]float64, 0, len(g.enemies))
-	for _, enemy := range g.enemies {
-		if enemy.Dead {
-			continue
-		}
-		positions = append(positions, [2]float64{enemy.X, enemy.Y})
+// campPositions returns the position of every bandit camp for the mini map.
+func (g *Game) campPositions() [][2]float64 {
+	positions := make([][2]float64, 0, len(g.camps))
+	for _, camp := range g.camps {
+		positions = append(positions, [2]float64{camp.X, camp.Y})
 	}
 
 	return positions
