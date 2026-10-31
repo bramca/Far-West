@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -150,6 +151,8 @@ type Player struct {
 	// dodge handling
 	DodgeCooldown      int
 	DodgeCooldownTimer int
+
+	Gold int
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -194,6 +197,14 @@ func (p *Player) DrawHitbox(screen *ebiten.Image, camX, camY float64) {
 	p.Hitbox.Draw(screen, camX, camY)
 }
 
+func (p *Player) DrawGold(screen *ebiten.Image, textFace *text.GoXFace, X, Y float64) {
+	msg := "GOLD " + strconv.Itoa(p.Gold)
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(X, Y)
+	drawOptions.ColorScale.ScaleWithColor(color.RGBA{245, 205, 55, 255})
+	text.Draw(screen, msg, textFace, drawOptions)
+}
+
 func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
 	for _, gun := range p.GunBelt {
 		gun.Draw(screen, camX, camY)
@@ -205,6 +216,9 @@ func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
 
 	// a golden bar under the selected gun marks which one is in the player's
 	// hands
+	if p.CurrentWeapon < 0 || p.CurrentWeapon >= len(p.GunBelt) || p.GunBelt[p.CurrentWeapon] == nil {
+		return
+	}
 	gun := p.GunBelt[p.CurrentWeapon]
 	const (
 		markerWidth  = 38.0

@@ -286,13 +286,14 @@ func SpawnChests(island *world.Island, camp *world.BanditCamp, amount int, sprit
 
 		x, y := object.x, object.y
 		spriteIndex := rand.IntN(len(chestSprites)/2) * 2
-		sprites := chestSprites[spriteIndex : spriteIndex+1]
+		sprites := chestSprites[spriteIndex : spriteIndex+2]
 		chest := &world.Chest{
 			X:           x,
 			Y:           y,
 			Type:        world.ChestType(spriteIndex / 2),
 			W:           float64(sprites[0].Bounds().Dx()),
 			H:           float64(sprites[0].Bounds().Dy()),
+			State:       world.Closed,
 			Sprites:     sprites,
 			DrawOptions: &ebiten.DrawImageOptions{},
 			Scale:       spriteScale,

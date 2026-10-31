@@ -557,7 +557,7 @@ func (g *Game) newPlayer() *actors.Player {
 			Sprite:        g.gunSprites[actors.Whisky],
 			DrawOptions:   &ebiten.DrawImageOptions{},
 			ShootCooldown: 32,
-			Ammo:          20,
+			Ammo:          5,
 			Scale:         2.0,
 			X:             ScreenWidth/2 - 128,
 			Y:             ScreenHeight - 64,
@@ -1907,6 +1907,8 @@ func (g *Game) Update() error {
 		// tosses the old one in the aim direction
 		if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
 			g.pickUpLoot(loot)
+		} else if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			g.openChest(chest)
 		}
 
 		if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
@@ -1991,6 +1993,60 @@ func (g *Game) Update() error {
 		}
 	}
 	return nil
+}
+
+func (g *Game) nearestClosedChest() *world.Chest {
+	var nearest *world.Chest
+	nearestDist := lootPickupRadius
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+
+	for _, chest := range g.chests {
+		if chest == nil || chest.State != world.Closed {
+			continue
+		}
+		dist := utils.DistanceBetweenPoints(px, py, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2)
+		if dist <= nearestDist {
+			nearest = chest
+			nearestDist = dist
+		}
+	}
+
+	return nearest
+}
+
+func (g *Game) openChest(chest *world.Chest) {
+	if chest == nil || chest.State != world.Closed {
+		return
+	}
+	chest.State = world.Open
+
+	switch chest.Type {
+	case world.Gold:
+		amount := 1 + rand.IntN(50)
+		g.player.Gold += amount
+		g.addHit(&g.player.Hits, chest.X, chest.Y-chest.H*chest.Scale/2, "+"+strconv.Itoa(amount)+" $", color.RGBA{245, 205, 55, 240})
+	case world.Gun:
+		// drop a random gun
+		gunType := rollEnemyWeapon()
+		gun := g.newEnemyGun(gunType, rollGunTier(actors.Common), 3)
+		// Make it a reasonable gun to pick up
+		g.loot = append(g.loot, actors.NewLoot(&gun, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	case world.Ammo:
+		// add ammo of a random type of gun from the players gunbelt
+		if len(g.player.GunBelt) > 2 {
+			idx := 2 + rand.IntN(len(g.player.GunBelt)-2)
+			gun := g.player.GunBelt[idx]
+			if gun != nil {
+				ammo := 5 + rand.IntN(20)
+				gun.Ammo += ammo
+				g.addHit(&g.player.Hits, chest.X, chest.Y-chest.H*chest.Scale/2, "+"+strconv.Itoa(ammo)+" "+gun.GunType.String()+" AMMO", color.RGBA{200, 200, 200, 240})
+			}
+		}
+	case world.Whisky:
+		whisky := g.newEnemyGun(actors.Whisky, actors.Common, 2+rand.IntN(3))
+		g.loot = append(g.loot, actors.NewLoot(&whisky, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	}
 }
 
 // Draw draws the game screen.
@@ -2100,6 +2156,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 	g.drawAmmo(screen)
 	g.drawDodgeCooldown(screen)
 	g.player.DrawGunBelt(screen, 0, 0)
+	g.player.DrawGold(screen, g.hudFace, float64(ScreenWidth-128), float64(ScreenHeight)-32)
 	g.drawLootPrompt(screen)
 
 	miniMapScale := 2.0
@@ -2116,13 +2173,29 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 
 // drawLootPrompt shows the controls of the gun lying next to the player.
 func (g *Game) drawLootPrompt(screen *ebiten.Image) {
-	if g.mode != ModeGame || g.player.Dead || g.nearestLoot() == nil {
+	if g.mode != ModeGame || g.player.Dead {
+		if g.nearestLoot() == nil {
+			return
+		}
+		msg := "E TAKE   Q COMPARE"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
 	}
 
-	msg := "E TAKE   Q COMPARE"
-	x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
-	g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+	if g.nearestLoot() != nil {
+		msg := "E TAKE   Q COMPARE"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if chest := g.nearestClosedChest(); chest != nil {
+		msg := "E OPEN"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
 }
 
 // gunStatRow is one line of the gun comparison overlay.
