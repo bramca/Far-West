@@ -307,6 +307,111 @@ func (i *Island) IsRectWalkable(x, y, w, h float64) bool {
 		i.IsWalkable(x+w, y+h)
 }
 
+// DockSide is the side of the island a dock is built on.
+type DockSide int
+
+const (
+	DockNorth DockSide = iota
+	DockEast
+	DockSouth
+	DockWest
+)
+
+// Outward returns the unit vector pointing from the island into the ocean.
+func (s DockSide) Outward() (float64, float64) {
+	switch s {
+	case DockNorth:
+		return 0, -1
+	case DockEast:
+		return 1, 0
+	case DockSouth:
+		return 0, 1
+	case DockWest:
+		return -1, 0
+	default:
+		return 0, -1
+	}
+}
+
+// DockSite is a walkable point on the shoreline that can hold a dock.
+type DockSite struct {
+	X, Y float64
+	Side DockSide
+}
+
+// RandomDockSite returns a shoreline tile where a dock can extend over water
+// while leaving enough land behind it for the player to stand on.
+func (i *Island) RandomDockSite(clearRadius, waterDepth float64) (DockSite, bool) {
+	sides := []DockSide{DockNorth, DockEast, DockSouth, DockWest}
+	rand.Shuffle(len(sides), func(a, b int) {
+		sides[a], sides[b] = sides[b], sides[a]
+	})
+
+	for _, side := range sides {
+		candidates := make([]image.Point, 0)
+		outX, outY := side.Outward()
+		for x := range i.Width {
+			for y := range i.Height {
+				if !i.walkableTile(x, y) || !i.onDockSide(x, y, side) {
+					continue
+				}
+
+				centerX := (float64(x) + 0.5) * i.TileSize
+				centerY := (float64(y) + 0.5) * i.TileSize
+				if i.IsWalkable(centerX+outX*i.TileSize, centerY+outY*i.TileSize) {
+					continue
+				}
+				if i.IsWalkable(centerX+outX*waterDepth, centerY+outY*waterDepth) {
+					continue
+				}
+
+				inlandX := centerX - outX*clearRadius
+				inlandY := centerY - outY*clearRadius
+				if !i.areaWalkable(inlandX, inlandY, clearRadius) {
+					continue
+				}
+
+				candidates = append(candidates, image.Point{X: x, Y: y})
+			}
+		}
+
+		if len(candidates) == 0 {
+			continue
+		}
+
+		point := candidates[rand.IntN(len(candidates))]
+
+		return DockSite{
+			X:    (float64(point.X) + 0.5) * i.TileSize,
+			Y:    (float64(point.Y) + 0.5) * i.TileSize,
+			Side: side,
+		}, true
+	}
+
+	return DockSite{}, false
+}
+
+func (i *Island) walkableTile(x, y int) bool {
+	tile := i.tiles[x][y]
+
+	return tile == Land || tile == Beach
+}
+
+func (i *Island) onDockSide(x, y int, side DockSide) bool {
+	switch side {
+	case DockNorth:
+		return y < i.Height/2
+	case DockEast:
+		return x >= i.Width/2
+	case DockSouth:
+		return y >= i.Height/2
+	case DockWest:
+		return x < i.Width/2
+	default:
+		return false
+	}
+}
+
 // RandomLandPoint returns the center of a random land tile.
 func (i *Island) RandomLandPoint() (float64, float64) {
 	for range 10000 {

@@ -51,6 +51,17 @@ const (
 	storeUpgradeOffersMin = 1
 	storeUpgradeOffersMax = 2
 	storeInteractRadius   = 150.0
+
+	// boat and dock
+	boatScale          = 4.0
+	boatInteractRadius = 200.0
+	dockLength         = 120.0
+	dockWidth          = 56.0
+	dockClearance      = 56.0
+	dockWaterDepth     = 220.0
+
+	// how long the "island clear" notice stays on screen
+	levelClearNoticeDuration = 5 * 60
 	// bandit camps
 	maxCamps        = 3
 	campRadius      = 280.0
@@ -271,16 +282,20 @@ type Game struct {
 	storeOpen      bool
 	storeSelection int
 
+	boat       *world.Boat
+	boatSprite *ebiten.Image
+
 	// gameplay
 	frameCount   int
 	maxFramCount int
 
 	// level state
-	level         int
-	levelEnemies  int
-	levelComplete bool
-	elapsedFrames int
-	score         int
+	level                 int
+	levelEnemies          int
+	levelComplete         bool
+	levelClearNoticeTimer int
+	elapsedFrames         int
+	score                 int
 
 	// gamepad
 	gamepadIDsBuf  []ebiten.GamepadID
@@ -431,6 +446,10 @@ func NewGame() *Game {
 		"assets/sprites/store.png",
 	}, 32, 32)[0]
 
+	game.boatSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/boat.png",
+	}, 32, 32)[0]
+
 	game.tentSprite = helpers.LoadSprites(assets, []string{
 		"assets/sprites/tent.png",
 	}, 32, 32)[0]
@@ -479,12 +498,14 @@ func (g *Game) Initialize() {
 // spawns the bandit camps and enemies to beat and restores the player.
 func (g *Game) startLevel(level int) {
 	g.level = level
+	g.levelComplete = false
+	g.levelClearNoticeTimer = 0
 
 	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
 
-	x, y := g.island.Center()
-	g.player.X = x
-	g.player.Y = y
+	spawnX, spawnY := g.spawnBoat()
+	g.player.X = spawnX - g.player.W/2
+	g.player.Y = spawnY - g.player.H/2
 	clear(g.player.Bullets)
 	g.player.Bullets = g.player.Bullets[:0]
 	g.player.Hits = nil
@@ -500,6 +521,7 @@ func (g *Game) startLevel(level int) {
 	g.player.Health = g.player.MaxHealth
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
+	g.player.SavePosition()
 	g.player.UpdateHealhBar()
 	g.player.DrawWeapon(g.player.CurrentWeapon)
 
@@ -521,6 +543,60 @@ func (g *Game) startLevel(level int) {
 	g.enemies = nil
 	g.loot = nil
 	g.spawnLevel()
+}
+
+// spawnBoat moors the player's boat at a random shore and returns the point
+// where the player should spawn at the landward end of the dock.
+func (g *Game) spawnBoat() (float64, float64) {
+	site, ok := g.island.RandomDockSite(dockClearance, dockWaterDepth)
+	if !ok {
+		x, y := g.island.Center()
+		site = world.DockSite{X: x, Y: y, Side: world.DockNorth}
+	}
+
+	outX, outY := site.Side.Outward()
+	boatX := site.X + outX*dockLength
+	boatY := site.Y + outY*dockLength
+	boatW := float64(g.boatSprite.Bounds().Dx())
+	boatH := float64(g.boatSprite.Bounds().Dy())
+
+	boat := &world.Boat{
+		X:           boatX - boatW*boatScale/2,
+		Y:           boatY - boatH*boatScale/2,
+		W:           boatW,
+		H:           boatH,
+		Sprite:      g.boatSprite,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       boatScale,
+		Side:        site.Side,
+	}
+
+	switch site.Side {
+	case world.DockNorth:
+		boat.DockX = site.X - dockWidth/2
+		boat.DockY = site.Y - dockLength
+		boat.DockW = dockWidth
+		boat.DockH = dockLength
+	case world.DockSouth:
+		boat.DockX = site.X - dockWidth/2
+		boat.DockY = site.Y
+		boat.DockW = dockWidth
+		boat.DockH = dockLength
+	case world.DockEast:
+		boat.DockX = site.X
+		boat.DockY = site.Y - dockWidth/2
+		boat.DockW = dockLength
+		boat.DockH = dockWidth
+	case world.DockWest:
+		boat.DockX = site.X - dockLength
+		boat.DockY = site.Y - dockWidth/2
+		boat.DockW = dockLength
+		boat.DockH = dockWidth
+	}
+
+	g.boat = boat
+
+	return site.X, site.Y
 }
 
 // spawnCamps picks one to three spots on the island that are far enough away
@@ -2028,6 +2104,9 @@ func (g *Game) Update() error {
 		}
 
 		g.elapsedFrames += 1
+		if g.levelClearNoticeTimer > 0 {
+			g.levelClearNoticeTimer--
+		}
 		g.removeCorpses()
 
 		g.player.SavePosition()
@@ -2223,16 +2302,19 @@ func (g *Game) Update() error {
 			loot.Update()
 		}
 
-		// a level is cleared when every enemy of it is dead, the player can
-		// keep walking around until he presses N or the A button to continue
+		// a level is cleared when every enemy of it is dead, then the player
+		// has to walk back to the boat to sail to the next island
 		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
 			g.levelComplete = true
+			g.levelClearNoticeTimer = levelClearNoticeDuration
 			g.closeStore()
 			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
 		}
-		if g.mode == ModeGame && g.levelComplete && (inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
-			g.levelComplete = false
-			g.startLevel(g.level + 1)
+		if g.mode == ModeGame && !g.storeOpen && g.nearestBoat() != nil &&
+			(inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
+			if g.trySailToNextLevel() {
+				return nil
+			}
 		}
 
 		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
@@ -2244,6 +2326,31 @@ func (g *Game) Update() error {
 		}
 	}
 	return nil
+}
+
+func (g *Game) nearestBoat() *world.Boat {
+	if g.boat == nil || g.player.Dead {
+		return nil
+	}
+
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+	dist := utils.DistanceBetweenPoints(px, py, g.boat.DockX, g.boat.DockY)
+	if dist > boatInteractRadius {
+		return nil
+	}
+
+	return g.boat
+}
+
+func (g *Game) trySailToNextLevel() bool {
+	if g.player.Dead || g.aliveEnemies() != 0 {
+		return false
+	}
+
+	g.startLevel(g.level + 1)
+
+	return true
 }
 
 func (g *Game) nearestStore() *world.Store {
@@ -2479,11 +2586,27 @@ func (g *Game) Draw(screen *ebiten.Image) {
 // drawLevelCompleteOverlay shows the summary of the finished level while the
 // player is still free to move around the island.
 func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
+	// TODO: display notification in top right corner on level complete
+	// const (
+	// 	panelW = 370.0
+	// 	panelH = 336.0
+	// )
+	// panelX := float64(ScreenWidth) - panelW - 20
+	// panelY := 160.0
+	//
+	// vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	// vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
+	// floorText := "GUN ON THE FLOOR"
+	// if loot.Gun.GunType == actors.Whisky {
+	// 	floorText = "WHISKY ON THE FLOOR"
+	// }
+	// g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
 	levelCompleteTexts := []string{
 		"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
 		"SCORE " + strconv.Itoa(g.score),
 		"TIME  " + g.survivalTime(),
-		"PRESS N OR A TO CONTINUE",
+		"YOU CAN GO BACK TO THE BOAT",
+		"TO GO TO THE NEXT LEVEL",
 	}
 	g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 }
@@ -2507,7 +2630,12 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 		loot.Draw(screen, g.camX, g.camY)
 	}
 
+	if g.mode == ModeTitle {
+		return
+	}
+
 	g.store.Draw(screen, g.camX, g.camY)
+	g.boat.Draw(screen, g.camX, g.camY)
 
 	// dead enemies are drawn first so corpses never cover a living actor
 	for _, enemy := range g.enemies {
@@ -2596,6 +2724,16 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 
 	if g.nearestStore() != nil {
 		msg := "E SHOP"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if g.nearestBoat() != nil {
+		msg := "N NEXT LEVEL"
+		if g.aliveEnemies() != 0 {
+			msg = "CLEAR BANDIT CAMPS!"
+		}
 		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
 		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
