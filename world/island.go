@@ -26,8 +26,8 @@ const oceanMargin = 3
 var tileColors = map[TileType]color.RGBA{
 	DeepWater:    {R: 22, G: 66, B: 110, A: 255},
 	ShallowWater: {R: 44, G: 118, B: 168, A: 255},
-	Beach:        {R: 200, G: 180, B: 120, A: 255},
-	Land:         {R: 122, G: 112, B: 78, A: 255},
+	Beach:        {R: 193, G: 112, B: 36, A: 255},
+	Land:         {R: 135, G: 79, B: 27, A: 255},
 }
 
 // Island is a randomly shaped chunk of land surrounded by water.
@@ -492,7 +492,7 @@ func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX,
 	for _, camp := range camps {
 		cx, cy := toMiniMap(camp[0], camp[1])
 		vector.FillRect(screen, cx-3, cy-3, 7, 7, color.RGBA{30, 20, 10, 255}, false)
-		vector.FillRect(screen, cx-2, cy-2, 5, 5, color.RGBA{230, 130, 40, 255}, false)
+		vector.FillRect(screen, cx-2, cy-2, 5, 5, color.RGBA{219, 3, 3, 255}, false)
 	}
 
 	px, py := toMiniMap(playerX, playerY)

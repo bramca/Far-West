@@ -1433,13 +1433,6 @@ func (g *Game) unstickEnemy(enemy *actors.Enemy) {
 	}
 	enemy.Blocked = false
 
-	// do not interrupt a bandit that is drinking his whisky or shooting at the
-	// player, he will pick a new direction once his current action is done
-	switch enemy.CurrentAction.Type {
-	case actors.Heal, actors.MoveAndShoot, actors.Shoot:
-		return
-	}
-
 	targetX, targetY := enemy.HomeX, enemy.HomeY
 	if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
 		targetX, targetY = g.player.X, g.player.Y
