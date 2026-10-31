@@ -2577,7 +2577,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		} else if loot := g.comparingLoot(); loot != nil {
 			g.drawLootComparison(screen, loot)
 		}
-		if g.levelComplete {
+		if g.levelComplete && g.levelClearNoticeTimer > 0 {
 			g.drawLevelCompleteOverlay(screen)
 		}
 	}
