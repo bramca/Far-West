@@ -28,7 +28,7 @@ func (h *Hit) SetDrawOptions() {
 }
 
 func (h *Hit) Update() {
-	h.Y -= 1
+	h.Y -= 1.4
 	h.Duration -= 1
 }
 

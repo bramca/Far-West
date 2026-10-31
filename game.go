@@ -2,17 +2,21 @@ package farwest
 
 import (
 	"embed"
+	"fmt"
 	"image/color"
-	"math/rand"
+	"math"
+	"math/rand/v2"
 	"strconv"
 
 	"github.com/bramca/Far-West/actors"
 	"github.com/bramca/Far-West/helpers"
+	"github.com/bramca/Far-West/utils"
 	"github.com/bramca/Far-West/world"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -28,10 +32,136 @@ const (
 
 const (
 	ScreenWidth  = 1280
-	ScreenHeight = 860
+	ScreenHeight = 720
 
 	playerHealthBarSize = 9.0
 	enemyHealthBarSize  = 7.0
+
+	// world
+	worldTilesX      = 90
+	worldTilesY      = 60
+	worldTileSize    = 64.0
+	plantAmount      = 70
+	storeRadius      = 140.0
+	storeMinDistance = 400.0
+
+	storeAmmoOffersMin    = 2
+	storeAmmoOffersMax    = 3
+	storeWeaponOffers     = 2
+	storeUpgradeOffersMin = 1
+	storeUpgradeOffersMax = 2
+	storeInteractRadius   = 150.0
+
+	// boat and dock
+	boatScale          = 8.0
+	boatInteractRadius = 200.0
+	dockLength         = 120.0
+	dockWidth          = 56.0
+	dockClearance      = 56.0
+	dockWaterDepth     = 220.0
+
+	// how long the "island clear" notice stays on screen
+	levelClearNoticeDuration = 5 * 60
+	// bandit camps
+	maxCamps        = 3
+	campRadius      = 280.0
+	campMinDistance = 700.0
+	campTentMin     = 2
+	campTentMax     = 4
+	campChestMin    = 2
+	campChestMax    = 4
+
+	// levels
+	initialEnemies   = 6
+	maxLevelEnemies  = 12
+	enemyCountGrowth = 1
+	// every other level the enemies deal one more damage
+	levelDamageBonus = 1
+	// and they get two more hitpoints every level
+	levelHealthBonus = 2
+	// the enemies shoot a bit faster every level, never faster than this
+	enemyFireRateFloor = 11
+	// enemies spawn at least this far away from the player
+	enemyMinSpawnDistance = 600.0
+	enemyMaxSpawnDistance = 1600.0
+	// chance that an enemy also carries a whisky as a second weapon
+	commonWhiskyChance    = 0.08
+	rareWhiskyChance      = 0.20
+	legendaryWhiskyChance = 0.40
+	// amount of frames a corpse stays on the field
+	corpseDuration = 240
+	// how close the player has to be to a gun on the floor to pick it up or
+	// compare it with the matching gun in his gunbelt
+	lootPickupRadius = 90.0
+	// speed at which a swapped gun is tossed in the aim direction
+	lootTossSpeed = 2.4
+
+	scorePerKill = 100
+
+	commonKillGold    = 5
+	rareKillGold      = 10
+	legendaryKillGold = 20
+
+	// weapons
+	playerReloadDuration          = 60
+	playerShootCooldown           = 16
+	enemyReloadDuration           = 110
+	defaultShotgunBulletSpread    = 30 // lower number is more spread
+	defaultMachineGunBulletSpread = 40 // lower number is more spread
+	defaultShotgunBulletCount     = 4
+
+	// dodge cooldown keeps the player from spamming the dodge button
+	playerDodgeCooldown = 30
+
+	playerStartGold = 50
+
+	enemyHitboxOffset = 16
+
+	// sounds
+	soundDash            = "dash"
+	soundDrink           = "drink"
+	soundEmptyClick      = "empty-click"
+	soundEnemyDeath      = "enemy-death"
+	soundGameOver        = "game-over"
+	soundHit             = "hit"
+	soundLevelComplete   = "level-complete"
+	soundPickup          = "pickup"
+	soundShootMachineGun = "shoot-machine-gun"
+	soundShootRevolver   = "shoot-revolver"
+	soundShootShotgun    = "shoot-shotgun"
+
+	soundVolumeDash          = 0.35
+	soundVolumeDrink         = 0.40
+	soundVolumeEmptyClick    = 0.30
+	soundVolumeHit           = 0.45
+	soundVolumeEnemyDeath    = 0.55
+	soundVolumePickup        = 0.55
+	soundVolumeLevelComplete = 0.65
+	soundVolumeGameOver      = 0.65
+)
+
+var (
+	defaultMagazineSize = map[actors.Weapon]int{
+		actors.Revolver:   6,
+		actors.Shotgun:    2,
+		actors.MachineGun: 15,
+	}
+
+	buttonsJustPressed = map[string]bool{}
+
+	soundFiles = map[string]string{
+		soundDash:            "dash.wav",
+		soundDrink:           "drink.wav",
+		soundEmptyClick:      "empty-click.wav",
+		soundEnemyDeath:      "enemy-death.wav",
+		soundGameOver:        "game-over.wav",
+		soundHit:             "hit.wav",
+		soundLevelComplete:   "level-complete.wav",
+		soundPickup:          "pickup.wav",
+		soundShootMachineGun: "shoot-machine-gun.wav",
+		soundShootRevolver:   "shoot-revolver.wav",
+		soundShootShotgun:    "shoot-shotgun.wav",
+	}
 )
 
 //go:embed assets/*
@@ -63,6 +193,7 @@ type Game struct {
 	mode Mode
 
 	assets embed.FS
+	sounds *helpers.SoundManager
 
 	titleTexts    []string
 	gameOverTexts []string
@@ -70,6 +201,7 @@ type Game struct {
 
 	fontSize                int
 	titleFontSize           int
+	hudFontSize             int
 	playerHealthBarFontSize int
 	enemyHealthBarFontSize  int
 	hitFontSize             int
@@ -77,9 +209,15 @@ type Game struct {
 
 	titleArcadeFont     font.Face
 	arcadeFont          font.Face
+	hudFont             font.Face
 	playerHealthBarFont font.Face
 	enemyHealthBarFont  font.Face
 	hitTextFont         font.Face
+
+	titleFace  *text.GoXFace
+	arcadeFace *text.GoXFace
+	hudFace    *text.GoXFace
+	hitFace    *text.GoXFace
 
 	backgroundColor       color.RGBA
 	playerHealthbarColors []color.RGBA
@@ -104,18 +242,60 @@ type Game struct {
 	pauseDrawOptions    *text.DrawOptions
 
 	// actors
-	player       *actors.Player
-	bulletSprite *ebiten.Image
-	enemies      []*actors.Enemy
+	player                *actors.Player
+	playerSprites         []*ebiten.Image
+	enemyCommonSprites    []*ebiten.Image
+	enemyRareSprites      []*ebiten.Image
+	enemyLegendarySprites []*ebiten.Image
+	gunSprites            []*ebiten.Image
+	bulletSprite          *ebiten.Image
+	enemies               []*actors.Enemy
+	particles             []*actors.Particle
+	loot                  []*actors.Loot
+
+	// hit feedback
+	// shakeFrames and shakeStrength control the decaying screen shake.
+	shakeFrames   int
+	shakeStrength float64
+	// freezeFrames holds the game still for a few frames on a kill.
+	freezeFrames int
 
 	// world
-	cactusSprites  []*ebiten.Image
-	cactusHitboxes []*actors.HitBox
-	cacti          []*world.Cactus
+	island        *world.Island
+	plantSprites  []*ebiten.Image
+	plantHitboxes []*actors.HitBox
+	plants        []*world.Plant
+
+	tentSprite *ebiten.Image
+	tentHitbox *actors.HitBox
+	tents      []*world.Tent
+
+	chestSprites []*ebiten.Image
+	chestHitbox  *actors.HitBox
+	chests       []*world.Chest
+
+	camps []*world.BanditCamp
+
+	store          *world.Store
+	storeSprite    *ebiten.Image
+	storeHitbox    *actors.HitBox
+	storeOpen      bool
+	storeSelection int
+
+	boat       *world.Boat
+	boatSprite *ebiten.Image
 
 	// gameplay
 	frameCount   int
 	maxFramCount int
+
+	// level state
+	level                 int
+	levelEnemies          int
+	levelComplete         bool
+	levelClearNoticeTimer int
+	elapsedFrames         int
+	score                 int
 
 	// gamepad
 	gamepadIDsBuf  []ebiten.GamepadID
@@ -131,9 +311,10 @@ func NewGame() *Game {
 	game := &Game{
 		titleTexts:              []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
 		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
-		pauseTexts:              []string{"PAUSED", "PRESS SPACE KEY OR START BUTTON"},
-		fontSize:                24,
-		titleFontSize:           36,
+		pauseTexts:              []string{"PAUSED", "PRESS SPACE OR START BUTTON"},
+		fontSize:                18,
+		titleFontSize:           13,
+		hudFontSize:             12,
 		playerHealthBarFontSize: playerHealthBarSize,
 		enemyHealthBarFontSize:  enemyHealthBarSize,
 		hitFontSize:             8,
@@ -145,6 +326,7 @@ func NewGame() *Game {
 		newlinePadding:          20,
 		framesPerSecond:         60,
 		assets:                  assets,
+		sounds:                  helpers.NewSoundManager(assets, soundFiles),
 		frameCount:              1,
 		maxFramCount:            60,
 		buttonsPressed:          map[string]bool{},
@@ -159,6 +341,11 @@ func NewGame() *Game {
 	})
 	game.arcadeFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
 		Size:    float64(game.fontSize),
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	game.hudFont, _ = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    float64(game.hudFontSize),
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
@@ -179,6 +366,11 @@ func NewGame() *Game {
 	})
 
 	game.titleFontColorScale.ScaleWithColor(color.White)
+
+	game.titleFace = text.NewGoXFace(game.titleArcadeFont)
+	game.arcadeFace = text.NewGoXFace(game.arcadeFont)
+	game.hudFace = text.NewGoXFace(game.hudFont)
+	game.hitFace = text.NewGoXFace(game.hitTextFont)
 
 	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
 	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
@@ -204,305 +396,1618 @@ func NewGame() *Game {
 		},
 	}
 
-	playerSprites := helpers.LoadSprites(assets, []string{
-		"assets/player-no-gun.png",
-		"assets/player-revolver.png",
+	game.playerSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/player-no-gun.png",
+		"assets/sprites/player-whisky.png",
+		"assets/sprites/player-revolver.png",
+		"assets/sprites/player-shotgun.png",
+		"assets/sprites/player-machine-gun.png",
+		"assets/sprites/player-dead.png",
 	}, 32, 32)
 
-	enemySprites := helpers.LoadSprites(assets, []string{
-		"assets/enemy-1-no-gun.png",
-		"assets/enemy-1-revolver.png",
-		"assets/enemy-1-dead.png",
+	game.enemyCommonSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/enemy-common-no-gun.png",
+		"assets/sprites/enemy-common-whisky.png",
+		"assets/sprites/enemy-common-revolver.png",
+		"assets/sprites/enemy-common-shotgun.png",
+		"assets/sprites/enemy-common-machine-gun.png",
+		"assets/sprites/enemy-common-dead.png",
+	}, 32, 32)
+
+	game.enemyRareSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/enemy-rare-no-gun.png",
+		"assets/sprites/enemy-rare-whisky.png",
+		"assets/sprites/enemy-rare-revolver.png",
+		"assets/sprites/enemy-rare-shotgun.png",
+		"assets/sprites/enemy-rare-machine-gun.png",
+		"assets/sprites/enemy-rare-dead.png",
+	}, 32, 32)
+
+	game.enemyLegendarySprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/enemy-legendary-no-gun.png",
+		"assets/sprites/enemy-legendary-whisky.png",
+		"assets/sprites/enemy-legendary-revolver.png",
+		"assets/sprites/enemy-legendary-shotgun.png",
+		"assets/sprites/enemy-legendary-machine-gun.png",
+		"assets/sprites/enemy-legendary-dead.png",
 	}, 32, 32)
 
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
-		"assets/bullet.png",
+		"assets/sprites/bullet.png",
 	}, 32, 32)[0]
 
-	game.player = &actors.Player{
-		X:              0.0,
-		Y:              0.0,
-		W:              float64(playerSprites[0].Bounds().Dx()),
-		H:              float64(playerSprites[0].Bounds().Dy()),
-		Sprites:        playerSprites,
-		Scale:          2,
-		Speed:          2.0,
-		DodgeSpeed:     1.7,
-		DodgeDuration:  20,
-		AnimationSpeed: 15,
-		DrawOptions:    &ebiten.DrawImageOptions{},
-		BulletSprite:   game.bulletSprite,
-		Health:         20,
-		MaxHealth:      20,
+	game.plantSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/cactus.png",
+		"assets/sprites/dead-tree.png",
+		"assets/sprites/shrub.png",
+	}, 32, 32)
+
+	game.storeSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/store.png",
+	}, 32, 32)[0]
+
+	game.boatSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/boat.png",
+	}, 32, 32)[0]
+
+	game.tentSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/tent.png",
+	}, 32, 32)[0]
+
+	game.chestSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/gold-chest.png",
+		"assets/sprites/gun-chest.png",
+		"assets/sprites/ammo-chest.png",
+		"assets/sprites/whisky-chest.png",
+	}, 32, 32)
+
+	game.gunSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/fist.png",
+		"assets/sprites/whisky.png",
+		"assets/sprites/revolver.png",
+		"assets/sprites/shotgun.png",
+		"assets/sprites/machine-gun.png",
+	}, 32, 32)
+
+	game.plantHitboxes = helpers.InitializePlantHitboxes()
+
+	game.tentHitbox = helpers.InitializeTentHitbox()
+
+	game.chestHitbox = helpers.InitializeChestHitbox()
+
+	game.storeHitbox = helpers.InitializeStoreHitbox()
+
+	game.Initialize()
+
+	return game
+}
+
+// Initialize starts a brand new run from level one. It is called on startup
+// and after every game over.
+func (g *Game) Initialize() {
+	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
+	g.player = g.newPlayer()
+	g.score = 0
+	g.elapsedFrames = 0
+	g.levelComplete = false
+
+	g.startLevel(1)
+}
+
+// startLevel drops the player on a brand new island for the given level,
+// spawns the bandit camps and enemies to beat and restores the player.
+func (g *Game) startLevel(level int) {
+	g.level = level
+	g.levelComplete = false
+	g.levelClearNoticeTimer = 0
+
+	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
+
+	spawnX, spawnY := g.spawnBoat()
+	g.player.X = spawnX - g.player.W/2
+	g.player.Y = spawnY - g.player.H/2
+	clear(g.player.Bullets)
+	g.player.Bullets = g.player.Bullets[:0]
+	g.player.Hits = nil
+	g.player.Reloading = false
+	g.player.ReloadTimer = 0
+	g.player.Healing = false
+	g.player.HealTimer = 0
+	g.player.HealDuration = 0
+	g.player.HealTotal = 0
+	g.player.HealApplied = 0
+	g.player.DodgeCooldownTimer = 0
+	g.player.Dead = false
+	g.player.Health = g.player.MaxHealth
+	g.player.CurrentAction = actors.Action{}
+	g.player.UpdateHitbox()
+	g.player.SavePosition()
+	g.player.UpdateHealhBar()
+	g.player.DrawWeapon(g.player.CurrentWeapon)
+
+	g.storeOpen = false
+	g.storeSelection = 0
+
+	g.camps = nil
+	g.tents = nil
+	g.chests = nil
+	g.spawnCamps()
+
+	g.plants = helpers.SpawnPlants(g.island, plantAmount, 4.0, g.plantSprites, g.plantHitboxes)
+	g.clearSpawnArea()
+	g.clearCampAreas()
+
+	g.store = nil
+	g.spawnStore()
+
+	g.enemies = nil
+	g.loot = nil
+	g.spawnLevel()
+}
+
+// spawnBoat moors the player's boat at a random shore and returns the point
+// where the player should spawn at the landward end of the dock.
+func (g *Game) spawnBoat() (float64, float64) {
+	site, ok := g.island.RandomDockSite(dockClearance, dockWaterDepth)
+	if !ok {
+		x, y := g.island.Center()
+		site = world.DockSite{X: x, Y: y, Side: world.DockNorth}
+	}
+
+	outX, outY := site.Side.Outward()
+	boatX := site.X + outX*dockLength
+	boatY := site.Y + outY*dockLength
+	boatW := float64(g.boatSprite.Bounds().Dx())
+	boatH := float64(g.boatSprite.Bounds().Dy())
+
+	boat := &world.Boat{
+		X:           boatX - boatW*boatScale/2,
+		Y:           boatY - boatH*boatScale/2,
+		W:           boatW,
+		H:           boatH,
+		Sprite:      g.boatSprite,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       boatScale,
+		Side:        site.Side,
+	}
+
+	switch site.Side {
+	case world.DockNorth:
+		boat.DockX = site.X - dockWidth/2
+		boat.DockY = site.Y - dockLength
+		boat.DockW = dockWidth
+		boat.DockH = dockLength
+	case world.DockSouth:
+		boat.DockX = site.X - dockWidth/2
+		boat.DockY = site.Y
+		boat.DockW = dockWidth
+		boat.DockH = dockLength
+	case world.DockEast:
+		boat.X += 100
+		boat.DockX = site.X
+		boat.DockY = site.Y - dockWidth/2
+		boat.DockW = dockLength
+		boat.DockH = dockWidth
+	case world.DockWest:
+		boat.X -= 100
+		boat.DockX = site.X - dockLength
+		boat.DockY = site.Y - dockWidth/2
+		boat.DockW = dockLength
+		boat.DockH = dockWidth
+	}
+
+	g.boat = boat
+
+	return site.X, site.Y
+}
+
+// spawnCamps picks one to three spots on the island that are far enough away
+// from the player and from each other and fills them with tents and chests.
+func (g *Game) spawnCamps() {
+	count := 1 + rand.IntN(maxCamps)
+	g.camps = make([]*world.BanditCamp, 0, count)
+	avoid := [][2]float64{{g.player.X, g.player.Y}}
+	for range count {
+		x, y, ok := g.island.RandomOpenLandPoint(campRadius, campMinDistance, avoid...)
+		if !ok {
+			x, y = g.island.RandomLandPoint()
+		}
+
+		camp := world.NewBanditCamp(x, y, campRadius)
+		camp.Tents = helpers.SpawnTents(
+			g.island,
+			camp,
+			campTentMin+rand.IntN(campTentMax-campTentMin+1),
+			4.0,
+			g.tentSprite,
+			g.tentHitbox,
+		)
+		camp.Chests = helpers.SpawnChests(
+			g.island,
+			camp,
+			campChestMin+rand.IntN(campChestMax-campChestMin+1),
+			2.0,
+			g.chestSprites,
+			g.chestHitbox,
+		)
+
+		g.tents = append(g.tents, camp.Tents...)
+		g.chests = append(g.chests, camp.Chests...)
+		g.camps = append(g.camps, camp)
+		avoid = append(avoid, [2]float64{x, y})
+	}
+}
+
+// spawnStore picks one spot on the island that is far enough away
+// from the playerr
+func (g *Game) spawnStore() {
+	avoid := [][2]float64{{g.player.X, g.player.Y}}
+	for _, camp := range g.camps {
+		avoid = append(avoid, [2]float64{camp.X, camp.Y})
+	}
+	x, y, ok := g.island.RandomOpenLandPoint(storeRadius, storeMinDistance, avoid...)
+	if !ok {
+		x, y = g.island.RandomLandPoint()
+	}
+
+	hitbox := g.storeHitbox
+	spriteScale := 6.0
+
+	g.store = &world.Store{
+		X:           x,
+		Y:           y,
+		W:           float64(g.storeSprite.Bounds().Dx()),
+		H:           float64(g.storeSprite.Bounds().Dy()),
+		Sprite:      g.storeSprite,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       spriteScale,
 		Hitbox: &actors.HitBox{
-			X: 0.0,
-			Y: 0.0,
-			W: float32(playerSprites[0].Bounds().Dx() - 5),
-			H: float32(playerSprites[0].Bounds().Dy()),
+			X: float32(x + float64(hitbox.X*float32(spriteScale))),
+			Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+			W: hitbox.W * float32(spriteScale),
+			H: hitbox.H * float32(spriteScale),
 		},
 	}
 
-	game.player.Healthbar = &actors.HealthBar{
+	g.clearStoreArea()
+	g.spawnStoreStock()
+}
+
+func (g *Game) clearStoreArea() {
+	if g.store == nil {
+		return
+	}
+
+	storeX := g.store.X + g.store.W*g.store.Scale/2
+	storeY := g.store.Y + g.store.H*g.store.Scale/2
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
+		plantX := plant.X + plant.W*plant.Scale/2
+		plantY := plant.Y + plant.H*plant.Scale/2
+		if utils.DistanceBetweenPoints(storeX, storeY, plantX, plantY) < storeRadius {
+			continue
+		}
+		remaining = append(remaining, plant)
+	}
+	g.plants = remaining
+}
+
+func (g *Game) spawnStoreStock() {
+	if g.store == nil {
+		return
+	}
+
+	stock := make([]world.StoreItem, 0, storeAmmoOffersMax+storeWeaponOffers+storeUpgradeOffersMax)
+	ammoTypes := []actors.Weapon{actors.Revolver, actors.Shotgun, actors.MachineGun}
+	rand.Shuffle(len(ammoTypes), func(i, j int) {
+		ammoTypes[i], ammoTypes[j] = ammoTypes[j], ammoTypes[i]
+	})
+	ammoOffers := storeAmmoOffersMin + rand.IntN(storeAmmoOffersMax-storeAmmoOffersMin+1)
+	for _, weapon := range ammoTypes[:min(ammoOffers, len(ammoTypes))] {
+		amount := rollStoreAmmoAmount(weapon)
+		stock = append(stock, world.StoreItem{
+			Kind:   world.StoreAmmo,
+			Name:   weapon.String() + " AMMO",
+			Price:  scaledStorePrice(storeAmmoPrice(weapon, amount), g.level),
+			Amount: amount,
+			Weapon: weapon,
+		})
+	}
+
+	for range storeWeaponOffers {
+		stock = append(stock, g.newStoreWeaponItem())
+	}
+
+	upgrades := g.unownedUpgrades()
+	rand.Shuffle(len(upgrades), func(i, j int) {
+		upgrades[i], upgrades[j] = upgrades[j], upgrades[i]
+	})
+	upgradeOffers := storeUpgradeOffersMin + rand.IntN(storeUpgradeOffersMax-storeUpgradeOffersMin+1)
+	for _, upgrade := range upgrades[:min(upgradeOffers, len(upgrades))] {
+		stock = append(stock, world.StoreItem{
+			Kind:    world.StoreUpgrade,
+			Name:    upgrade.String(),
+			Price:   scaledStorePrice(upgrade.BasePrice(), g.level),
+			Upgrade: upgrade,
+		})
+	}
+
+	g.store.Stock = stock
+}
+
+func rollStoreAmmoAmount(weapon actors.Weapon) int {
+	switch weapon {
+	case actors.Shotgun:
+		return 8 + rand.IntN(9)
+	case actors.MachineGun:
+		return 40 + rand.IntN(41)
+	default:
+		return 20 + rand.IntN(21)
+	}
+}
+
+func storeAmmoPrice(weapon actors.Weapon, amount int) int {
+	switch weapon {
+	case actors.Shotgun:
+		return 8 + amount/2
+	case actors.MachineGun:
+		return 5 + amount/4
+	default:
+		return 5 + amount/4
+	}
+}
+
+func scaledStorePrice(base, level int) int {
+	if level <= 1 {
+		return base
+	}
+
+	return base + base*(level-1)/5
+}
+
+func (g *Game) newStoreWeaponItem() world.StoreItem {
+	if rand.Float64() < 0.30 {
+		return g.newStoreWhiskyItem()
+	}
+
+	gunType := rollEnemyWeapon()
+	tier := rollStoreGunTier(g.level)
+	gun := g.newEnemyGun(gunType, tier, 3)
+
+	return world.StoreItem{
+		Kind:   world.StoreWeapon,
+		Name:   gunType.String(),
+		Price:  scaledStorePrice(storeGunPrice(tier), g.level),
+		Weapon: gunType,
+		Gun:    &gun,
+	}
+}
+
+func (g *Game) newStoreWhiskyItem() world.StoreItem {
+	heal := 3 + g.level/2 + rand.IntN(2)
+	bottles := 2 + rand.IntN(4)
+	gun := actors.Gun{
+		Tier:          actors.Common,
+		Damage:        heal,
+		GunType:       actors.Whisky,
+		ShootCooldown: playerShootCooldown * 2,
+		Ammo:          bottles,
+		Sprite:        g.gunSprites[actors.Whisky],
+		DrawOptions:   &ebiten.DrawImageOptions{},
+		Scale:         2.0,
+		AmmoFace:      g.hitFace,
+	}
+
+	return world.StoreItem{
+		Kind:   world.StoreWhisky,
+		Name:   "WHISKY",
+		Price:  scaledStorePrice(20+heal*3+bottles*5, g.level),
+		Amount: bottles,
+		Weapon: actors.Whisky,
+		Gun:    &gun,
+	}
+}
+
+func rollStoreGunTier(level int) actors.Tier {
+	legendaryChance := min(0.05+float64(level-1)*0.02, 0.30)
+	rareChance := min(0.20+float64(level-1)*0.03, 0.45)
+	roll := rand.Float64()
+
+	switch {
+	case roll < legendaryChance:
+		return actors.Legendary
+	case roll < legendaryChance+rareChance:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+func storeGunPrice(tier actors.Tier) int {
+	switch tier {
+	case actors.Legendary:
+		return 240
+	case actors.Rare:
+		return 130
+	default:
+		return 60
+	}
+}
+
+func (g *Game) unownedUpgrades() []actors.Upgrade {
+	upgrades := make([]actors.Upgrade, 0, len(actors.AllUpgrades))
+	for _, upgrade := range actors.AllUpgrades {
+		if !g.player.HasUpgrade(upgrade) {
+			upgrades = append(upgrades, upgrade)
+		}
+	}
+
+	return upgrades
+}
+
+// spawnLevel spawns every enemy the player has to defeat in the current level
+// and spreads them evenly over the bandit camps.
+func (g *Game) spawnLevel() {
+	g.levelEnemies = enemyCountForLevel(g.level)
+	if len(g.camps) == 0 {
+		return
+	}
+
+	for i := range g.levelEnemies {
+		g.spawnEnemy(g.camps[i%len(g.camps)])
+	}
+}
+
+// enemyCountForLevel returns how many enemies the player has to beat in a
+// level, it grows with the level up to a cap so the field never gets silly.
+func enemyCountForLevel(level int) int {
+	count := initialEnemies + (level-1)*enemyCountGrowth
+	if count > maxLevelEnemies {
+		count = maxLevelEnemies
+	}
+
+	return count
+}
+
+func (g *Game) newPlayer() *actors.Player {
+	x, y := g.island.Center()
+	defaultGunBelt := []*actors.Gun{
+		{
+			Damage:        2,
+			GunType:       actors.Whisky,
+			Sprite:        g.gunSprites[actors.Whisky],
+			DrawOptions:   &ebiten.DrawImageOptions{},
+			ShootCooldown: 32,
+			Ammo:          5,
+			Scale:         2.0,
+			X:             ScreenWidth/2 - 128,
+			Y:             ScreenHeight - 64,
+			AmmoFace:      g.hitFace,
+		},
+		{
+			Damage:        3,
+			ShootCooldown: playerShootCooldown,
+			GunType:       actors.Fists,
+			Sprite:        g.gunSprites[actors.Fists],
+			DrawOptions:   &ebiten.DrawImageOptions{},
+			Scale:         2.0,
+			X:             ScreenWidth/2 - 96,
+			Y:             ScreenHeight - 64,
+			AmmoFace:      g.hitFace,
+		},
+		{
+			Damage:              3,
+			MagazineSize:        defaultMagazineSize[actors.Revolver],
+			CurrentMagazineSize: defaultMagazineSize[actors.Revolver],
+			Ammo:                30,
+			ShootCooldown:       playerShootCooldown,
+			BulletDuration:      120,
+			BulletSpeed:         6.0,
+			GunType:             actors.Revolver,
+			MuzzleFlash:         3,
+			Sprite:              g.gunSprites[actors.Revolver],
+			DrawOptions:         &ebiten.DrawImageOptions{},
+			Scale:               2.0,
+			X:                   ScreenWidth/2 - 64,
+			Y:                   ScreenHeight - 64,
+			AmmoFace:            g.hitFace,
+		},
+		{
+			Damage:              3,
+			MagazineSize:        defaultMagazineSize[actors.Shotgun],
+			CurrentMagazineSize: defaultMagazineSize[actors.Shotgun],
+			Ammo:                14,
+			ShootCooldown:       playerShootCooldown,
+			GunType:             actors.Shotgun,
+			BulletDuration:      50,
+			BulletSpread:        defaultShotgunBulletSpread,
+			BulletCount:         defaultShotgunBulletCount,
+			BulletSpeed:         6.0,
+			MuzzleFlash:         3,
+			Sprite:              g.gunSprites[actors.Shotgun],
+			DrawOptions:         &ebiten.DrawImageOptions{},
+			Scale:               2.0,
+			X:                   ScreenWidth/2 - 32,
+			Y:                   ScreenHeight - 64,
+			AmmoFace:            g.hitFace,
+		},
+		{
+			Damage:              2,
+			MagazineSize:        defaultMagazineSize[actors.MachineGun],
+			CurrentMagazineSize: defaultMagazineSize[actors.MachineGun],
+			Ammo:                75,
+			ShootCooldown:       playerShootCooldown / 2,
+			GunType:             actors.MachineGun,
+			BulletDuration:      90,
+			BulletSpread:        defaultMachineGunBulletSpread,
+			BulletSpeed:         9.0,
+			MuzzleFlash:         3,
+			Sprite:              g.gunSprites[actors.MachineGun],
+			DrawOptions:         &ebiten.DrawImageOptions{},
+			Scale:               2.0,
+			X:                   ScreenWidth / 2,
+			Y:                   ScreenHeight - 64,
+			AmmoFace:            g.hitFace,
+		},
+	}
+	player := &actors.Player{
+		X:              x,
+		Y:              y,
+		W:              float64(g.playerSprites[0].Bounds().Dx()),
+		H:              float64(g.playerSprites[0].Bounds().Dy()),
+		Sprites:        g.playerSprites,
+		CurrentState:   actors.PlayerNoGunRight,
+		CurrentWeapon:  1,
+		Scale:          2,
+		Speed:          2.8,
+		Gold:           playerStartGold,
+		DodgeSpeed:     4.5,
+		DodgeDuration:  15,
+		AnimationSpeed: 11,
+		DrawOptions:    &ebiten.DrawImageOptions{},
+		BulletSprite:   g.bulletSprite,
+		GunBelt:        defaultGunBelt,
+		GunBeltSize:    len(defaultGunBelt),
+		OnShoot:        g.playPlayerShootSound,
+		OnDrink:        g.playPlayerDrinkSound,
+		Health:         20,
+		MaxHealth:      20,
+		ReloadDuration: playerReloadDuration,
+		DodgeCooldown:  playerDodgeCooldown,
+		MoveDirs: map[actors.Direction]bool{
+			actors.Up:    false,
+			actors.Down:  false,
+			actors.Right: false,
+			actors.Left:  false,
+		},
+		Hitbox: &actors.HitBox{
+			X: float32(x),
+			Y: float32(y),
+			W: float32(g.playerSprites[0].Bounds().Dx() - 5),
+			H: float32(g.playerSprites[0].Bounds().Dy()),
+		},
+	}
+
+	player.Healthbar = &actors.HealthBar{
 		X:               40,
 		Y:               ScreenHeight - 40,
 		W:               100,
 		H:               playerHealthBarSize,
 		FixedSize:       true,
 		FixedPos:        true,
-		Points:          game.player.Health,
-		MaxPoints:       game.player.MaxHealth,
-		HealthBarColor:  game.playerHealthbarColors[0],
-		HealthLostColor: game.playerHealthbarColors[1],
-		TextFont:        text.NewGoXFace(game.playerHealthBarFont),
+		Points:          player.Health,
+		MaxPoints:       player.MaxHealth,
+		HealthBarColor:  g.playerHealthbarColors[0],
+		HealthLostColor: g.playerHealthbarColors[1],
+		TextFont:        text.NewGoXFace(g.playerHealthBarFont),
 		FontColor:       color.RGBA{0, 0, 0, 240},
-		FontSize:        game.playerHealthBarFontSize,
+		FontSize:        g.playerHealthBarFontSize,
 	}
-	game.player.Healthbar.SetDrawOptions()
+	player.Healthbar.SetDrawOptions()
+	player.SavePosition()
 
-	nEnemies := 5
-	for range nEnemies {
-		x := rand.Float64()*ScreenWidth + 20
-		y := rand.Float64()*ScreenHeight + 20
-		state := actors.PlayerRevolverLeft
-		enemy := &actors.Enemy{
-			Player: &actors.Player{
-				X:              x,
-				Y:              y,
-				W:              float64(enemySprites[state].Bounds().Dx() - 5),
-				H:              float64(enemySprites[state].Bounds().Dy()),
-				Sprites:        enemySprites,
-				CurrentState:   state,
-				CurrentWeapon:  actors.Revolver,
-				Scale:          2,
-				Speed:          0.5 + rand.Float64(),
-				DodgeSpeed:     0.3 + rand.Float64()*0.4,
-				AnimationSpeed: 15,
-				DrawOptions:    &ebiten.DrawImageOptions{},
-				FireRate:       25 + rand.Intn(15),
-				BulletSprite:   game.bulletSprite,
-				Health:         10,
-				MaxHealth:      10,
-				IsNpc:          true,
-				Hitbox: &actors.HitBox{
-					X: float32(x) + 16,
-					Y: float32(y) + 16,
-					W: float32(enemySprites[state].Bounds().Dx() - 5),
-					H: float32(enemySprites[state].Bounds().Dy()),
-				},
-			},
-			VisualDist: rand.Intn(200) + 250,
-		}
-		enemy.Healthbar = &actors.HealthBar{
-			X:               enemy.X,
-			Y:               enemy.Y - (enemy.H - enemy.H/3),
-			W:               enemy.W + 5,
-			H:               enemyHealthBarSize,
-			Points:          enemy.Health,
-			MaxPoints:       enemy.MaxHealth,
-			HealthBarColor:  game.enemyHealthbarColors[0],
-			HealthLostColor: game.enemyHealthbarColors[1],
-			TextFont:        text.NewGoXFace(game.enemyHealthBarFont),
-			FontColor:       color.RGBA{0, 0, 0, 240},
-			FontSize:        game.enemyHealthBarFontSize,
-		}
-		enemy.Healthbar.SetDrawOptions()
-		game.enemies = append(game.enemies, enemy)
-	}
-
-	game.cactusSprites = helpers.LoadSprites(assets, []string{
-		"assets/cactus.png",
-	}, 32, 32)
-
-	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
-
-	cactusAmount := 60
-	cactusSpawnBoundY := 3 * ScreenHeight
-	cactusSpawnBoundX := 3 * ScreenWidth
-	cactusSpriteScale := 4.0
-	game.cacti = helpers.SpawnCacti(cactusSpawnBoundX, cactusSpawnBoundY, cactusAmount, cactusSpriteScale, game.cactusSprites, game.cactusHitboxes)
-
-	return game
+	return player
 }
 
-func (g *Game) Initialize() {
-	// TODO: What happens after game over?
-	// Calculate the position of the screen center based on the player's position
-	// camX = player.x + player.w/2 - ScreenWidth/2
-	// camY = player.y + player.h/2 - ScreenHeight/2
+// clearSpawnArea removes the cacti that grew on top of the player spawn.
+func (g *Game) clearSpawnArea() {
+	spawnArea := &actors.HitBox{
+		X: g.player.Hitbox.X - g.player.Hitbox.W,
+		Y: g.player.Hitbox.Y - g.player.Hitbox.H,
+		W: g.player.Hitbox.W * 3,
+		H: g.player.Hitbox.H * 3,
+	}
+
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
+		if spawnArea.CheckCollision(plant.Hitbox) {
+			continue
+		}
+		remaining = append(remaining, plant)
+	}
+
+	g.plants = remaining
 }
 
-func (g *Game) CheckCollisions() {
-	// TODO: check bullet collision and damage the environment
-	for _, cactus := range g.cacti {
-		removeIndices := []int{}
-		for i, bullet := range g.player.Bullets {
-			if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
-				removeIndices = append(removeIndices, i)
+// clearCampAreas removes the cacti that grew inside a bandit camp so the tents,
+// chests and bandits have room to move.
+func (g *Game) clearCampAreas() {
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
+		inCamp := false
+		for _, camp := range g.camps {
+			if camp.Contains(plant.X+plant.W/2, plant.Y+plant.H/2) {
+				inCamp = true
+
+				break
 			}
 		}
-		for _, index := range removeIndices {
-			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
+		if inCamp {
+			continue
 		}
+		remaining = append(remaining, plant)
+	}
 
-		for i, enemy := range g.enemies {
-			if enemy.Dead {
+	g.plants = remaining
+}
+
+// enemySpawnPoint looks for a land tile inside the camp that is far enough from
+// the player so enemies never pop up right next to him. It reports whether such
+// a spot was found, spawning an enemy on an invalid position would leave it
+// stuck there for the rest of the run.
+func (g *Game) enemySpawnPoint(camp *world.BanditCamp) (float64, float64, bool) {
+	spriteWidth := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dx() - 5)
+	spriteHeight := float32(g.enemyCommonSprites[actors.PlayerRevolverLeft].Bounds().Dy())
+
+	// the first pass keeps the enemies at a distance, the second pass drops
+	// that requirement for camps and islands that are too small for it
+	for pass := range 2 {
+		for range 100 {
+			x, y, ok := g.island.RandomLandPointWithin(camp.X, camp.Y, camp.Radius)
+			if !ok {
 				continue
 			}
-			dodgeCalc := 0.0
-			if enemy.CurrentAction.Type == actors.Dodge {
-				dodgeCalc = enemy.DodgeSpeed
+			dist := utils.DistanceBetweenPoints(g.player.X, g.player.Y, x, y)
+			if pass == 0 && (dist < enemyMinSpawnDistance || dist > enemyMaxSpawnDistance) {
+				continue
 			}
-			if enemy.Hitbox.CheckCollision(cactus.Hitbox) {
-				for dir, moving := range enemy.MoveDirs {
-					if moving {
-						switch dir {
-						case actors.Up:
-							enemy.Y += enemy.Speed + dodgeCalc
-						case actors.Down:
-							enemy.Y -= enemy.Speed + dodgeCalc
-						case actors.Right:
-							enemy.X -= enemy.Speed + dodgeCalc
-						case actors.Left:
-							enemy.X += enemy.Speed + dodgeCalc
-						}
-						g.player.UpdateHitbox()
-					}
-				}
+			hitbox := &actors.HitBox{
+				X: float32(x) + enemyHitboxOffset,
+				Y: float32(y) + enemyHitboxOffset,
+				W: spriteWidth,
+				H: spriteHeight,
 			}
-			for j, otherEnemy := range g.enemies {
-				if i == j {
-					continue
-				}
-
-				if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
-					for dir, moving := range enemy.MoveDirs {
-						if moving {
-							switch dir {
-							case actors.Up:
-								enemy.Y += enemy.Speed + dodgeCalc
-							case actors.Down:
-								enemy.Y -= enemy.Speed + dodgeCalc
-							case actors.Right:
-								enemy.X -= enemy.Speed + dodgeCalc
-							case actors.Left:
-								enemy.X += enemy.Speed + dodgeCalc
-							}
-							g.player.UpdateHitbox()
-						}
-					}
-				}
-
-			}
-
-			removeIndices := []int{}
-			for i, bullet := range enemy.Bullets {
-				if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
-					removeIndices = append(removeIndices, i)
-				}
-				if bullet.Hitbox.CheckCollision(g.player.Hitbox) {
-					removeIndices = append(removeIndices, i)
-					g.player.Health -= bullet.Damage
-					hit := actors.Hit{
-						X:        g.player.X,
-						Y:        g.player.Y - g.player.H/2,
-						Color:    color.RGBA{255, 255, 255, 240},
-						Msg:      "-" + strconv.Itoa(bullet.Damage),
-						TextFont: text.NewGoXFace(g.hitTextFont),
-						Duration: 2 * g.framesPerSecond / 3,
-					}
-					hit.SetDrawOptions()
-					g.player.Hits = append(g.player.Hits, hit)
-					g.player.UpdateHealhBar()
-					// TODO: What if player health <= 0?
-				}
-			}
-			for _, index := range removeIndices {
-				enemy.Bullets = append(enemy.Bullets[:index], enemy.Bullets[index+1:]...)
+			if g.canStandAt(hitbox) {
+				return x, y, true
 			}
 		}
+	}
 
-		if g.player.Hitbox.CheckCollision(cactus.Hitbox) {
-			dodgeCalc := 0.0
-			if g.player.CurrentAction.Duration > 0 && g.player.CurrentAction.Type == actors.Dodge {
-				dodgeCalc = g.player.DodgeSpeed
-			}
-			for dir, moving := range g.player.MoveDirs {
-				if moving {
-					switch dir {
-					case actors.Up:
-						g.player.Y += g.player.Speed + dodgeCalc
-					case actors.Down:
-						g.player.Y -= g.player.Speed + dodgeCalc
-					case actors.Right:
-						g.player.X -= g.player.Speed + dodgeCalc
-					case actors.Left:
-						g.player.X += g.player.Speed + dodgeCalc
-					}
-					g.player.UpdateHitbox()
-				}
+	return 0, 0, false
+}
+
+// enemyTierChances returns how likely a legendary or rare enemy is to spawn
+// on the given level, the tougher tiers get more common as the run goes on.
+func enemyTierChances(level int) (float64, float64) {
+	legendary := min(0.05+float64(level-1)*0.01, 0.25)
+	rare := min(0.15+float64(level-1)*0.02, 0.40)
+
+	return legendary, rare
+}
+
+// rollEnemyTier rolls the tier of a freshly spawned enemy.
+func rollEnemyTier(level int) actors.Tier {
+	return enemyTierForRoll(level, rand.Float64())
+}
+
+// enemyTierForRoll maps a roll in [0, 1) to an enemy tier.
+func enemyTierForRoll(level int, roll float64) actors.Tier {
+	legendary, rare := enemyTierChances(level)
+
+	switch {
+	case roll < legendary:
+		return actors.Legendary
+	case roll < legendary+rare:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+// enemyWhiskyChance returns how likely an enemy of the given tier also
+// carries a whisky in his gunbelt.
+func enemyWhiskyChance(tier actors.Tier) float64 {
+	switch tier {
+	case actors.Legendary:
+		return legendaryWhiskyChance
+	case actors.Rare:
+		return rareWhiskyChance
+	default:
+		return commonWhiskyChance
+	}
+}
+
+// enemyHasWhisky maps a roll in [0, 1) to whether the enemy carries a whisky.
+func enemyHasWhisky(tier actors.Tier, roll float64) bool {
+	return roll < enemyWhiskyChance(tier)
+}
+
+// rollEnemyWhisky rolls whether a freshly spawned enemy carries a whisky.
+func rollEnemyWhisky(tier actors.Tier) bool {
+	return enemyHasWhisky(tier, rand.Float64())
+}
+
+func goldRewardForTier(tier actors.Tier) int {
+	switch tier {
+	case actors.Legendary:
+		return legendaryKillGold
+	case actors.Rare:
+		return rareKillGold
+	default:
+		return commonKillGold
+	}
+}
+
+func enemyStatsForTier(tier actors.Tier) actors.EnemyTierStats {
+	switch tier {
+	case actors.Legendary:
+		return actors.EnemyTierStats{Health: 12, Damage: 2, Speed: 0.5, FireRate: 4}
+	case actors.Rare:
+		return actors.EnemyTierStats{Health: 5, Damage: 1, Speed: 0.25, FireRate: 2}
+	default:
+		return actors.EnemyTierStats{}
+	}
+}
+
+func (g *Game) enemySpritesForTier(tier actors.Tier) []*ebiten.Image {
+	switch tier {
+	case actors.Legendary:
+		return g.enemyLegendarySprites
+	case actors.Rare:
+		return g.enemyRareSprites
+	default:
+		return g.enemyCommonSprites
+	}
+}
+
+// rollEnemyWeapon picks the kind of gun an enemy carries.
+func rollEnemyWeapon() actors.Weapon {
+	switch roll := rand.Float64(); {
+	case roll > 0.75:
+		return actors.Shotgun
+	case roll < 0.25:
+		return actors.MachineGun
+	default:
+		return actors.Revolver
+	}
+}
+
+// rollGunTier rolls the tier of the gun an enemy carries.
+func rollGunTier(enemyTier actors.Tier) actors.Tier {
+	return gunTierForRoll(enemyTier, rand.Float64())
+}
+
+// gunTierForRoll maps a roll in [0, 1) to a gun tier, the tougher the enemy
+// the higher the chance of a better gun.
+func gunTierForRoll(enemyTier actors.Tier, roll float64) actors.Tier {
+	legendaryChance, rareChance := 0.05, 0.20
+	switch enemyTier {
+	case actors.Rare:
+		legendaryChance, rareChance = 0.15, 0.40
+	case actors.Legendary:
+		legendaryChance, rareChance = 0.40, 0.40
+	}
+
+	switch {
+	case roll < legendaryChance:
+		return actors.Legendary
+	case roll < legendaryChance+rareChance:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+func rollGunTierStats(tier actors.Tier) actors.GunTierStats {
+	switch tier {
+	case actors.Legendary:
+		return actors.GunTierStats{
+			Damage:        2 + rand.IntN(3),
+			Magazine:      2 + rand.IntN(3),
+			Ammo:          rand.IntN(20),
+			ShootCoolAmmo: -(4 + rand.IntN(4)),
+			BulletSpeed:   1.0 + rand.Float64()*1.5,
+			BulletSpread:  8 + rand.IntN(9),
+			BulletCount:   2,
+		}
+	case actors.Rare:
+		return actors.GunTierStats{
+			Damage:        1 + rand.IntN(2),
+			Magazine:      1 + rand.IntN(2),
+			Ammo:          rand.IntN(20),
+			ShootCoolAmmo: -(2 + rand.IntN(3)),
+			BulletSpeed:   0.5 + rand.Float64(),
+			BulletSpread:  4 + rand.IntN(5),
+			BulletCount:   1,
+		}
+	default:
+		return actors.GunTierStats{
+			Damage:      rand.IntN(2),
+			Magazine:    rand.IntN(2),
+			Ammo:        rand.IntN(20),
+			BulletSpeed: rand.Float64() * 0.5,
+		}
+	}
+}
+
+// newEnemyGun builds the gun an enemy carries. The tier of the gun improves
+// its base stats and widens the random spread of those stats.
+func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) actors.Gun {
+	gun := actors.Gun{
+		Tier:          tier,
+		Damage:        damage,
+		GunType:       gunType,
+		ShootCooldown: playerShootCooldown * 2,
+		MuzzleFlash:   3,
+		DrawOptions:   &ebiten.DrawImageOptions{},
+		Scale:         2.0,
+		AmmoFace:      g.hitFace,
+	}
+
+	switch gunType {
+	case actors.Shotgun:
+		gun.MagazineSize = defaultMagazineSize[actors.Shotgun]
+		gun.BulletDuration = 50
+		gun.BulletSpread = defaultShotgunBulletSpread
+		gun.BulletCount = defaultShotgunBulletCount
+		gun.Ammo = 15 + rand.IntN(10)
+		gun.BulletSpeed = 6.0
+		gun.Sprite = g.gunSprites[actors.Shotgun]
+	case actors.MachineGun:
+		gun.MagazineSize = defaultMagazineSize[actors.MachineGun]
+		gun.BulletDuration = 90
+		gun.BulletSpread = defaultMachineGunBulletSpread
+		gun.BulletSpeed = 9.0
+		gun.Ammo = 100 + rand.IntN(50)
+		gun.ShootCooldown = playerShootCooldown / 2
+		gun.Sprite = g.gunSprites[actors.MachineGun]
+	case actors.Revolver:
+		gun.MagazineSize = defaultMagazineSize[actors.Revolver]
+		gun.BulletDuration = 120
+		gun.Ammo = 50 + rand.IntN(50)
+		gun.BulletSpeed = 6.0
+		gun.Sprite = g.gunSprites[actors.Revolver]
+	case actors.Whisky:
+		gun.ShootCooldown = playerShootCooldown * 2
+		gun.Ammo = 5 + rand.IntN(10)
+		gun.MuzzleFlash = 0
+		gun.Sprite = g.gunSprites[actors.Whisky]
+	}
+
+	stats := rollGunTierStats(tier)
+	gun.Damage += stats.Damage
+	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.ShootCoolAmmo)
+	if gunType == actors.Whisky {
+		gun.Ammo += min(stats.Ammo, 2)
+
+		return gun
+	}
+
+	gun.MagazineSize += stats.Magazine
+	gun.Ammo += stats.Ammo
+	gun.BulletSpeed += stats.BulletSpeed
+	gun.BulletSpread += stats.BulletSpread
+	gun.BulletCount += stats.BulletCount
+	gun.CurrentMagazineSize = gun.MagazineSize
+
+	return gun
+}
+
+func (g *Game) spawnEnemy(camp *world.BanditCamp) {
+	x, y, ok := g.enemySpawnPoint(camp)
+	if !ok {
+		return
+	}
+
+	tier := rollEnemyTier(g.level)
+	tierStats := enemyStatsForTier(tier)
+	sprites := g.enemySpritesForTier(tier)
+
+	// the higher the level the tougher and deadlier the enemies get,
+	// the base damage is low because every bullet deals at least 1
+	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.Damage
+	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
+	gunBelt := []*actors.Gun{&gun}
+	if rollEnemyWhisky(tier) {
+		whisky := g.newEnemyGun(actors.Whisky, rollGunTier(tier), damage)
+		gunBelt = append(gunBelt, &whisky)
+	}
+
+	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.FireRate)
+
+	state := actors.PlayerRevolverLeft
+	switch gun.GunType {
+	case actors.Shotgun:
+		state = actors.PlayerShotgunLeft
+	case actors.MachineGun:
+		state = actors.PlayerMachineGunLeft
+		fireRate = fireRate / 2
+	}
+	enemy := &actors.Enemy{
+		Tier: tier,
+		Player: &actors.Player{
+			X:              x,
+			Y:              y,
+			W:              float64(g.enemyCommonSprites[state].Bounds().Dx() - 5),
+			H:              float64(g.enemyCommonSprites[state].Bounds().Dy()),
+			Sprites:        sprites,
+			CurrentState:   state,
+			CurrentWeapon:  0,
+			Scale:          2,
+			Speed:          0.7 + rand.Float64()*1.4 + tierStats.Speed,
+			DodgeSpeed:     0.4 + rand.Float64()*0.6,
+			AnimationSpeed: 11,
+			DrawOptions:    &ebiten.DrawImageOptions{},
+			FireRate:       fireRate,
+			GunBelt:        gunBelt,
+			GunBeltSize:    len(gunBelt),
+			BulletSprite:   g.bulletSprite,
+			OnShoot:        g.playEnemyShootSound,
+			OnDrink:        g.playEnemyDrinkSound,
+			// the higher the level the tougher and deadlier the enemies get,
+			// the base damage is low because every bullet deals at least 1
+			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.Health,
+			MaxHealth: 10 + (g.level-1)*levelHealthBonus + tierStats.Health,
+			MoveDirs: map[actors.Direction]bool{
+				actors.Up:    false,
+				actors.Down:  false,
+				actors.Right: false,
+				actors.Left:  false,
+			},
+			IsNpc:          true,
+			HitboxOffset:   enemyHitboxOffset,
+			ReloadDuration: enemyReloadDuration,
+			Hitbox: &actors.HitBox{
+				X: float32(x) + enemyHitboxOffset,
+				Y: float32(y) + enemyHitboxOffset,
+				W: float32(g.enemyCommonSprites[state].Bounds().Dx() - 5),
+				H: float32(g.enemyCommonSprites[state].Bounds().Dy()),
+			},
+		},
+		VisualDist: rand.IntN(350) + 400,
+		HomeX:      camp.X,
+		HomeY:      camp.Y,
+		HomeRadius: camp.Radius,
+	}
+	enemy.Healthbar = &actors.HealthBar{
+		X:               enemy.X,
+		Y:               enemy.Y - (enemy.H - enemy.H/3),
+		W:               enemy.W + 5,
+		H:               enemyHealthBarSize,
+		Points:          enemy.Health,
+		MaxPoints:       enemy.MaxHealth,
+		HealthBarColor:  g.enemyHealthbarColors[0],
+		HealthLostColor: g.enemyHealthbarColors[1],
+		TextFont:        text.NewGoXFace(g.enemyHealthBarFont),
+		FontColor:       color.RGBA{0, 0, 0, 240},
+		FontSize:        g.enemyHealthBarFontSize,
+	}
+	enemy.Healthbar.SetDrawOptions()
+	enemy.SavePosition()
+
+	g.enemies = append(g.enemies, enemy)
+	camp.AddEnemy(enemy)
+}
+
+// aliveEnemies counts the enemies that are still a threat to the player.
+func (g *Game) aliveEnemies() int {
+	alive := 0
+	for _, enemy := range g.enemies {
+		if !enemy.Dead {
+			alive++
+		}
+	}
+
+	return alive
+}
+
+// addShake triggers a screen shake that decays over the given frames, a
+// higher strength shakes the camera harder.
+func (g *Game) addShake(frames int, strength float64) {
+	g.shakeFrames = frames
+	g.shakeStrength = strength
+}
+
+// spawnHitSparks scatters a few short lived particles around a point so
+// impacts and kills have a bit of visual weight.
+func (g *Game) spawnHitSparks(x, y float64, count int, clr color.RGBA) {
+	for range count {
+		angle := rand.Float64() * 2 * math.Pi
+		speed := 0.8 + rand.Float64()*2.2
+		g.particles = append(g.particles, actors.NewParticle(
+			x, y,
+			math.Cos(angle)*speed, math.Sin(angle)*speed,
+			clr,
+		))
+	}
+}
+
+// dodgeDirection returns the direction the player is dashing in, it reports
+// false when no movement key is held.
+func (g *Game) dodgeDirection() (float64, float64, bool) {
+	dirX, dirY := 0.0, 0.0
+	if g.player.MoveDirs[actors.Right] {
+		dirX += 1
+	}
+	if g.player.MoveDirs[actors.Left] {
+		dirX -= 1
+	}
+	if g.player.MoveDirs[actors.Down] {
+		dirY += 1
+	}
+	if g.player.MoveDirs[actors.Up] {
+		dirY -= 1
+	}
+
+	length := math.Hypot(dirX, dirY)
+	if length == 0 {
+		return 0, 0, false
+	}
+
+	return dirX / length, dirY / length, true
+}
+
+// spawnDodgeDust kicks up a puff of dust behind the dashing player so the
+// dodge reads as a quick burst of movement.
+func (g *Game) spawnDodgeDust(count int) {
+	dirX, dirY, moving := g.dodgeDirection()
+	cx := g.player.X + g.player.W/2
+	cy := g.player.Y + g.player.H - 6
+
+	for range count {
+		x := cx + (rand.Float64()*2-1)*7
+		y := cy + (rand.Float64()*2-1)*4
+		vx := (rand.Float64()*2 - 1) * 0.7
+		vy := -rand.Float64() * 0.8
+
+		if moving {
+			spread := (rand.Float64()*2 - 1) * 10
+			x += -dirY * spread
+			y += dirX * spread
+
+			speed := 0.5 + rand.Float64()*1.3
+			vx = -dirX*speed + (rand.Float64()*2-1)*0.6
+			vy = -dirY*speed - rand.Float64()*0.8
+		}
+
+		clr := color.RGBA{205, 185, 135, 200}
+		g.particles = append(g.particles, actors.NewParticle(x, y, vx, vy, clr))
+	}
+}
+
+// updateParticles advances every spark and drops the ones that burned out.
+func (g *Game) updateParticles() {
+	remaining := g.particles[:0]
+	for _, particle := range g.particles {
+		particle.Update()
+		if particle.Life > 0 {
+			remaining = append(remaining, particle)
+		}
+	}
+	g.particles = remaining
+}
+
+// knockbackEnemy pushes an enemy a short distance along the bullet path so
+// every hit that lands has some weight behind it. checkWorldCollisions pulls
+// the enemy back if the push would have put him on the ocean or a plant.
+func (g *Game) knockbackEnemy(enemy *actors.Enemy, bullet *actors.Bullet) {
+	const knockbackForce = 7.0
+	enemy.X += math.Cos(bullet.R) * knockbackForce
+	enemy.Y += math.Sin(bullet.R) * knockbackForce
+	enemy.UpdateHitboxOffset(enemyHitboxOffset)
+	enemy.UpdateHealhBar()
+}
+
+// removeCorpses drops enemies that have been dead for a while so the world
+// does not fill up with bodies.
+func (g *Game) removeCorpses() {
+	for i := len(g.enemies) - 1; i >= 0; i-- {
+		enemy := g.enemies[i]
+		if !enemy.Dead || len(enemy.Bullets) > 0 {
+			continue
+		}
+		enemy.CorpseTimer += 1
+		if enemy.CorpseTimer > corpseDuration {
+			g.enemies = append(g.enemies[:i], g.enemies[i+1:]...)
+			for _, camp := range g.camps {
+				camp.RemoveEnemy(enemy)
 			}
 		}
+	}
+}
+
+// survivalTime returns how long the player has been surviving as mm:ss.
+func (g *Game) survivalTime() string {
+	seconds := g.elapsedFrames / g.framesPerSecond
+
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+// CheckCollisions resolves every collision of the current frame: bullets,
+// the borders of the island and the actors bumping into each other.
+func (g *Game) CheckCollisions() {
+	g.checkBulletCollisions()
+	g.checkWorldCollisions()
+	g.checkActorCollisions()
+}
+
+// checkBulletCollisions lets bullets damage what they hit and removes the
+// bullets that hit something or that left the world.
+func (g *Game) checkBulletCollisions() {
+	old := g.player.Bullets
+	remaining := old[:0]
+	for i := range old {
+		bullet := &old[i]
+		if g.bulletBlocked(bullet) {
+			continue
+		}
+
+		hitEnemy := false
+		for _, enemy := range g.enemies {
+			if enemy.Dead || !bullet.Hitbox.CheckCollision(enemy.Hitbox) {
+				continue
+			}
+			enemy.Health -= bullet.Damage
+			enemy.HitFlash = 6
+			g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(bullet.Damage), color.RGBA{255, 255, 255, 240})
+			enemy.UpdateHealhBar()
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 6, color.RGBA{255, 200, 100, 240})
+			if enemy.Health <= 0 {
+				g.killEnemy(enemy)
+			} else {
+				g.sounds.Play(soundHit, soundVolumeHit)
+				g.knockbackEnemy(enemy, bullet)
+			}
+			hitEnemy = true
+
+			break
+		}
+		if hitEnemy {
+			continue
+		}
+
+		remaining = append(remaining, *bullet)
+	}
+	clear(old[len(remaining):])
+	g.player.Bullets = remaining
+
+	for _, enemy := range g.enemies {
+		old := enemy.Bullets
+		remaining := old[:0]
+		for i := range old {
+			bullet := &old[i]
+			if g.bulletBlocked(bullet) {
+				continue
+			}
+
+			// a dodging player is untouchable, the bullet flies through him
+			if !g.player.Dead && !g.player.IsDodging() && bullet.Hitbox.CheckCollision(g.player.Hitbox) {
+				g.damagePlayer(bullet.Damage)
+
+				continue
+			}
+
+			remaining = append(remaining, *bullet)
+		}
+		clear(old[len(remaining):])
+		enemy.Bullets = remaining
+	}
+}
+
+// bulletBlocked reports whether the bullet hit a plant or left the world.
+func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
+	x, y := float64(bullet.Hitbox.X), float64(bullet.Hitbox.Y)
+	if x < 0 || y < 0 || x > g.island.PixelWidth() || y > g.island.PixelHeight() {
+		return true
+	}
+
+	for _, plant := range g.plants {
+		if bullet.Hitbox.CheckCollision(plant.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+			return true
+		}
+	}
+
+	for _, tent := range g.tents {
+		if bullet.Hitbox.CheckCollision(tent.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+			return true
+		}
+	}
+
+	for _, chest := range g.chests {
+		if bullet.Hitbox.CheckCollision(chest.Hitbox) {
+			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+			return true
+		}
+	}
+
+	if bullet.Hitbox.CheckCollision(g.store.Hitbox) {
+		g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+		return true
+	}
+
+	return false
+}
+
+// checkWorldCollisions keeps the actors on solid ground, the ocean and the
+// cacti are the barriers of the world.
+func (g *Game) checkWorldCollisions() {
+	if !g.player.Dead && !g.canStandAt(g.player.Hitbox) {
+		g.player.RestorePosition()
 	}
 
 	for _, enemy := range g.enemies {
 		if enemy.Dead {
 			continue
 		}
-		removeIndices := []int{}
-		for i, bullet := range g.player.Bullets {
-			if bullet.Hitbox.CheckCollision(enemy.Hitbox) {
-				removeIndices = append(removeIndices, i)
-				enemy.Health -= bullet.Damage
-				hit := actors.Hit{
-					X:        enemy.X,
-					Y:        enemy.Y - enemy.H/2,
-					Color:    color.RGBA{255, 255, 255, 240},
-					Msg:      "-" + strconv.Itoa(bullet.Damage),
-					TextFont: text.NewGoXFace(g.hitTextFont),
-					Duration: 2 * g.framesPerSecond / 3,
-				}
-				hit.SetDrawOptions()
-				enemy.Hits = append(enemy.Hits, hit)
+		g.resolveEnemyWorldCollision(enemy)
+	}
+}
 
-			}
-		}
-		for _, index := range removeIndices {
-			g.player.Bullets = append(g.player.Bullets[:index], g.player.Bullets[index+1:]...)
-		}
+// resolveEnemyWorldCollision lets an enemy slide along a wall when possible and
+// otherwise flags it so the AI can pick another direction on the next frame.
+func (g *Game) resolveEnemyWorldCollision(enemy *actors.Enemy) {
+	if g.canStandAt(enemy.Hitbox) {
+		return
+	}
 
-		if enemy.Health <= 0 {
-			enemy.Health = 0
-			enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
-			enemy.Dead = true
-			enemy.UpdateCurrentState(actors.PlayerDead)
+	nextX, nextY := enemy.X, enemy.Y
+	movedX := math.Abs(nextX-enemy.PrevX) > 0.01
+	movedY := math.Abs(nextY-enemy.PrevY) > 0.01
+
+	if movedX {
+		g.setEnemyPosition(enemy, nextX, enemy.PrevY)
+		if g.canStandAt(enemy.Hitbox) {
+			return
+		}
+	}
+	if movedY {
+		g.setEnemyPosition(enemy, enemy.PrevX, nextY)
+		if g.canStandAt(enemy.Hitbox) {
+			return
+		}
+	}
+
+	enemy.RestorePosition()
+	enemy.Blocked = true
+}
+
+func (g *Game) setEnemyPosition(enemy *actors.Enemy, x, y float64) {
+	enemy.X, enemy.Y = x, y
+	enemy.UpdateHitboxOffset(enemyHitboxOffset)
+	enemy.UpdateHealhBar()
+}
+
+// canStandAt reports whether the given hitbox is completely on walkable land
+// and does not overlap a plant.
+func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
+	if !g.island.IsRectWalkable(float64(hitbox.X), float64(hitbox.Y), float64(hitbox.W), float64(hitbox.H)) {
+		return false
+	}
+
+	for _, plant := range g.plants {
+		if hitbox.CheckCollision(plant.Hitbox) {
+			return false
+		}
+	}
+
+	for _, tent := range g.tents {
+		if hitbox.CheckCollision(tent.Hitbox) {
+			return false
+		}
+	}
+
+	for _, chest := range g.chests {
+		if hitbox.CheckCollision(chest.Hitbox) {
+			return false
+		}
+	}
+
+	return !hitbox.CheckCollision(g.store.Hitbox)
+}
+
+// checkActorCollisions stops actors from walking through each other.
+func (g *Game) checkActorCollisions() {
+	for i, enemy := range g.enemies {
+		if enemy.Dead {
 			continue
 		}
 
-		if g.player.Hitbox.CheckCollision(enemy.Hitbox) {
-			for dir, moving := range g.player.MoveDirs {
-				if moving {
-					switch dir {
-					case actors.Up:
-						g.player.Y += g.player.Speed
-					case actors.Down:
-						g.player.Y -= g.player.Speed
-					case actors.Right:
-						g.player.X -= g.player.Speed
-					case actors.Left:
-						g.player.X += g.player.Speed
-					}
-					g.player.UpdateHitbox()
-				}
+		if !g.player.Dead && g.player.Hitbox.CheckCollision(enemy.Hitbox) {
+			g.player.RestorePosition()
+			enemy.RestorePosition()
+			enemy.Blocked = true
+		}
+
+		for _, otherEnemy := range g.enemies[i+1:] {
+			if otherEnemy.Dead {
+				continue
+			}
+			if enemy.Hitbox.CheckCollision(otherEnemy.Hitbox) {
+				enemy.RestorePosition()
+				enemy.Blocked = true
 			}
 		}
 	}
+}
+
+// unstickEnemy steers an enemy that ran into an obstacle or another actor into
+// a free direction instead of letting it push against the same thing forever.
+func (g *Game) unstickEnemy(enemy *actors.Enemy) {
+	if !enemy.Blocked {
+		return
+	}
+	enemy.Blocked = false
+
+	targetX, targetY := enemy.HomeX, enemy.HomeY
+	if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
+		targetX, targetY = g.player.X, g.player.Y
+	}
+
+	dirs := []actors.Direction{actors.Up, actors.Down, actors.Left, actors.Right}
+	rand.Shuffle(len(dirs), func(i, j int) {
+		dirs[i], dirs[j] = dirs[j], dirs[i]
+	})
+
+	var bestDir actors.Direction
+	bestDistance := math.MaxFloat64
+	for _, dir := range dirs {
+		if !g.canEnemyStep(enemy, dir) {
+			continue
+		}
+
+		distance := enemyStepDistance(enemy, dir, targetX, targetY)
+		if distance < bestDistance {
+			bestDir = dir
+			bestDistance = distance
+		}
+	}
+	if bestDistance == math.MaxFloat64 {
+		return
+	}
+
+	enemy.StopAnimation()
+	enemy.CurrentAction = actors.Action{
+		Duration: 45 + rand.IntN(30),
+		Type:     actors.Move,
+		MoveDir:  bestDir,
+		LookDir:  bestDir,
+		Actor:    enemy.Player,
+	}
+}
+
+// enemyStepDistance returns how close a single step in the given direction
+// brings the enemy to the target point.
+func enemyStepDistance(enemy *actors.Enemy, dir actors.Direction, targetX, targetY float64) float64 {
+	x, y := enemy.X, enemy.Y
+	switch dir {
+	case actors.Up:
+		y -= enemy.Speed
+	case actors.Down:
+		y += enemy.Speed
+	case actors.Left:
+		x -= enemy.Speed
+	case actors.Right:
+		x += enemy.Speed
+	}
+
+	return math.Hypot(targetX-x, targetY-y)
+}
+
+// canEnemyStep reports whether the enemy can take a single step in the given
+// direction without walking into the ocean, an obstacle or another actor.
+func (g *Game) canEnemyStep(enemy *actors.Enemy, dir actors.Direction) bool {
+	hitbox := *enemy.Hitbox
+	switch dir {
+	case actors.Up:
+		hitbox.Y -= float32(enemy.Speed)
+	case actors.Down:
+		hitbox.Y += float32(enemy.Speed)
+	case actors.Left:
+		hitbox.X -= float32(enemy.Speed)
+	case actors.Right:
+		hitbox.X += float32(enemy.Speed)
+	}
+
+	if !g.canStandAt(&hitbox) {
+		return false
+	}
+	if !g.player.Dead && g.player.Hitbox.CheckCollision(&hitbox) {
+		return false
+	}
+	for _, other := range g.enemies {
+		if other == enemy || other.Dead {
+			continue
+		}
+		if other.Hitbox.CheckCollision(&hitbox) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// damagePlayer applies bullet damage to the player and ends the run when he dies.
+func (g *Game) damagePlayer(damage int) {
+	damage = max(1, damage-g.player.Armor)
+	g.player.Health -= damage
+	g.player.HitFlash = 8
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 255, 255, 240})
+	g.addShake(8, 4)
+	g.spawnHitSparks(g.player.X+g.player.W/2, g.player.Y+g.player.H/2, 6, color.RGBA{230, 70, 60, 240})
+
+	if g.player.Health <= 0 {
+		g.player.Health = 0
+		g.player.Dead = true
+		g.player.UpdateCurrentState(actors.PlayerDead)
+		g.mode = ModeGameOver
+		g.closeStore()
+		g.sounds.Play(soundGameOver, soundVolumeGameOver)
+	} else {
+		g.sounds.Play(soundHit, soundVolumeHit)
+	}
+
+	g.player.UpdateHealhBar()
+}
+
+// killEnemy turns the enemy into a corpse, drops his gun and rewards the
+// player with points.
+func (g *Game) killEnemy(enemy *actors.Enemy) {
+	if enemy.Dead {
+		return
+	}
+
+	enemy.Health = 0
+	enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
+	enemy.Dead = true
+	enemy.UpdateCurrentState(actors.PlayerDead)
+	g.score += scorePerKill
+	gold := goldRewardForTier(enemy.Tier)
+	g.player.Gold += gold
+	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill)+" PTS +"+strconv.Itoa(gold)+" $", color.RGBA{255, 215, 0, 240})
+	g.addShake(5, 3)
+	g.freezeFrames = 3
+	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
+	g.sounds.Play(soundEnemyDeath, soundVolumeEnemyDeath)
+	g.dropEnemyGun(enemy)
+}
+
+// dropEnemyGun leaves the gun of a dead enemy on the floor so the player can
+// pick it up.
+func (g *Game) dropEnemyGun(enemy *actors.Enemy) {
+	if enemy.CurrentWeapon < 0 || enemy.CurrentWeapon >= len(enemy.GunBelt) || enemy.GunBelt[enemy.CurrentWeapon] == nil {
+		return
+	}
+
+	for i, gun := range enemy.GunBelt {
+		g.loot = append(g.loot, actors.NewLoot(gun, enemy.X+enemy.W/2+float64(i)*enemy.W, enemy.Y+enemy.H/2+float64(i)*enemy.H))
+	}
+}
+
+// gunBeltIndexFor returns the belt slot of the gun with the given type.
+func (g *Game) gunBeltIndexFor(weapon actors.Weapon) (int, bool) {
+	for i, gun := range g.player.GunBelt {
+		if gun.GunType == weapon {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
+// nearestLoot returns the closest gun on the floor within pickup range that
+// has a matching gun type in the player's gunbelt.
+func (g *Game) nearestLoot() *actors.Loot {
+	var nearest *actors.Loot
+	nearestDist := lootPickupRadius
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+
+	for _, loot := range g.loot {
+		if loot.Gun == nil {
+			continue
+		}
+		if _, ok := g.gunBeltIndexFor(loot.Gun.GunType); !ok {
+			continue
+		}
+
+		dist := utils.DistanceBetweenPoints(px, py, loot.X, loot.Y)
+		if dist <= nearestDist {
+			nearest = loot
+			nearestDist = dist
+		}
+	}
+
+	return nearest
+}
+
+// comparingLoot returns the nearby gun on the floor while the compare input
+// is held.
+func (g *Game) comparingLoot() *actors.Loot {
+	if !ebiten.IsKeyPressed(ebiten.KeyQ) && !g.buttonsPressed["RL"] {
+		return nil
+	}
+
+	return g.nearestLoot()
+}
+
+// pickUpLoot swaps the gun on the floor with the gun of the same type in the
+// gunbelt and drops the old gun where the new one was found.
+func (g *Game) pickUpLoot(loot *actors.Loot) {
+	if loot.Gun == nil {
+		return
+	}
+
+	index, ok := g.gunBeltIndexFor(loot.Gun.GunType)
+	if !ok {
+		return
+	}
+
+	oldGun := g.player.GunBelt[index]
+	newGun := loot.Gun
+	newGun.X, newGun.Y = oldGun.X, oldGun.Y
+	g.player.GunBelt[index] = newGun
+	if g.player.CurrentWeapon == index {
+		g.player.Reloading = false
+		g.player.ReloadTimer = 0
+		g.player.DrawWeapon(index)
+	}
+
+	g.removeLoot(loot)
+	g.sounds.Play(soundPickup, soundVolumePickup)
+
+	if oldGun.GunType == actors.Fists {
+		return
+	}
+
+	vx := math.Cos(g.player.AimAngle) * lootTossSpeed
+	vy := math.Sin(g.player.AimAngle) * lootTossSpeed
+	g.loot = append(g.loot, actors.NewTossedLoot(oldGun, loot.X, loot.Y, vx, vy))
+}
+
+// removeLoot takes a gun off the floor.
+func (g *Game) removeLoot(target *actors.Loot) {
+	for i, loot := range g.loot {
+		if loot == target {
+			g.loot = append(g.loot[:i], g.loot[i+1:]...)
+
+			return
+		}
+	}
+}
+
+func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor color.RGBA) {
+	hit := actors.Hit{
+		X:        x,
+		Y:        y,
+		Color:    hitColor,
+		Msg:      msg,
+		TextFont: g.hitFace,
+		Duration: g.framesPerSecond / 2,
+	}
+	hit.SetDrawOptions()
+	*hits = append(*hits, hit)
 }
 
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
 	// gamepad logic
-	buttonsJustPressed := map[string]bool{}
+	for k := range buttonsJustPressed {
+		delete(buttonsJustPressed, k)
+	}
+
 	if g.gamepadIDs == nil {
 		g.gamepadIDs = map[ebiten.GamepadID]struct{}{}
 	}
@@ -570,38 +2075,57 @@ func (g *Game) Update() error {
 	// Calculate the position of the screen center based on the player's position
 	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
 	g.camY = g.player.Y + g.player.H/2 - ScreenHeight/2
+	if g.shakeFrames > 0 {
+		g.camX += (rand.Float64()*2 - 1) * g.shakeStrength
+		g.camY += (rand.Float64()*2 - 1) * g.shakeStrength
+		g.shakeFrames--
+	}
 
 	// controls
 	switch g.mode {
 	case ModeTitle:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModeGameOver:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.Initialize()
 			g.mode = ModeGame
 		}
 	case ModePause:
-		if ebiten.IsKeyPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FBR"] {
 			g.mode = ModeGame
 		}
 	case ModeGame:
-		g.player.MoveDirs = map[actors.Direction]bool{
-			actors.Up:    false,
-			actors.Down:  false,
-			actors.Right: false,
-			actors.Left:  false,
+		// a kill freezes the game for a couple of frames, the hit-stop
+		// gives the fight a bit more punch
+		if g.freezeFrames > 0 {
+			g.freezeFrames -= 1
+			return nil
 		}
 
-		for _, enemy := range g.enemies {
-			enemy.MoveDirs = map[actors.Direction]bool{
-				actors.Up:    false,
-				actors.Down:  false,
-				actors.Right: false,
-				actors.Left:  false,
-			}
+		g.elapsedFrames += 1
+		if g.levelClearNoticeTimer > 0 {
+			g.levelClearNoticeTimer--
+		}
+		g.removeCorpses()
 
+		g.player.SavePosition()
+		g.player.UpdateWeapon()
+		g.player.UpdateDodge()
+		g.player.MoveDirs[actors.Up] = false
+		g.player.MoveDirs[actors.Down] = false
+		g.player.MoveDirs[actors.Right] = false
+		g.player.MoveDirs[actors.Left] = false
+
+		for _, enemy := range g.enemies {
+			enemy.SavePosition()
+			enemy.UpdateWeapon()
+			enemy.MoveDirs[actors.Up] = false
+			enemy.MoveDirs[actors.Down] = false
+			enemy.MoveDirs[actors.Right] = false
+			enemy.MoveDirs[actors.Left] = false
 			enemy.UpdateBullets()
 		}
 
@@ -609,91 +2133,193 @@ func (g *Game) Update() error {
 
 		g.player.UpdateBullets()
 
-		// weapon switching
-		if inpututil.IsKeyJustPressed(ebiten.Key1) {
-			g.player.DrawWeapon(actors.Revolver)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.Key0) {
-			g.player.DrawWeapon(actors.Fists)
-		}
-
-		if buttonsJustPressed["RT"] {
-			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % (actors.Revolver + 1))
-		}
-
-		directionKeyPressed := false
-		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
-			g.player.Move(actors.Down)
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyJ) || g.yRightAxis > 0.5 {
-			g.player.Look(actors.Down)
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
-			g.player.Move(actors.Up)
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyK) || g.yRightAxis < -0.5 {
-			g.player.Look(actors.Up)
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
-			g.player.Move(actors.Right)
-			g.player.UpdateHitbox()
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyL) || g.xRightAxis > 0.5 {
-			g.player.Look(actors.Right)
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyQ) || ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5 {
-			g.player.Move(actors.Left)
-			g.player.UpdateHitbox()
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyH) || g.xRightAxis < -0.5 {
-			g.player.Look(actors.Left)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"] {
-			// TODO: only dodge when stamina is replenished
-			g.player.CurrentAction = actors.Action{
-				Duration: g.player.DodgeDuration,
-				Type:     actors.Dodge,
-				Actor:    g.player,
+		if g.storeOpen {
+			g.updateStoreInput()
+			g.player.Act(g.frameCount)
+		} else {
+			// weapon switching
+			if inpututil.IsKeyJustPressed(ebiten.Key5) && len(g.player.GunBelt) > 4 {
+				g.player.DrawWeapon(4)
 			}
-		}
 
-		g.player.Act(g.frameCount)
+			if inpututil.IsKeyJustPressed(ebiten.Key4) && len(g.player.GunBelt) > 3 {
+				g.player.DrawWeapon(3)
+			}
 
-		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
-			g.player.Animate()
-		}
+			if inpututil.IsKeyJustPressed(ebiten.Key3) && len(g.player.GunBelt) > 2 {
+				g.player.DrawWeapon(2)
+			}
 
-		if !directionKeyPressed {
-			g.player.StopAnimation()
-		}
+			if inpututil.IsKeyJustPressed(ebiten.Key2) && len(g.player.GunBelt) > 1 {
+				g.player.DrawWeapon(1)
+			}
 
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || buttonsJustPressed["FTR"] {
-			g.player.Shoot()
+			if inpututil.IsKeyJustPressed(ebiten.Key1) && len(g.player.GunBelt) > 0 {
+				g.player.DrawWeapon(0)
+			}
+
+			if buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+				g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
+			}
+
+			if buttonsJustPressed["LB"] {
+				newWeapon := g.player.CurrentWeapon - 1
+				if newWeapon < 0 {
+					newWeapon = len(g.player.GunBelt) - 1
+				}
+				g.player.DrawWeapon(newWeapon)
+			}
+
+			directionKeyPressed := false
+			if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
+				g.player.Move(actors.Down)
+				directionKeyPressed = true
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
+				g.player.Move(actors.Up)
+				directionKeyPressed = true
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
+				g.player.Move(actors.Right)
+				g.player.UpdateHitbox()
+				directionKeyPressed = true
+			}
+
+			movingLeft := ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5
+			// Q moves left like on an AZERTY keyboard, unless it is being used to
+			// compare a nearby gun
+			if ebiten.IsKeyPressed(ebiten.KeyQ) && g.comparingLoot() == nil {
+				movingLeft = true
+			}
+			if movingLeft {
+				g.player.Move(actors.Left)
+				g.player.UpdateHitbox()
+				directionKeyPressed = true
+			}
+
+			lookDirX := 0.0
+			lookDirY := 0.0
+			if ebiten.IsKeyPressed(ebiten.KeyL) {
+				lookDirX = 1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyH) {
+				lookDirX = -1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyK) {
+				lookDirY = -1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyJ) {
+				lookDirY = 1
+			}
+
+			// free-angle aim: while the right stick is pushed out of its deadzone
+			// it takes over, otherwise the gun follows the mouse cursor
+			if math.Hypot(g.xRightAxis, g.yRightAxis) > 0.5 {
+				g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
+			} else if lookDirX != 0 || lookDirY != 0 {
+				g.player.AimAngle = math.Atan2(lookDirY, lookDirX)
+			} else {
+				mx, my := ebiten.CursorPosition()
+				worldX := float64(mx) + g.camX
+				worldY := float64(my) + g.camY
+				g.player.AimAngle = math.Atan2(worldY-(g.player.Y+g.player.H/2), worldX-(g.player.X+g.player.W/2))
+			}
+			g.player.FaceFromAim()
+
+			// picking up a gun swaps it with the matching gun in the gunbelt and
+			// tosses the old one in the aim direction
+			if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.openChest(chest)
+			} else if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.pickUpLoot(loot)
+			} else if g.nearestStore() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.openStore()
+			}
+
+			if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
+				g.player.StartDodge()
+				g.player.CurrentAction = actors.Action{
+					Duration: g.player.DodgeDuration,
+					Type:     actors.Dodge,
+					Actor:    g.player,
+				}
+				g.spawnDodgeDust(10)
+				g.sounds.Play(soundDash, soundVolumeDash)
+			}
+
+			g.player.Act(g.frameCount)
+
+			if g.player.IsDodging() && g.frameCount%2 == 0 {
+				g.spawnDodgeDust(2)
+			}
+
+			if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
+				g.player.Animate()
+			}
+
+			if !directionKeyPressed {
+				g.player.StopAnimation()
+			}
+
+			firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"]
+			fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"]
+
+			if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
+				gun := g.player.GunBelt[g.player.CurrentWeapon]
+				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
+					g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
+				}
+			}
+
+			if firePressed {
+				ammoBefore := g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize
+				g.player.Shoot()
+				if g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize != ammoBefore {
+					g.addShake(2, 1.5)
+				}
+			}
+
+			if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] {
+				g.player.Reload()
+			}
 		}
 
 		for _, enemy := range g.enemies {
 			if enemy.Dead {
 				continue
 			}
+			g.unstickEnemy(enemy)
 			enemy.ThinkAndAct(g.player, g.player.Bullets, g.frameCount)
 		}
 
 		g.CheckCollisions()
+		g.updateParticles()
 
-		if ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"] {
+		for _, loot := range g.loot {
+			loot.Update()
+		}
+
+		// a level is cleared when every enemy of it is dead, then the player
+		// has to walk back to the boat to sail to the next island
+		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
+			g.levelComplete = true
+			g.levelClearNoticeTimer = levelClearNoticeDuration
+			g.closeStore()
+			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
+		}
+		if g.mode == ModeGame && !g.storeOpen && g.nearestBoat() != nil &&
+			(inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
+			if g.trySailToNextLevel() {
+				return nil
+			}
+		}
+
+		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
 			g.mode = ModePause
 		}
 
@@ -704,89 +2330,751 @@ func (g *Game) Update() error {
 	return nil
 }
 
+func (g *Game) nearestBoat() *world.Boat {
+	if g.boat == nil || g.player.Dead {
+		return nil
+	}
+
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+	dist := utils.DistanceBetweenPoints(px, py, g.boat.DockX, g.boat.DockY)
+	if dist > boatInteractRadius {
+		return nil
+	}
+
+	return g.boat
+}
+
+func (g *Game) trySailToNextLevel() bool {
+	if g.player.Dead || g.aliveEnemies() != 0 {
+		return false
+	}
+
+	g.startLevel(g.level + 1)
+
+	return true
+}
+
+func (g *Game) nearestStore() *world.Store {
+	if g.store == nil || g.player.Dead || g.storeOpen {
+		return nil
+	}
+
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+	dist := utils.DistanceBetweenPoints(px, py, g.store.Hitbox.CenterX(), g.store.Hitbox.CenterY())
+	if dist > storeInteractRadius {
+		return nil
+	}
+
+	return g.store
+}
+
+func (g *Game) openStore() {
+	if g.store == nil || g.player.Dead {
+		return
+	}
+
+	g.storeOpen = true
+	g.storeSelection = 0
+	g.player.StopAnimation()
+	g.player.MoveDirs[actors.Up] = false
+	g.player.MoveDirs[actors.Down] = false
+	g.player.MoveDirs[actors.Right] = false
+	g.player.MoveDirs[actors.Left] = false
+}
+
+func (g *Game) closeStore() {
+	g.storeOpen = false
+	g.storeSelection = 0
+}
+
+func (g *Game) updateStoreInput() {
+	if g.store == nil || len(g.store.Stock) == 0 {
+		g.closeStore()
+
+		return
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyP) || buttonsJustPressed["RR"] {
+		g.closeStore()
+
+		return
+	}
+
+	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LS"]
+	down := inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyS) || buttonsJustPressed["LT"]
+	if up {
+		g.storeSelection--
+		if g.storeSelection < 0 {
+			g.storeSelection = len(g.store.Stock) - 1
+		}
+	}
+	if down {
+		g.storeSelection++
+		if g.storeSelection >= len(g.store.Stock) {
+			g.storeSelection = 0
+		}
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyE) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) || buttonsJustPressed["RT"] {
+		g.buyStoreItem(&g.store.Stock[g.storeSelection])
+	}
+}
+
+func (g *Game) buyStoreItem(item *world.StoreItem) {
+	if item == nil || item.Sold || g.player.Gold < item.Price {
+		return
+	}
+
+	switch item.Kind {
+	case world.StoreAmmo:
+		index, ok := g.gunBeltIndexFor(item.Weapon)
+		if !ok {
+			return
+		}
+		g.player.GunBelt[index].Ammo += item.Amount
+	case world.StoreWeapon, world.StoreWhisky:
+		if !g.equipStoreGun(item.Gun) {
+			return
+		}
+	case world.StoreUpgrade:
+		if !g.player.ApplyUpgrade(item.Upgrade) {
+			return
+		}
+	}
+
+	g.player.Gold -= item.Price
+	item.Sold = true
+	g.sounds.Play(soundPickup, soundVolumePickup)
+
+	msg := "BOUGHT " + item.Name
+	if item.Kind == world.StoreAmmo {
+		msg = "+" + strconv.Itoa(item.Amount) + " " + item.Name
+	}
+	if item.Kind == world.StoreUpgrade {
+		msg = "UPGRADED " + item.Name
+	}
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, msg, color.RGBA{245, 205, 55, 240})
+}
+
+func (g *Game) equipStoreGun(gun *actors.Gun) bool {
+	if gun == nil {
+		return false
+	}
+
+	index, ok := g.gunBeltIndexFor(gun.GunType)
+	if !ok {
+		g.loot = append(g.loot, actors.NewLoot(gun, g.player.X+g.player.W/2, g.player.Y+g.player.H/2))
+
+		return true
+	}
+
+	oldGun := g.player.GunBelt[index]
+	gun.X, gun.Y = oldGun.X, oldGun.Y
+	g.player.GunBelt[index] = gun
+	if g.player.CurrentWeapon == index {
+		g.player.Reloading = false
+		g.player.ReloadTimer = 0
+		g.player.DrawWeapon(index)
+	}
+
+	if oldGun.GunType == actors.Fists {
+		return true
+	}
+
+	vx := math.Cos(g.player.AimAngle) * lootTossSpeed
+	vy := math.Sin(g.player.AimAngle) * lootTossSpeed
+	dropX := g.player.X + g.player.W/2
+	dropY := g.player.Y + g.player.H/2
+	g.loot = append(g.loot, actors.NewTossedLoot(oldGun, dropX, dropY, vx, vy))
+
+	return true
+}
+
+func (g *Game) nearestClosedChest() *world.Chest {
+	var nearest *world.Chest
+	nearestDist := lootPickupRadius
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+
+	for _, chest := range g.chests {
+		if chest == nil || chest.State != world.Closed {
+			continue
+		}
+		dist := utils.DistanceBetweenPoints(px, py, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2)
+		if dist <= nearestDist {
+			nearest = chest
+			nearestDist = dist
+		}
+	}
+
+	return nearest
+}
+
+func (g *Game) openChest(chest *world.Chest) {
+	if chest == nil || chest.State != world.Closed {
+		return
+	}
+	chest.State = world.Open
+
+	switch chest.Type {
+	case world.Gold:
+		amount := 1 + rand.IntN(50)
+		g.player.Gold += amount
+		g.addHit(&g.player.Hits, chest.X, chest.Y-chest.H*chest.Scale/2, "+"+strconv.Itoa(amount)+" $", color.RGBA{245, 205, 55, 240})
+	case world.Gun:
+		// drop a random gun
+		gunType := rollEnemyWeapon()
+		gun := g.newEnemyGun(gunType, rollGunTier(actors.Common), 3)
+		// Make it a reasonable gun to pick up
+		g.loot = append(g.loot, actors.NewLoot(&gun, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	case world.Ammo:
+		// add ammo of a random type of gun from the players gunbelt
+		if len(g.player.GunBelt) > 2 {
+			idx := 2 + rand.IntN(len(g.player.GunBelt)-2)
+			gun := g.player.GunBelt[idx]
+			if gun != nil {
+				ammo := 5 + rand.IntN(20)
+				gun.Ammo += ammo
+				g.addHit(&g.player.Hits, chest.X, chest.Y-chest.H*chest.Scale/2, "+"+strconv.Itoa(ammo)+" "+gun.GunType.String()+" AMMO", color.RGBA{200, 200, 200, 240})
+			}
+		}
+	case world.Whisky:
+		whisky := g.newEnemyGun(actors.Whisky, actors.Common, 2+rand.IntN(3))
+		g.loot = append(g.loot, actors.NewLoot(&whisky, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	}
+}
+
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Write your game's rendering.
 	screen.Fill(g.backgroundColor)
 	switch g.mode {
 	case ModeTitle:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-		}
-
-		g.player.Draw(screen, g.camX, g.camY)
-
-		for i, l := range g.titleTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.titleTexts[i-1]) - len(l)) * g.titleFontSize / 2
-			}
-			g.titleDrawOptions.GeoM.Translate(float64(tx), float64(i+g.titleFontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.titleArcadeFont), g.titleDrawOptions)
-		}
-		g.titleDrawOptions.GeoM = g.titleGeoMatrix
+		g.drawWorld(screen)
+		g.drawCenteredTexts(screen, g.titleTexts, g.titleFace, g.titleFontSize, g.titleDrawOptions, g.titleGeoMatrix)
 
 	case ModeGameOver:
-		for i, l := range g.gameOverTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.gameOverTexts[i-1]) - len(l)) * g.fontSize / 2
-			}
-			g.gameOverDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.gameOverDrawOptions)
-		}
-		g.gameOverDrawOptions.GeoM = g.gameOverGeoMatrix
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		gameOverTexts := append([]string{}, g.gameOverTexts[0])
+		gameOverTexts = append(gameOverTexts,
+			"LEVEL "+strconv.Itoa(g.level)+"  SURVIVED "+g.survivalTime(),
+			"SCORE "+strconv.Itoa(g.score),
+			g.gameOverTexts[1],
+		)
+		g.drawCenteredTexts(screen, gameOverTexts, g.arcadeFace, g.fontSize, g.gameOverDrawOptions, g.gameOverGeoMatrix)
 
 	case ModePause:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-			enemy.DrawBullets(screen, g.camX, g.camY)
-		}
-
-		g.player.Draw(screen, g.camX, g.camY)
-		g.player.DrawBullets(screen, g.camX, g.camY)
-
-		for i, l := range g.pauseTexts {
-			tx := 0
-			if i > 0 {
-				tx = (len(g.pauseTexts[i-1]) - len(l)) * g.fontSize / 2
-			}
-			g.pauseDrawOptions.GeoM.Translate(float64(tx), float64(i+g.fontSize+g.newlinePadding))
-			text.Draw(screen, l, text.NewGoXFace(g.arcadeFont), g.pauseDrawOptions)
-		}
-		g.pauseDrawOptions.GeoM = g.pauseGeoMatrix
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
 
 	case ModeGame:
-		for _, cactus := range g.cacti {
-			cactus.Draw(screen, g.camX, g.camY)
-			// cactus.DrawHitbox(screen, g.camX, g.camY)
+		g.drawWorld(screen)
+		g.drawHud(screen)
+		if g.storeOpen {
+			g.drawStore(screen)
+		} else if loot := g.comparingLoot(); loot != nil {
+			g.drawLootComparison(screen, loot)
 		}
-		for _, enemy := range g.enemies {
-			enemy.Draw(screen, g.camX, g.camY)
-			enemy.DrawBullets(screen, g.camX, g.camY)
-			// enemy.DrawHitbox(screen, g.camX, g.camY)
+		if g.levelComplete && g.levelClearNoticeTimer > 0 {
+			g.drawLevelCompleteOverlay(screen)
 		}
-
-		// TODO: for debugging (remove eventually)
-		// textDrawOptions := &text.DrawOptions{}
-		// textDrawOptions.GeoM.Translate(10, 10)
-		// text.Draw(screen, fmt.Sprintf("%+v", g.buttonsPressed), text.NewGoXFace(g.playerHealthBarFont), textDrawOptions)
-
-		g.player.Draw(screen, g.camX, g.camY)
-		// g.player.DrawHitbox(screen, g.camX, g.camY)
-		g.player.DrawBullets(screen, g.camX, g.camY)
 	}
+}
+
+// drawLevelCompleteOverlay shows the summary of the finished level while the
+// player is still free to move around the island.
+func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
+	const (
+		panelW = 270.0
+		panelH = 100.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, color.RGBA{70, 140, 235, 240}, false)
+	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+	g.drawSmallText(screen, "GO TO THE BOAT", panelX+20, panelY+32, color.RGBA{235, 220, 170, 255})
+}
+
+// drawWorld renders the island and everything that lives on it.
+func (g *Game) drawWorld(screen *ebiten.Image) {
+	g.island.Draw(screen, g.camX, g.camY)
+
+	for _, plant := range g.plants {
+		plant.Draw(screen, g.camX, g.camY)
+	}
+
+	for _, tent := range g.tents {
+		tent.Draw(screen, g.camX, g.camY)
+	}
+
+	for _, chest := range g.chests {
+		chest.Draw(screen, g.camX, g.camY)
+	}
+	for _, loot := range g.loot {
+		loot.Draw(screen, g.camX, g.camY)
+	}
+
+	if g.mode == ModeTitle {
+		return
+	}
+
+	g.store.Draw(screen, g.camX, g.camY)
+	g.boat.Draw(screen, g.camX, g.camY)
+
+	// dead enemies are drawn first so corpses never cover a living actor
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			enemy.Draw(screen, g.camX, g.camY)
+		}
+	}
+
+	for _, enemy := range g.enemies {
+		if !enemy.Dead {
+			enemy.Draw(screen, g.camX, g.camY)
+		}
+		enemy.DrawBullets(screen, g.camX, g.camY)
+	}
+
+	g.player.Draw(screen, g.camX, g.camY)
+	g.player.DrawBullets(screen, g.camX, g.camY)
+
+	for _, particle := range g.particles {
+		particle.Draw(screen, g.camX, g.camY)
+	}
+}
+
+// drawHud renders the survival timer, the score, the ammo and the mini map.
+func (g *Game) drawHud(screen *ebiten.Image) {
+	lines := []string{
+		"LEVEL " + strconv.Itoa(g.level),
+		"TIME  " + g.survivalTime(),
+		"SCORE " + strconv.Itoa(g.score),
+		"FOES  " + strconv.Itoa(g.aliveEnemies()) + "/" + strconv.Itoa(g.levelEnemies),
+	}
+	for i, line := range lines {
+		drawOptions := &text.DrawOptions{}
+		drawOptions.GeoM.Translate(20, float64(20+i*(g.hudFontSize+6)))
+		text.Draw(screen, line, g.hudFace, drawOptions)
+	}
+
+	g.drawAmmo(screen)
+	g.drawDodgeCooldown(screen)
+	g.player.DrawGunBelt(screen, 0, 0)
+	g.player.DrawGold(screen, g.hudFace, float64(ScreenWidth-128), float64(ScreenHeight)-32)
+	g.drawLootPrompt(screen)
+
+	miniMapScale := 2.0
+	g.island.DrawMiniMap(
+		screen,
+		float64(ScreenWidth)-float64(worldTilesX)*miniMapScale-20,
+		20,
+		miniMapScale,
+		g.player.X,
+		g.player.Y,
+		g.campPositions(),
+		g.storePositions(),
+		g.boatPositions(),
+	)
+}
+
+// drawLootPrompt shows the controls of the gun lying next to the player.
+func (g *Game) drawLootPrompt(screen *ebiten.Image) {
+	if g.storeOpen {
+		return
+	}
+
+	if chest := g.nearestClosedChest(); chest != nil {
+		msg := "E OPEN"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if g.nearestLoot() != nil {
+		msg := "E TAKE   Q COMPARE"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if g.nearestStore() != nil {
+		msg := "E SHOP"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if g.nearestBoat() != nil {
+		msg := "N NEXT LEVEL"
+		if g.aliveEnemies() != 0 {
+			msg = "CLEAR BANDIT CAMPS!"
+		}
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+}
+
+// gunStatRow is one line of the gun comparison overlay.
+type gunStatRow struct {
+	label          string
+	now, loot      float64
+	higherIsBetter bool
+	decimals       int
+}
+
+// gunStatRows returns the stats that matter when comparing two guns.
+func gunStatRows(current, loot *actors.Gun) []gunStatRow {
+	if loot.GunType == actors.Whisky {
+		return []gunStatRow{
+			{"HEALING", float64(current.Damage), float64(loot.Damage), true, 0},
+			{"AMMO", float64(current.Ammo), float64(loot.Ammo), true, 0},
+			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		}
+	}
+
+	rows := []gunStatRow{
+		{"DAMAGE", float64(current.Damage), float64(loot.Damage), true, 0},
+		{"MAGAZINE", float64(current.MagazineSize), float64(loot.MagazineSize), true, 0},
+		{"AMMO", float64(current.Ammo), float64(loot.Ammo), true, 0},
+		{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		{"SPEED", current.BulletSpeed, loot.BulletSpeed, true, 1},
+	}
+
+	switch loot.GunType {
+	case actors.Shotgun:
+		rows = append(rows, gunStatRow{"PELLETS", float64(current.BulletCount), float64(loot.BulletCount), true, 0})
+	case actors.MachineGun:
+		rows = append(rows, gunStatRow{"ACCURACY", float64(current.BulletSpread), float64(loot.BulletSpread), true, 0})
+	}
+
+	return rows
+}
+
+// statIsBetter reports whether a stat difference is an improvement.
+func statIsBetter(delta float64, higherIsBetter bool) bool {
+	if delta == 0 {
+		return false
+	}
+	if higherIsBetter {
+		return delta > 0
+	}
+
+	return delta < 0
+}
+
+func formatStatValue(value float64, decimals int) string {
+	if decimals == 0 {
+		return strconv.Itoa(int(math.Round(value)))
+	}
+
+	return strconv.FormatFloat(value, 'f', decimals, 64)
+}
+
+func formatStatDelta(delta float64, decimals int) string {
+	if math.Abs(delta) < math.Pow10(-decimals)/2 {
+		return "0"
+	}
+
+	sign := "+"
+	if delta < 0 {
+		sign = "-"
+		delta = -delta
+	}
+
+	return sign + formatStatValue(delta, decimals)
+}
+
+func shootSound(weapon actors.Weapon) (string, float64, bool) {
+	switch weapon {
+	case actors.Revolver:
+		return soundShootRevolver, 0.40, true
+	case actors.Shotgun:
+		return soundShootShotgun, 0.40, true
+	case actors.MachineGun:
+		return soundShootMachineGun, 0.22, true
+	}
+
+	return "", 0, false
+}
+
+// drawSmallText draws a hud sized line of text in the given color.
+func (g *Game) drawSmallText(screen *ebiten.Image, msg string, x, y float64, clr color.RGBA) {
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(x, y)
+	drawOptions.ColorScale.ScaleWithColor(clr)
+	text.Draw(screen, msg, g.hudFace, drawOptions)
+}
+
+func (g *Game) drawStore(screen *ebiten.Image) {
+	if g.store == nil || len(g.store.Stock) == 0 {
+		return
+	}
+
+	const (
+		panelW = 560.0
+		panelH = 440.0
+		rowH   = 40.0
+	)
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := 110.0
+	borderColor := color.RGBA{245, 205, 55, 240}
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, borderColor, false)
+
+	g.drawSmallText(screen, "GENERAL STORE", panelX+20, panelY+18, color.RGBA{245, 205, 55, 255})
+	goldText := "GOLD " + strconv.Itoa(g.player.Gold)
+	g.drawSmallText(screen, goldText, panelX+panelW-20-float64(len(goldText)*g.hudFontSize), panelY+18, color.RGBA{240, 230, 190, 255})
+
+	for i, item := range g.store.Stock {
+		rowY := panelY + 60 + float64(i)*rowH
+		if i == g.storeSelection {
+			vector.FillRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, color.RGBA{70, 58, 30, 235}, false)
+			vector.StrokeRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, 1, borderColor, false)
+		}
+
+		nameColor := color.RGBA{230, 225, 210, 255}
+		if item.Kind == world.StoreUpgrade {
+			nameColor = color.RGBA{245, 205, 55, 255}
+		}
+		if item.Gun != nil {
+			nameColor = actors.TierColor(item.Gun.Tier)
+		}
+		if item.Sold {
+			nameColor = color.RGBA{120, 115, 105, 255}
+		}
+		g.drawSmallText(screen, item.Name, panelX+22, rowY, nameColor)
+
+		price := strconv.Itoa(item.Price) + " $"
+		priceColor := color.RGBA{240, 230, 190, 255}
+		if item.Sold {
+			price = "SOLD"
+			priceColor = color.RGBA{140, 135, 125, 255}
+		} else if g.player.Gold < item.Price {
+			priceColor = color.RGBA{235, 85, 75, 255}
+		}
+		g.drawSmallText(screen, price, panelX+panelW-22-float64(len(price)*g.hudFontSize), rowY, priceColor)
+
+		detailColor := color.RGBA{170, 160, 140, 255}
+		g.drawSmallText(screen, storeItemDetail(item), panelX+22, rowY+18, detailColor)
+	}
+
+	footer := "UP/DOWN SELECT   E BUY   ESC CLOSE"
+	g.drawSmallText(screen, footer, panelX+panelW/2-float64(len(footer)*g.hudFontSize)/2, panelY+panelH-26, color.RGBA{235, 220, 170, 255})
+}
+
+func storeItemDetail(item world.StoreItem) string {
+	switch item.Kind {
+	case world.StoreAmmo:
+		return strconv.Itoa(item.Amount) + " ROUNDS"
+	case world.StoreWeapon:
+		if item.Gun == nil {
+			return ""
+		}
+		return item.Gun.Tier.String() + "  DMG " + strconv.Itoa(item.Gun.Damage) + "  MAG " + strconv.Itoa(item.Gun.MagazineSize)
+	case world.StoreWhisky:
+		if item.Gun == nil {
+			return ""
+		}
+		return "HEAL " + strconv.Itoa(item.Gun.Damage) + "  BOTTLES " + strconv.Itoa(item.Gun.Ammo)
+	case world.StoreUpgrade:
+		return item.Upgrade.Description()
+	default:
+		return ""
+	}
+}
+
+// drawLootComparison shows the stats of the gun on the floor next to the
+// stats of the gun the player is holding.
+func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
+	index, ok := g.gunBeltIndexFor(loot.Gun.GunType)
+	if !ok {
+		return
+	}
+	beltGun := g.player.GunBelt[index]
+	tierColor := actors.TierColor(loot.Gun.Tier)
+
+	const (
+		panelW = 370.0
+		panelH = 336.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
+
+	floorText := "GUN ON THE FLOOR"
+	if loot.Gun.GunType == actors.Whisky {
+		floorText = "WHISKY ON THE FLOOR"
+	}
+	g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+
+	iconX := panelX + panelW/2
+	iconY := panelY + 66
+	loot.DrawIcon(screen, iconX, iconY, 2.0)
+
+	tierText := loot.Gun.Tier.String()
+	g.drawSmallText(screen, tierText, iconX-float64(len(tierText)*g.hudFontSize)/2, iconY+40, tierColor)
+
+	nameText := loot.Gun.GunType.String()
+	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
+
+	headerY := panelY + 150
+	headerColor := color.RGBA{170, 160, 140, 255}
+	g.drawSmallText(screen, "STAT", panelX+20, headerY, headerColor)
+	g.drawSmallText(screen, "YOURS", panelX+170, headerY, headerColor)
+	g.drawSmallText(screen, "LOOT", panelX+240, headerY, headerColor)
+	g.drawSmallText(screen, "DIFF", panelX+310, headerY, headerColor)
+
+	for i, row := range gunStatRows(beltGun, loot.Gun) {
+		y := headerY + 24 + float64(i)*22
+		g.drawSmallText(screen, row.label, panelX+20, y, color.RGBA{220, 215, 200, 255})
+		g.drawSmallText(screen, formatStatValue(row.now, row.decimals), panelX+170, y, color.RGBA{180, 175, 160, 255})
+		g.drawSmallText(screen, formatStatValue(row.loot, row.decimals), panelX+240, y, color.RGBA{240, 235, 220, 255})
+
+		delta := row.loot - row.now
+		diffColor := color.RGBA{170, 165, 150, 255}
+		switch {
+		case statIsBetter(delta, row.higherIsBetter):
+			diffColor = color.RGBA{100, 225, 100, 255}
+		case delta != 0:
+			diffColor = color.RGBA{235, 85, 75, 255}
+		}
+		g.drawSmallText(screen, formatStatDelta(delta, row.decimals), panelX+310, y, diffColor)
+	}
+
+	g.drawSmallText(screen, "E TAKE", panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
+}
+
+// drawAmmo shows the bullets left in the magazine and the reload progress.
+func (g *Game) drawAmmo(screen *ebiten.Image) {
+	x := 40.0
+	y := float64(ScreenHeight) - 120
+
+	if g.player.Reloading {
+		drawOptions := &text.DrawOptions{}
+		drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
+		text.Draw(screen, "RELOADING", g.hudFace, drawOptions)
+	}
+
+	if g.player.Reloading {
+		progress := 1 - float64(g.player.ReloadTimer)/float64(g.player.ReloadDuration)
+		vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{60, 60, 60, 220}, false)
+		vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, color.RGBA{230, 190, 60, 240}, false)
+
+		return
+	}
+
+	bulletWidth, bulletSpacing := float32(6), float32(6)
+	for i := range g.player.GunBelt[g.player.CurrentWeapon].MagazineSize {
+		bulletColor := color.RGBA{90, 70, 40, 200}
+		if i < g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize {
+			bulletColor = color.RGBA{240, 220, 120, 240}
+		}
+		vector.FillRect(screen, float32(x)+float32(i)*(bulletWidth+bulletSpacing), float32(y), bulletWidth, 14, bulletColor, false)
+	}
+}
+
+// drawDodgeCooldown shows the dodge cooldown bar under the ammo, the player
+// can only dodge again once it refills.
+func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
+	x := 40.0
+	y := float64(ScreenHeight) - 76
+
+	drawOptions := &text.DrawOptions{}
+	drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
+	text.Draw(screen, "DODGE", g.hudFace, drawOptions)
+
+	progress := 1.0
+	if g.player.DodgeCooldown > 0 {
+		progress = 1 - float64(g.player.DodgeCooldownTimer)/float64(g.player.DodgeCooldown)
+	}
+	vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{60, 60, 60, 220}, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, color.RGBA{110, 200, 220, 240}, false)
+	drawOptions.GeoM.Translate(0, float64(g.hudFontSize)+22)
+	text.Draw(screen, "HEALTH", g.hudFace, drawOptions)
+}
+
+// campPositions returns the position of every bandit camp for the mini map.
+func (g *Game) campPositions() [][2]float64 {
+	positions := make([][2]float64, 0, len(g.camps))
+	for _, camp := range g.camps {
+		positions = append(positions, [2]float64{camp.X, camp.Y})
+	}
+
+	return positions
+}
+
+func (g *Game) storePositions() [][2]float64 {
+	if g.store == nil {
+		return nil
+	}
+
+	return [][2]float64{{g.store.X + g.store.W*g.store.Scale/2, g.store.Y + g.store.H*g.store.Scale/2}}
+}
+
+func (g *Game) boatPositions() [][2]float64 {
+	if g.boat == nil {
+		return nil
+	}
+
+	return [][2]float64{{g.boat.X + g.boat.W*g.boat.Scale/2, g.boat.Y + g.boat.H*g.boat.Scale/2}}
+}
+
+// drawCenteredTexts draws a block of horizontally centered lines of text, the
+// translation of the geo matrix already centers the first line.
+func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *text.GoXFace, fontSize int, drawOptions *text.DrawOptions, geoMatrix ebiten.GeoM) {
+	for i, line := range texts {
+		tx := 0
+		if i > 0 {
+			tx = (len(texts[0]) - len(line)) * fontSize / 2
+		}
+		drawOptions.GeoM.Translate(float64(tx), float64((i+1)*(fontSize+g.newlinePadding)))
+		text.Draw(screen, line, face, drawOptions)
+		drawOptions.GeoM = geoMatrix
+	}
+	drawOptions.GeoM = geoMatrix
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
 // If you don't have to adjust the screen size with the outside size, just return a fixed size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return ScreenWidth, ScreenHeight
+}
+
+func (g *Game) playPlayerShootSound(weapon actors.Weapon) {
+	g.playShootSound(weapon, 1)
+}
+
+func (g *Game) playEnemyShootSound(weapon actors.Weapon) {
+	g.playShootSound(weapon, 0.6)
+}
+
+func (g *Game) playPlayerDrinkSound() {
+	g.playDrinkSound(1)
+}
+
+func (g *Game) playEnemyDrinkSound() {
+	g.playDrinkSound(0.6)
+}
+
+func (g *Game) playDrinkSound(volumeScale float64) {
+	g.sounds.Play(soundDrink, soundVolumeDrink*volumeScale)
+}
+
+func (g *Game) playShootSound(weapon actors.Weapon, volumeScale float64) {
+	name, volume, ok := shootSound(weapon)
+	if !ok {
+		return
+	}
+
+	g.sounds.Play(name, volume*volumeScale)
 }

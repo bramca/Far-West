@@ -1,0 +1,47 @@
+package world
+
+import (
+	"github.com/bramca/Far-West/actors"
+	"github.com/hajimehoshi/ebiten/v2"
+)
+
+type StoreItemKind int
+
+const (
+	StoreAmmo StoreItemKind = iota
+	StoreWeapon
+	StoreWhisky
+	StoreUpgrade
+)
+
+type StoreItem struct {
+	Kind    StoreItemKind
+	Name    string
+	Price   int
+	Amount  int
+	Weapon  actors.Weapon
+	Gun     *actors.Gun
+	Upgrade actors.Upgrade
+	Sold    bool
+}
+
+type Store struct {
+	X, Y        float64
+	W, H        float64
+	Sprite      *ebiten.Image
+	DrawOptions *ebiten.DrawImageOptions
+	Scale       float64
+	Hitbox      *actors.HitBox
+	Stock       []StoreItem
+}
+
+func (s *Store) Draw(screen *ebiten.Image, camX float64, camY float64) {
+	s.DrawOptions.GeoM.Reset()
+	s.DrawOptions.GeoM.Scale(s.Scale, s.Scale)
+	s.DrawOptions.GeoM.Translate(float64(s.X-camX), float64(s.Y-camY))
+	screen.DrawImage(s.Sprite, s.DrawOptions)
+}
+
+func (s *Store) DrawHitbox(screen *ebiten.Image, camX float64, camY float64) {
+	s.Hitbox.Draw(screen, camX, camY)
+}

@@ -14,6 +14,16 @@ const (
 	Shoot
 	Move
 	MoveAndShoot
+	Heal
+)
+
+const (
+	// enemyLeadFactor scales how far the enemies lead a moving target, a
+	// value of 1 produces exact intercept courses.
+	enemyLeadFactor = 0.75
+	// enemyMaxLead caps how far ahead of the player the enemies may aim so
+	// the prediction never carries the shots out of the play field.
+	enemyMaxLead = 140.0
 )
 
 type Action struct {
@@ -30,21 +40,21 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 	case Dodge:
 		if a.Actor.IsNpc {
 			a.Actor.Speed += a.Actor.DodgeSpeed
-			for _, bullet := range player.Bullets {
+			for i := range player.Bullets {
+				bullet := &player.Bullets[i]
 				if utils.DistanceBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y) < 150 {
+					// dodge perpendicularly to the incoming bullet
+					perpX := -math.Sin(bullet.R)
+					perpY := math.Cos(bullet.R)
 					moveDir := Up
-
-					angle := utils.AngleBetweenPoints(bullet.X, bullet.Y, a.Actor.X, a.Actor.Y)
-					if (bullet.R == 0 || bullet.R == math.Pi) && angle >= 0 && angle <= math.Pi {
+					if math.Abs(perpX) > math.Abs(perpY) {
+						if perpX > 0 {
+							moveDir = Right
+						} else {
+							moveDir = Left
+						}
+					} else if perpY > 0 {
 						moveDir = Down
-					}
-
-					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
-						moveDir = Left
-					}
-
-					if (bullet.R == math.Pi/2 || bullet.R == 3*math.Pi/2) && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-						moveDir = Right
 					}
 					a.Actor.Move(moveDir)
 					if frameCount%a.Actor.AnimationSpeed == 0 {
@@ -119,6 +129,20 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			a.Actor.Move(Down)
 		}
 
+		// the enemy leads the running player so the bullets land where he
+		// will be when they arrive, the player keeps aiming at the cursor
+		if a.Actor.IsNpc && !player.Dead {
+			a.Actor.AimAngle = utils.LeadAngle(
+				a.Actor.X, a.Actor.Y,
+				player.X, player.Y,
+				player.X-player.PrevX, player.Y-player.PrevY,
+				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
+			)
+		} else {
+			a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
+		}
+		a.Actor.FaceFromAim()
+
 		if player.Hitbox.CheckCollision(a.Actor.Hitbox) {
 			for dir, moving := range a.Actor.MoveDirs {
 				if moving {
@@ -153,6 +177,43 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 				a.Actor.X -= 16
 				a.Actor.Y -= 16
 			}
+		}
+		actionPerformed = true
+	case Heal:
+		a.Actor.Shoot()
+
+		xDelta := a.Actor.X - player.X
+		yDelta := a.Actor.Y - player.Y
+		if xDelta != 0 {
+			if xDelta > 0 {
+				a.Actor.Move(Right)
+			} else {
+				a.Actor.Move(Left)
+			}
+		}
+		if yDelta != 0 {
+			if yDelta > 0 {
+				a.Actor.Move(Down)
+			} else {
+				a.Actor.Move(Up)
+			}
+		}
+
+		switch {
+		case math.Abs(xDelta) >= math.Abs(yDelta):
+			if xDelta >= 0 {
+				a.Actor.Look(Right)
+			} else {
+				a.Actor.Look(Left)
+			}
+		case yDelta >= 0:
+			a.Actor.Look(Down)
+		default:
+			a.Actor.Look(Up)
+		}
+
+		if frameCount%a.Actor.AnimationSpeed == 0 {
+			a.Actor.Animate()
 		}
 		actionPerformed = true
 	}

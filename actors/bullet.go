@@ -14,20 +14,19 @@ type Bullet struct {
 	Damage       int
 	Scale        float64
 	Duration     int
-	DrawOptions  *ebiten.DrawImageOptions
 	Sprite       *ebiten.Image
-	Hitbox       *HitBox
+	Hitbox       HitBox
 	HitboxOffset float64
 }
 
 func (b *Bullet) Draw(screen *ebiten.Image, camX float64, camY float64) {
-	b.DrawOptions.GeoM.Reset()
-	b.DrawOptions.GeoM.Translate(-b.W/2, -b.H/2)
-	b.DrawOptions.GeoM.Rotate(b.R)
-	b.DrawOptions.GeoM.Translate(b.W/2, b.H/2)
-	b.DrawOptions.GeoM.Scale(b.Scale, b.Scale)
-	b.DrawOptions.GeoM.Translate(float64(b.X-camX), float64(b.Y-camY))
-	screen.DrawImage(b.Sprite, b.DrawOptions)
+	var op ebiten.DrawImageOptions
+	op.GeoM.Translate(-b.W/2, -b.H/2)
+	op.GeoM.Rotate(b.R)
+	op.GeoM.Translate(b.W/2, b.H/2)
+	op.GeoM.Scale(b.Scale, b.Scale)
+	op.GeoM.Translate(b.X-camX, b.Y-camY)
+	screen.DrawImage(b.Sprite, &op)
 }
 
 func (b *Bullet) Update() {
