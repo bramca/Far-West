@@ -476,7 +476,7 @@ func (i *Island) renderMiniMap() *ebiten.Image {
 
 // DrawMiniMap draws a scaled down version of the world with the position of
 // the player and of the bandit camps on it.
-func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX, playerY float64, camps [][2]float64) {
+func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX, playerY float64, camps [][2]float64, stores [][2]float64) {
 	drawOptions := &ebiten.DrawImageOptions{}
 	drawOptions.GeoM.Scale(scale, scale)
 	drawOptions.GeoM.Translate(x, y)
@@ -493,6 +493,12 @@ func (i *Island) DrawMiniMap(screen *ebiten.Image, x, y, scale float64, playerX,
 		cx, cy := toMiniMap(camp[0], camp[1])
 		vector.FillRect(screen, cx-3, cy-3, 7, 7, color.RGBA{30, 20, 10, 255}, false)
 		vector.FillRect(screen, cx-2, cy-2, 5, 5, color.RGBA{219, 3, 3, 255}, false)
+	}
+
+	for _, store := range stores {
+		sx, sy := toMiniMap(store[0], store[1])
+		vector.FillRect(screen, sx-3, sy-3, 7, 7, color.RGBA{30, 20, 10, 255}, false)
+		vector.FillRect(screen, sx-2, sy-2, 5, 5, color.RGBA{245, 205, 55, 255}, false)
 	}
 
 	px, py := toMiniMap(playerX, playerY)

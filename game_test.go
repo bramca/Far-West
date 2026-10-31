@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bramca/Far-West/actors"
+	"github.com/bramca/Far-West/world"
 )
 
 // TestGameLoop runs the game loop without any player input, the player is
@@ -355,6 +356,7 @@ func TestDodgeGivesIFrames(t *testing.T) {
 func TestBulletsAlwaysDealDamage(t *testing.T) {
 	game := NewGame()
 	game.player.DrawWeapon(2)
+	game.player.GunBelt[game.player.CurrentWeapon].Ammo = 1000
 
 	for range 50 {
 		game.player.ShootTimer = 0
@@ -435,16 +437,16 @@ func TestEnemyTierStats(t *testing.T) {
 	rare := enemyStatsForTier(actors.Rare)
 	legendary := enemyStatsForTier(actors.Legendary)
 
-	if common.health >= rare.health || rare.health >= legendary.health {
+	if common.Health >= rare.Health || rare.Health >= legendary.Health {
 		t.Fatal("higher tier enemies should have more health")
 	}
-	if common.damage >= rare.damage || rare.damage >= legendary.damage {
+	if common.Damage >= rare.Damage || rare.Damage >= legendary.Damage {
 		t.Fatal("higher tier enemies should deal more damage")
 	}
-	if common.speed >= rare.speed || rare.speed >= legendary.speed {
+	if common.Speed >= rare.Speed || rare.Speed >= legendary.Speed {
 		t.Fatal("higher tier enemies should move faster")
 	}
-	if common.fireRate >= rare.fireRate || rare.fireRate >= legendary.fireRate {
+	if common.FireRate >= rare.FireRate || rare.FireRate >= legendary.FireRate {
 		t.Fatal("higher tier enemies should shoot faster")
 	}
 }
@@ -785,5 +787,294 @@ func TestSpritesCoverEveryState(t *testing.T) {
 
 	if len(game.enemyCommonSprites) <= int(actors.PlayerDead) {
 		t.Fatalf("the enemy sprites (%d) do not cover the dead state", len(game.enemyCommonSprites))
+	}
+}
+
+func firstStoreItem(game *Game, kind world.StoreItemKind) *world.StoreItem {
+	for i := range game.store.Stock {
+		if game.store.Stock[i].Kind == kind {
+			return &game.store.Stock[i]
+		}
+	}
+
+	return nil
+}
+
+func addStoreItem(game *Game, item world.StoreItem) *world.StoreItem {
+	game.store.Stock = append(game.store.Stock, item)
+
+	return &game.store.Stock[len(game.store.Stock)-1]
+}
+
+func TestStoreStockGeneration(t *testing.T) {
+	game := NewGame()
+	if game.store == nil {
+		t.Fatal("a level was spawned without a store")
+	}
+
+	counts := map[world.StoreItemKind]int{}
+	upgrades := map[actors.Upgrade]bool{}
+	for _, item := range game.store.Stock {
+		counts[item.Kind]++
+		if item.Price <= 0 {
+			t.Fatalf("store item %q has no price", item.Name)
+		}
+
+		switch item.Kind {
+		case world.StoreAmmo:
+			if item.Amount <= 0 {
+				t.Fatalf("ammo item %q has no ammo", item.Name)
+			}
+		case world.StoreWeapon, world.StoreWhisky:
+			if item.Gun == nil {
+				t.Fatalf("gun item %q has no gun", item.Name)
+			}
+		case world.StoreUpgrade:
+			if upgrades[item.Upgrade] {
+				t.Fatalf("upgrade %q is offered twice", item.Name)
+			}
+			upgrades[item.Upgrade] = true
+		}
+	}
+
+	if counts[world.StoreAmmo] < storeAmmoOffersMin || counts[world.StoreAmmo] > storeAmmoOffersMax {
+		t.Fatalf("expected %d to %d ammo offers, got %d", storeAmmoOffersMin, storeAmmoOffersMax, counts[world.StoreAmmo])
+	}
+	if counts[world.StoreWeapon]+counts[world.StoreWhisky] != storeWeaponOffers {
+		t.Fatalf("expected %d weapon or whisky offers, got %d", storeWeaponOffers, counts[world.StoreWeapon]+counts[world.StoreWhisky])
+	}
+	if counts[world.StoreUpgrade] < storeUpgradeOffersMin || counts[world.StoreUpgrade] > storeUpgradeOffersMax {
+		t.Fatalf("expected %d to %d upgrade offers, got %d", storeUpgradeOffersMin, storeUpgradeOffersMax, counts[world.StoreUpgrade])
+	}
+}
+
+func TestBuyStoreAmmo(t *testing.T) {
+	game := NewGame()
+	item := firstStoreItem(game, world.StoreAmmo)
+	if item == nil {
+		t.Fatal("the store has no ammo")
+	}
+
+	index, ok := game.gunBeltIndexFor(item.Weapon)
+	if !ok {
+		t.Fatal("the player has no gun for the ammo on sale")
+	}
+	ammoBefore := game.player.GunBelt[index].Ammo
+	game.player.Gold = item.Price + 7
+
+	game.buyStoreItem(item)
+
+	if game.player.Gold != 7 {
+		t.Fatalf("expected 7 gold left, got %d", game.player.Gold)
+	}
+	if game.player.GunBelt[index].Ammo != ammoBefore+item.Amount {
+		t.Fatal("the bought ammo was not added to the matching gun")
+	}
+	if !item.Sold {
+		t.Fatal("the ammo offer was not marked as sold")
+	}
+}
+
+func TestBuyStoreWeaponSwapsAndDropsOldGun(t *testing.T) {
+	game := NewGame()
+	index, ok := game.gunBeltIndexFor(actors.Shotgun)
+	if !ok {
+		t.Fatal("the player has no shotgun slot")
+	}
+	oldGun := game.player.GunBelt[index]
+	gun := game.newEnemyGun(actors.Shotgun, actors.Rare, 3)
+	item := addStoreItem(game, world.StoreItem{
+		Kind:   world.StoreWeapon,
+		Name:   "SHOTGUN",
+		Price:  120,
+		Weapon: actors.Shotgun,
+		Gun:    &gun,
+	})
+	game.player.Gold = 200
+	game.loot = nil
+
+	game.buyStoreItem(item)
+
+	if game.player.GunBelt[index] != item.Gun {
+		t.Fatal("the bought gun was not equipped in the matching slot")
+	}
+	if game.player.GunBelt[index].X != oldGun.X || game.player.GunBelt[index].Y != oldGun.Y {
+		t.Fatal("the bought gun did not take over the HUD position of the old gun")
+	}
+	if len(game.loot) != 1 || game.loot[0].Gun != oldGun {
+		t.Fatal("the old gun was not dropped")
+	}
+	if game.player.Gold != 80 {
+		t.Fatalf("expected 80 gold left, got %d", game.player.Gold)
+	}
+	if !item.Sold {
+		t.Fatal("the weapon offer was not marked as sold")
+	}
+}
+
+func TestBuyStoreUpgrade(t *testing.T) {
+	game := NewGame()
+	item := addStoreItem(game, world.StoreItem{
+		Kind:    world.StoreUpgrade,
+		Name:    actors.UpgradeDamage.String(),
+		Price:   100,
+		Upgrade: actors.UpgradeDamage,
+	})
+	game.player.Gold = 100
+
+	game.buyStoreItem(item)
+
+	if game.player.DamageBonus != 1 {
+		t.Fatalf("expected 1 bonus damage, got %d", game.player.DamageBonus)
+	}
+	if !game.player.HasUpgrade(actors.UpgradeDamage) {
+		t.Fatal("the upgrade was not recorded as owned")
+	}
+	if game.player.Gold != 0 {
+		t.Fatalf("expected no gold left, got %d", game.player.Gold)
+	}
+	if !item.Sold {
+		t.Fatal("the upgrade offer was not marked as sold")
+	}
+
+	for _, upgrade := range game.unownedUpgrades() {
+		if upgrade == actors.UpgradeDamage {
+			t.Fatal("an owned upgrade is still offered")
+		}
+	}
+}
+
+func TestBuyStoreMaxHealthUpgrade(t *testing.T) {
+	game := NewGame()
+	game.player.Health = 10
+	game.player.MaxHealth = 20
+	game.player.UpdateHealhBar()
+	item := addStoreItem(game, world.StoreItem{
+		Kind:    world.StoreUpgrade,
+		Name:    actors.UpgradeMaxHealth.String(),
+		Price:   100,
+		Upgrade: actors.UpgradeMaxHealth,
+	})
+	game.player.Gold = 100
+
+	game.buyStoreItem(item)
+
+	if game.player.MaxHealth != 25 {
+		t.Fatalf("expected 25 max health, got %d", game.player.MaxHealth)
+	}
+	if game.player.Health != 15 {
+		t.Fatalf("expected 15 health, got %d", game.player.Health)
+	}
+	if game.player.Healthbar.MaxPoints != 25 {
+		t.Fatal("the healthbar was not updated for the new max health")
+	}
+}
+
+func TestBuyStoreItemWithoutEnoughGold(t *testing.T) {
+	game := NewGame()
+	gun := game.newEnemyGun(actors.Revolver, actors.Rare, 3)
+	item := addStoreItem(game, world.StoreItem{
+		Kind:   world.StoreWeapon,
+		Name:   "REVOLVER",
+		Price:  999,
+		Weapon: actors.Revolver,
+		Gun:    &gun,
+	})
+	index, ok := game.gunBeltIndexFor(actors.Revolver)
+	if !ok {
+		t.Fatal("the player has no revolver slot")
+	}
+	oldGun := game.player.GunBelt[index]
+	game.player.Gold = 10
+
+	game.buyStoreItem(item)
+
+	if game.player.Gold != 10 {
+		t.Fatalf("gold changed without a purchase, got %d", game.player.Gold)
+	}
+	if item.Sold {
+		t.Fatal("an unaffordable item was marked as sold")
+	}
+	if game.player.GunBelt[index] != oldGun {
+		t.Fatal("an unaffordable weapon was equipped")
+	}
+}
+
+func TestOwnedUpgradesAreNotStocked(t *testing.T) {
+	game := NewGame()
+	for _, upgrade := range actors.AllUpgrades {
+		game.player.ApplyUpgrade(upgrade)
+	}
+
+	game.spawnStoreStock()
+
+	for _, item := range game.store.Stock {
+		if item.Kind == world.StoreUpgrade {
+			t.Fatalf("owned upgrade %q was stocked again", item.Name)
+		}
+	}
+}
+
+func TestKillEnemyGrantsGold(t *testing.T) {
+	game := NewGame()
+	tiers := []struct {
+		tier actors.Tier
+		gold int
+	}{
+		{actors.Common, commonKillGold},
+		{actors.Rare, rareKillGold},
+		{actors.Legendary, legendaryKillGold},
+	}
+
+	for i, tc := range tiers {
+		enemy := game.enemies[i]
+		enemy.Tier = tc.tier
+		goldBefore := game.player.Gold
+		game.killEnemy(enemy)
+		if game.player.Gold != goldBefore+tc.gold {
+			t.Fatalf("expected %d gold for a %s kill, got %d", tc.gold, tc.tier, game.player.Gold-goldBefore)
+		}
+	}
+}
+
+func TestStoreDoesNotFreezeWorld(t *testing.T) {
+	game := NewGame()
+	game.mode = ModeGame
+	game.storeOpen = true
+	framesBefore := game.frameCount
+	elapsedBefore := game.elapsedFrames
+	xBefore, yBefore := game.player.X, game.player.Y
+
+	if err := game.Update(); err != nil {
+		t.Fatal(err)
+	}
+
+	if game.elapsedFrames != elapsedBefore+1 {
+		t.Fatal("time did not advance while the store was open")
+	}
+	if game.frameCount == framesBefore {
+		t.Fatal("the animation frame counter did not advance while the store was open")
+	}
+	if game.player.X != xBefore || game.player.Y != yBefore {
+		t.Fatal("the player moved while shopping")
+	}
+	if !game.storeOpen {
+		t.Fatal("the store closed without input")
+	}
+}
+
+func TestNearestStore(t *testing.T) {
+	game := NewGame()
+	game.player.X = game.store.Hitbox.CenterX() - game.player.W/2
+	game.player.Y = game.store.Hitbox.CenterY() - game.player.H/2
+	game.player.UpdateHitbox()
+	if game.nearestStore() != game.store {
+		t.Fatal("the store in reach was not found")
+	}
+
+	game.player.X += storeInteractRadius * 3
+	game.player.UpdateHitbox()
+	if game.nearestStore() != nil {
+		t.Fatal("a store out of reach was found")
 	}
 }

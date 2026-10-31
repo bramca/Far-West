@@ -5,6 +5,26 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+type StoreItemKind int
+
+const (
+	StoreAmmo StoreItemKind = iota
+	StoreWeapon
+	StoreWhisky
+	StoreUpgrade
+)
+
+type StoreItem struct {
+	Kind    StoreItemKind
+	Name    string
+	Price   int
+	Amount  int
+	Weapon  actors.Weapon
+	Gun     *actors.Gun
+	Upgrade actors.Upgrade
+	Sold    bool
+}
+
 type Store struct {
 	X, Y        float64
 	W, H        float64
@@ -12,6 +32,7 @@ type Store struct {
 	DrawOptions *ebiten.DrawImageOptions
 	Scale       float64
 	Hitbox      *actors.HitBox
+	Stock       []StoreItem
 }
 
 func (s *Store) Draw(screen *ebiten.Image, camX float64, camY float64) {

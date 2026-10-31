@@ -153,6 +153,11 @@ type Player struct {
 	DodgeCooldownTimer int
 
 	Gold int
+
+	Upgrades           map[Upgrade]bool
+	DamageBonus        int
+	Armor              int
+	ShootCooldownBonus int
 }
 
 func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
@@ -203,6 +208,46 @@ func (p *Player) DrawGold(screen *ebiten.Image, textFace *text.GoXFace, X, Y flo
 	drawOptions.GeoM.Translate(X, Y)
 	drawOptions.ColorScale.ScaleWithColor(color.RGBA{245, 205, 55, 255})
 	text.Draw(screen, msg, textFace, drawOptions)
+}
+
+func (p *Player) HasUpgrade(upgrade Upgrade) bool {
+	return p.Upgrades[upgrade]
+}
+
+func (p *Player) ApplyUpgrade(upgrade Upgrade) bool {
+	if p.Upgrades == nil {
+		p.Upgrades = map[Upgrade]bool{}
+	}
+	if p.Upgrades[upgrade] {
+		return false
+	}
+
+	switch upgrade {
+	case UpgradeMaxHealth:
+		p.MaxHealth += 5
+		p.Health = min(p.MaxHealth, p.Health+5)
+		if p.Healthbar != nil {
+			p.UpdateHealhBar()
+		}
+	case UpgradeDamage:
+		p.DamageBonus += 1
+	case UpgradeReload:
+		p.ReloadDuration = max(10, p.ReloadDuration-10)
+	case UpgradeSpeed:
+		p.Speed += 0.25
+	case UpgradeDodge:
+		p.DodgeCooldown = max(8, p.DodgeCooldown-6)
+	case UpgradeArmor:
+		p.Armor += 1
+	}
+
+	p.Upgrades[upgrade] = true
+
+	return true
+}
+
+func (p *Player) shootCooldown(gun *Gun) int {
+	return max(1, gun.ShootCooldown-p.ShootCooldownBonus)
 }
 
 func (p *Player) DrawGunBelt(screen *ebiten.Image, camX, camY float64) {
@@ -302,7 +347,7 @@ func (p *Player) Shoot() {
 
 	p.GunBelt[p.CurrentWeapon].Ammo -= 1
 	p.GunBelt[p.CurrentWeapon].CurrentMagazineSize -= 1
-	p.ShootTimer = gun.ShootCooldown
+	p.ShootTimer = p.shootCooldown(gun)
 	if p.OnShoot != nil {
 		p.OnShoot(gun.GunType)
 	}
@@ -948,7 +993,7 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 		Scale:    scale,
 		Speed:    bulletSpeed,
 		Sprite:   bulletSprite,
-		Damage:   1 + rand.IntN(damage),
+		Damage:   1 + p.DamageBonus + rand.IntN(damage),
 		Duration: duration,
 		Hitbox: HitBox{
 			X: float32(x + offset*scale),
@@ -1037,10 +1082,11 @@ func (p *Player) drinkWhisky(gun *Gun) {
 	}
 
 	gun.Ammo -= 1
-	p.ShootTimer = gun.ShootCooldown
+	cooldown := p.shootCooldown(gun)
+	p.ShootTimer = cooldown
 	p.Healing = true
-	p.HealTimer = gun.ShootCooldown
-	p.HealDuration = gun.ShootCooldown
+	p.HealTimer = cooldown
+	p.HealDuration = cooldown
 	p.HealTotal = heal
 	p.HealApplied = 0
 	p.UpdateDrinkingState()

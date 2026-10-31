@@ -57,6 +57,18 @@ func (w Weapon) String() string {
 	}
 }
 
+// GunTierStats holds the stat bonuses a gun rolls on top of its base stats.
+// Higher tiers roll on wider and higher ranges so their stats vary more.
+type GunTierStats struct {
+	Damage        int
+	Magazine      int
+	Ammo          int
+	ShootCoolAmmo int
+	BulletSpeed   float64
+	BulletSpread  int
+	BulletCount   int
+}
+
 type Gun struct {
 	Tier                Tier
 	Damage              int

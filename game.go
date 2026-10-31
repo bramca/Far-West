@@ -44,6 +44,13 @@ const (
 	plantAmount      = 100
 	storeRadius      = 140.0
 	storeMinDistance = 400.0
+
+	storeAmmoOffersMin    = 2
+	storeAmmoOffersMax    = 3
+	storeWeaponOffers     = 2
+	storeUpgradeOffersMin = 1
+	storeUpgradeOffersMax = 2
+	storeInteractRadius   = 150.0
 	// bandit camps
 	maxCamps        = 3
 	campRadius      = 280.0
@@ -79,6 +86,10 @@ const (
 	lootTossSpeed = 2.4
 
 	scorePerKill = 100
+
+	commonKillGold    = 5
+	rareKillGold      = 10
+	legendaryKillGold = 20
 
 	// weapons
 	playerReloadDuration          = 60
@@ -254,9 +265,11 @@ type Game struct {
 
 	camps []*world.BanditCamp
 
-	store       *world.Store
-	storeSprite *ebiten.Image
-	storeHitbox *actors.HitBox
+	store          *world.Store
+	storeSprite    *ebiten.Image
+	storeHitbox    *actors.HitBox
+	storeOpen      bool
+	storeSelection int
 
 	// gameplay
 	frameCount   int
@@ -484,10 +497,14 @@ func (g *Game) startLevel(level int) {
 	g.player.HealApplied = 0
 	g.player.DodgeCooldownTimer = 0
 	g.player.Dead = false
+	g.player.Health = g.player.MaxHealth
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
 	g.player.UpdateHealhBar()
 	g.player.DrawWeapon(g.player.CurrentWeapon)
+
+	g.storeOpen = false
+	g.storeSelection = 0
 
 	g.camps = nil
 	g.tents = nil
@@ -547,6 +564,9 @@ func (g *Game) spawnCamps() {
 // from the playerr
 func (g *Game) spawnStore() {
 	avoid := [][2]float64{{g.player.X, g.player.Y}}
+	for _, camp := range g.camps {
+		avoid = append(avoid, [2]float64{camp.X, camp.Y})
+	}
 	x, y, ok := g.island.RandomOpenLandPoint(storeRadius, storeMinDistance, avoid...)
 	if !ok {
 		x, y = g.island.RandomLandPoint()
@@ -570,6 +590,181 @@ func (g *Game) spawnStore() {
 			H: hitbox.H * float32(spriteScale),
 		},
 	}
+
+	g.clearStoreArea()
+	g.spawnStoreStock()
+}
+
+func (g *Game) clearStoreArea() {
+	if g.store == nil {
+		return
+	}
+
+	storeX := g.store.X + g.store.W*g.store.Scale/2
+	storeY := g.store.Y + g.store.H*g.store.Scale/2
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
+		plantX := plant.X + plant.W*plant.Scale/2
+		plantY := plant.Y + plant.H*plant.Scale/2
+		if utils.DistanceBetweenPoints(storeX, storeY, plantX, plantY) < storeRadius {
+			continue
+		}
+		remaining = append(remaining, plant)
+	}
+	g.plants = remaining
+}
+
+func (g *Game) spawnStoreStock() {
+	if g.store == nil {
+		return
+	}
+
+	stock := make([]world.StoreItem, 0, storeAmmoOffersMax+storeWeaponOffers+storeUpgradeOffersMax)
+	ammoTypes := []actors.Weapon{actors.Revolver, actors.Shotgun, actors.MachineGun}
+	rand.Shuffle(len(ammoTypes), func(i, j int) {
+		ammoTypes[i], ammoTypes[j] = ammoTypes[j], ammoTypes[i]
+	})
+	ammoOffers := storeAmmoOffersMin + rand.IntN(storeAmmoOffersMax-storeAmmoOffersMin+1)
+	for _, weapon := range ammoTypes[:min(ammoOffers, len(ammoTypes))] {
+		amount := rollStoreAmmoAmount(weapon)
+		stock = append(stock, world.StoreItem{
+			Kind:   world.StoreAmmo,
+			Name:   weapon.String() + " AMMO",
+			Price:  scaledStorePrice(storeAmmoPrice(weapon, amount), g.level),
+			Amount: amount,
+			Weapon: weapon,
+		})
+	}
+
+	for range storeWeaponOffers {
+		stock = append(stock, g.newStoreWeaponItem())
+	}
+
+	upgrades := g.unownedUpgrades()
+	rand.Shuffle(len(upgrades), func(i, j int) {
+		upgrades[i], upgrades[j] = upgrades[j], upgrades[i]
+	})
+	upgradeOffers := storeUpgradeOffersMin + rand.IntN(storeUpgradeOffersMax-storeUpgradeOffersMin+1)
+	for _, upgrade := range upgrades[:min(upgradeOffers, len(upgrades))] {
+		stock = append(stock, world.StoreItem{
+			Kind:    world.StoreUpgrade,
+			Name:    upgrade.String(),
+			Price:   scaledStorePrice(upgrade.BasePrice(), g.level),
+			Upgrade: upgrade,
+		})
+	}
+
+	g.store.Stock = stock
+}
+
+func rollStoreAmmoAmount(weapon actors.Weapon) int {
+	switch weapon {
+	case actors.Shotgun:
+		return 8 + rand.IntN(9)
+	case actors.MachineGun:
+		return 40 + rand.IntN(41)
+	default:
+		return 20 + rand.IntN(21)
+	}
+}
+
+func storeAmmoPrice(weapon actors.Weapon, amount int) int {
+	switch weapon {
+	case actors.Shotgun:
+		return 8 + amount/2
+	case actors.MachineGun:
+		return 5 + amount/4
+	default:
+		return 5 + amount/4
+	}
+}
+
+func scaledStorePrice(base, level int) int {
+	if level <= 1 {
+		return base
+	}
+
+	return base + base*(level-1)/5
+}
+
+func (g *Game) newStoreWeaponItem() world.StoreItem {
+	if rand.Float64() < 0.30 {
+		return g.newStoreWhiskyItem()
+	}
+
+	gunType := rollEnemyWeapon()
+	tier := rollStoreGunTier(g.level)
+	gun := g.newEnemyGun(gunType, tier, 3)
+
+	return world.StoreItem{
+		Kind:   world.StoreWeapon,
+		Name:   gunType.String(),
+		Price:  scaledStorePrice(storeGunPrice(tier), g.level),
+		Weapon: gunType,
+		Gun:    &gun,
+	}
+}
+
+func (g *Game) newStoreWhiskyItem() world.StoreItem {
+	heal := 3 + g.level/2 + rand.IntN(2)
+	bottles := 2 + rand.IntN(4)
+	gun := actors.Gun{
+		Tier:          actors.Common,
+		Damage:        heal,
+		GunType:       actors.Whisky,
+		ShootCooldown: playerShootCooldown * 2,
+		Ammo:          bottles,
+		Sprite:        g.gunSprites[actors.Whisky],
+		DrawOptions:   &ebiten.DrawImageOptions{},
+		Scale:         2.0,
+		AmmoFace:      g.hitFace,
+	}
+
+	return world.StoreItem{
+		Kind:   world.StoreWhisky,
+		Name:   "WHISKY",
+		Price:  scaledStorePrice(20+heal*3+bottles*5, g.level),
+		Amount: bottles,
+		Weapon: actors.Whisky,
+		Gun:    &gun,
+	}
+}
+
+func rollStoreGunTier(level int) actors.Tier {
+	legendaryChance := min(0.05+float64(level-1)*0.02, 0.30)
+	rareChance := min(0.20+float64(level-1)*0.03, 0.45)
+	roll := rand.Float64()
+
+	switch {
+	case roll < legendaryChance:
+		return actors.Legendary
+	case roll < legendaryChance+rareChance:
+		return actors.Rare
+	default:
+		return actors.Common
+	}
+}
+
+func storeGunPrice(tier actors.Tier) int {
+	switch tier {
+	case actors.Legendary:
+		return 240
+	case actors.Rare:
+		return 130
+	default:
+		return 60
+	}
+}
+
+func (g *Game) unownedUpgrades() []actors.Upgrade {
+	upgrades := make([]actors.Upgrade, 0, len(actors.AllUpgrades))
+	for _, upgrade := range actors.AllUpgrades {
+		if !g.player.HasUpgrade(upgrade) {
+			upgrades = append(upgrades, upgrade)
+		}
+	}
+
+	return upgrades
 }
 
 // spawnLevel spawns every enemy the player has to defeat in the current level
@@ -864,23 +1059,25 @@ func rollEnemyWhisky(tier actors.Tier) bool {
 	return enemyHasWhisky(tier, rand.Float64())
 }
 
-// enemyTierStats holds the extra stats an enemy gets from its tier on top of
-// the level scaling. Tougher tiers are deadlier, faster and shoot more often.
-type enemyTierStats struct {
-	health   int
-	damage   int
-	speed    float64
-	fireRate int
-}
-
-func enemyStatsForTier(tier actors.Tier) enemyTierStats {
+func goldRewardForTier(tier actors.Tier) int {
 	switch tier {
 	case actors.Legendary:
-		return enemyTierStats{health: 12, damage: 2, speed: 0.5, fireRate: 4}
+		return legendaryKillGold
 	case actors.Rare:
-		return enemyTierStats{health: 5, damage: 1, speed: 0.25, fireRate: 2}
+		return rareKillGold
 	default:
-		return enemyTierStats{}
+		return commonKillGold
+	}
+}
+
+func enemyStatsForTier(tier actors.Tier) actors.EnemyTierStats {
+	switch tier {
+	case actors.Legendary:
+		return actors.EnemyTierStats{Health: 12, Damage: 2, Speed: 0.5, FireRate: 4}
+	case actors.Rare:
+		return actors.EnemyTierStats{Health: 5, Damage: 1, Speed: 0.25, FireRate: 2}
+	default:
+		return actors.EnemyTierStats{}
 	}
 }
 
@@ -933,46 +1130,34 @@ func gunTierForRoll(enemyTier actors.Tier, roll float64) actors.Tier {
 	}
 }
 
-// gunTierStats holds the stat bonuses a gun rolls on top of its base stats.
-// Higher tiers roll on wider and higher ranges so their stats vary more.
-type gunTierStats struct {
-	damage        int
-	magazine      int
-	ammo          int
-	shootCooldown int
-	bulletSpeed   float64
-	bulletSpread  int
-	bulletCount   int
-}
-
-func rollGunTierStats(tier actors.Tier) gunTierStats {
+func rollGunTierStats(tier actors.Tier) actors.GunTierStats {
 	switch tier {
 	case actors.Legendary:
-		return gunTierStats{
-			damage:        2 + rand.IntN(3),
-			magazine:      2 + rand.IntN(3),
-			ammo:          rand.IntN(20),
-			shootCooldown: -(4 + rand.IntN(4)),
-			bulletSpeed:   1.0 + rand.Float64()*1.5,
-			bulletSpread:  8 + rand.IntN(9),
-			bulletCount:   2,
+		return actors.GunTierStats{
+			Damage:        2 + rand.IntN(3),
+			Magazine:      2 + rand.IntN(3),
+			Ammo:          rand.IntN(20),
+			ShootCoolAmmo: -(4 + rand.IntN(4)),
+			BulletSpeed:   1.0 + rand.Float64()*1.5,
+			BulletSpread:  8 + rand.IntN(9),
+			BulletCount:   2,
 		}
 	case actors.Rare:
-		return gunTierStats{
-			damage:        1 + rand.IntN(2),
-			magazine:      1 + rand.IntN(2),
-			ammo:          rand.IntN(20),
-			shootCooldown: -(2 + rand.IntN(3)),
-			bulletSpeed:   0.5 + rand.Float64(),
-			bulletSpread:  4 + rand.IntN(5),
-			bulletCount:   1,
+		return actors.GunTierStats{
+			Damage:        1 + rand.IntN(2),
+			Magazine:      1 + rand.IntN(2),
+			Ammo:          rand.IntN(20),
+			ShootCoolAmmo: -(2 + rand.IntN(3)),
+			BulletSpeed:   0.5 + rand.Float64(),
+			BulletSpread:  4 + rand.IntN(5),
+			BulletCount:   1,
 		}
 	default:
-		return gunTierStats{
-			damage:      rand.IntN(2),
-			magazine:    rand.IntN(2),
-			ammo:        rand.IntN(20),
-			bulletSpeed: rand.Float64() * 0.5,
+		return actors.GunTierStats{
+			Damage:      rand.IntN(2),
+			Magazine:    rand.IntN(2),
+			Ammo:        rand.IntN(20),
+			BulletSpeed: rand.Float64() * 0.5,
 		}
 	}
 }
@@ -1022,19 +1207,19 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 	}
 
 	stats := rollGunTierStats(tier)
-	gun.Damage += stats.damage
-	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.shootCooldown)
+	gun.Damage += stats.Damage
+	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.ShootCoolAmmo)
 	if gunType == actors.Whisky {
-		gun.Ammo += min(stats.ammo, 2)
+		gun.Ammo += min(stats.Ammo, 2)
 
 		return gun
 	}
 
-	gun.MagazineSize += stats.magazine
-	gun.Ammo += stats.ammo
-	gun.BulletSpeed += stats.bulletSpeed
-	gun.BulletSpread += stats.bulletSpread
-	gun.BulletCount += stats.bulletCount
+	gun.MagazineSize += stats.Magazine
+	gun.Ammo += stats.Ammo
+	gun.BulletSpeed += stats.BulletSpeed
+	gun.BulletSpread += stats.BulletSpread
+	gun.BulletCount += stats.BulletCount
 	gun.CurrentMagazineSize = gun.MagazineSize
 
 	return gun
@@ -1052,7 +1237,7 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 
 	// the higher the level the tougher and deadlier the enemies get,
 	// the base damage is low because every bullet deals at least 1
-	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.damage
+	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.Damage
 	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
 	gunBelt := []*actors.Gun{&gun}
 	if rollEnemyWhisky(tier) {
@@ -1060,7 +1245,7 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 		gunBelt = append(gunBelt, &whisky)
 	}
 
-	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.fireRate)
+	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.FireRate)
 
 	state := actors.PlayerRevolverLeft
 	switch gun.GunType {
@@ -1081,7 +1266,7 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 			CurrentState:   state,
 			CurrentWeapon:  0,
 			Scale:          2,
-			Speed:          0.7 + rand.Float64()*1.4 + tierStats.speed,
+			Speed:          0.7 + rand.Float64()*1.4 + tierStats.Speed,
 			DodgeSpeed:     0.4 + rand.Float64()*0.6,
 			AnimationSpeed: 11,
 			DrawOptions:    &ebiten.DrawImageOptions{},
@@ -1093,8 +1278,8 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 			OnDrink:        g.playEnemyDrinkSound,
 			// the higher the level the tougher and deadlier the enemies get,
 			// the base damage is low because every bullet deals at least 1
-			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.health,
-			MaxHealth: 10 + (g.level-1)*levelHealthBonus + tierStats.health,
+			Health:    10 + (g.level-1)*levelHealthBonus + tierStats.Health,
+			MaxHealth: 10 + (g.level-1)*levelHealthBonus + tierStats.Health,
 			MoveDirs: map[actors.Direction]bool{
 				actors.Up:    false,
 				actors.Down:  false,
@@ -1577,6 +1762,7 @@ func (g *Game) canEnemyStep(enemy *actors.Enemy, dir actors.Direction) bool {
 
 // damagePlayer applies bullet damage to the player and ends the run when he dies.
 func (g *Game) damagePlayer(damage int) {
+	damage = max(1, damage-g.player.Armor)
 	g.player.Health -= damage
 	g.player.HitFlash = 8
 	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 255, 255, 240})
@@ -1588,6 +1774,7 @@ func (g *Game) damagePlayer(damage int) {
 		g.player.Dead = true
 		g.player.UpdateCurrentState(actors.PlayerDead)
 		g.mode = ModeGameOver
+		g.closeStore()
 		g.sounds.Play(soundGameOver, soundVolumeGameOver)
 	} else {
 		g.sounds.Play(soundHit, soundVolumeHit)
@@ -1608,7 +1795,9 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	enemy.Dead = true
 	enemy.UpdateCurrentState(actors.PlayerDead)
 	g.score += scorePerKill
-	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill), color.RGBA{255, 215, 0, 240})
+	gold := goldRewardForTier(enemy.Tier)
+	g.player.Gold += gold
+	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill)+" PTS +"+strconv.Itoa(gold)+" $", color.RGBA{255, 215, 0, 240})
 	g.addShake(5, 3)
 	g.freezeFrames = 3
 	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
@@ -1863,153 +2052,160 @@ func (g *Game) Update() error {
 
 		g.player.UpdateBullets()
 
-		// weapon switching
-		if inpututil.IsKeyJustPressed(ebiten.Key5) && len(g.player.GunBelt) > 4 {
-			g.player.DrawWeapon(4)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.Key4) && len(g.player.GunBelt) > 3 {
-			g.player.DrawWeapon(3)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.Key3) && len(g.player.GunBelt) > 2 {
-			g.player.DrawWeapon(2)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.Key2) && len(g.player.GunBelt) > 1 {
-			g.player.DrawWeapon(1)
-		}
-
-		if inpututil.IsKeyJustPressed(ebiten.Key1) && len(g.player.GunBelt) > 0 {
-			g.player.DrawWeapon(0)
-		}
-
-		if buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
-			g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
-		}
-
-		if buttonsJustPressed["LB"] {
-			newWeapon := g.player.CurrentWeapon - 1
-			if newWeapon < 0 {
-				newWeapon = len(g.player.GunBelt) - 1
-			}
-			g.player.DrawWeapon(newWeapon)
-		}
-
-		directionKeyPressed := false
-		if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
-			g.player.Move(actors.Down)
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
-			g.player.Move(actors.Up)
-			directionKeyPressed = true
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
-			g.player.Move(actors.Right)
-			g.player.UpdateHitbox()
-			directionKeyPressed = true
-		}
-
-		movingLeft := ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5
-		// Q moves left like on an AZERTY keyboard, unless it is being used to
-		// compare a nearby gun
-		if ebiten.IsKeyPressed(ebiten.KeyQ) && g.comparingLoot() == nil {
-			movingLeft = true
-		}
-		if movingLeft {
-			g.player.Move(actors.Left)
-			g.player.UpdateHitbox()
-			directionKeyPressed = true
-		}
-
-		lookDirX := 0.0
-		lookDirY := 0.0
-		if ebiten.IsKeyPressed(ebiten.KeyL) {
-			lookDirX = 1
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyH) {
-			lookDirX = -1
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyK) {
-			lookDirY = -1
-		}
-
-		if ebiten.IsKeyPressed(ebiten.KeyJ) {
-			lookDirY = 1
-		}
-
-		// free-angle aim: while the right stick is pushed out of its deadzone
-		// it takes over, otherwise the gun follows the mouse cursor
-		if math.Hypot(g.xRightAxis, g.yRightAxis) > 0.5 {
-			g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
-		} else if lookDirX != 0 || lookDirY != 0 {
-			g.player.AimAngle = math.Atan2(lookDirY, lookDirX)
+		if g.storeOpen {
+			g.updateStoreInput()
+			g.player.Act(g.frameCount)
 		} else {
-			mx, my := ebiten.CursorPosition()
-			worldX := float64(mx) + g.camX
-			worldY := float64(my) + g.camY
-			g.player.AimAngle = math.Atan2(worldY-(g.player.Y+g.player.H/2), worldX-(g.player.X+g.player.W/2))
-		}
-		g.player.FaceFromAim()
-
-		// picking up a gun swaps it with the matching gun in the gunbelt and
-		// tosses the old one in the aim direction
-		if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
-			g.pickUpLoot(loot)
-		} else if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
-			g.openChest(chest)
-		}
-
-		if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
-			g.player.StartDodge()
-			g.player.CurrentAction = actors.Action{
-				Duration: g.player.DodgeDuration,
-				Type:     actors.Dodge,
-				Actor:    g.player,
+			// weapon switching
+			if inpututil.IsKeyJustPressed(ebiten.Key5) && len(g.player.GunBelt) > 4 {
+				g.player.DrawWeapon(4)
 			}
-			g.spawnDodgeDust(10)
-			g.sounds.Play(soundDash, soundVolumeDash)
-		}
 
-		g.player.Act(g.frameCount)
-
-		if g.player.IsDodging() && g.frameCount%2 == 0 {
-			g.spawnDodgeDust(2)
-		}
-
-		if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
-			g.player.Animate()
-		}
-
-		if !directionKeyPressed {
-			g.player.StopAnimation()
-		}
-
-		firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"]
-		fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"]
-
-		if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
-			gun := g.player.GunBelt[g.player.CurrentWeapon]
-			if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
-				g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
+			if inpututil.IsKeyJustPressed(ebiten.Key4) && len(g.player.GunBelt) > 3 {
+				g.player.DrawWeapon(3)
 			}
-		}
 
-		if firePressed {
-			ammoBefore := g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize
-			g.player.Shoot()
-			if g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize != ammoBefore {
-				g.addShake(2, 1.5)
+			if inpututil.IsKeyJustPressed(ebiten.Key3) && len(g.player.GunBelt) > 2 {
+				g.player.DrawWeapon(2)
 			}
-		}
 
-		if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] {
-			g.player.Reload()
+			if inpututil.IsKeyJustPressed(ebiten.Key2) && len(g.player.GunBelt) > 1 {
+				g.player.DrawWeapon(1)
+			}
+
+			if inpututil.IsKeyJustPressed(ebiten.Key1) && len(g.player.GunBelt) > 0 {
+				g.player.DrawWeapon(0)
+			}
+
+			if buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+				g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
+			}
+
+			if buttonsJustPressed["LB"] {
+				newWeapon := g.player.CurrentWeapon - 1
+				if newWeapon < 0 {
+					newWeapon = len(g.player.GunBelt) - 1
+				}
+				g.player.DrawWeapon(newWeapon)
+			}
+
+			directionKeyPressed := false
+			if ebiten.IsKeyPressed(ebiten.KeyS) || g.yLeftAxis > 0.5 {
+				g.player.Move(actors.Down)
+				directionKeyPressed = true
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyZ) || ebiten.IsKeyPressed(ebiten.KeyW) || g.yLeftAxis < -0.5 {
+				g.player.Move(actors.Up)
+				directionKeyPressed = true
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyD) || g.xLeftAxis > 0.5 {
+				g.player.Move(actors.Right)
+				g.player.UpdateHitbox()
+				directionKeyPressed = true
+			}
+
+			movingLeft := ebiten.IsKeyPressed(ebiten.KeyA) || g.xLeftAxis < -0.5
+			// Q moves left like on an AZERTY keyboard, unless it is being used to
+			// compare a nearby gun
+			if ebiten.IsKeyPressed(ebiten.KeyQ) && g.comparingLoot() == nil {
+				movingLeft = true
+			}
+			if movingLeft {
+				g.player.Move(actors.Left)
+				g.player.UpdateHitbox()
+				directionKeyPressed = true
+			}
+
+			lookDirX := 0.0
+			lookDirY := 0.0
+			if ebiten.IsKeyPressed(ebiten.KeyL) {
+				lookDirX = 1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyH) {
+				lookDirX = -1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyK) {
+				lookDirY = -1
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyJ) {
+				lookDirY = 1
+			}
+
+			// free-angle aim: while the right stick is pushed out of its deadzone
+			// it takes over, otherwise the gun follows the mouse cursor
+			if math.Hypot(g.xRightAxis, g.yRightAxis) > 0.5 {
+				g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
+			} else if lookDirX != 0 || lookDirY != 0 {
+				g.player.AimAngle = math.Atan2(lookDirY, lookDirX)
+			} else {
+				mx, my := ebiten.CursorPosition()
+				worldX := float64(mx) + g.camX
+				worldY := float64(my) + g.camY
+				g.player.AimAngle = math.Atan2(worldY-(g.player.Y+g.player.H/2), worldX-(g.player.X+g.player.W/2))
+			}
+			g.player.FaceFromAim()
+
+			// picking up a gun swaps it with the matching gun in the gunbelt and
+			// tosses the old one in the aim direction
+			if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.pickUpLoot(loot)
+			} else if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.openChest(chest)
+			} else if g.nearestStore() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.openStore()
+			}
+
+			if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
+				g.player.StartDodge()
+				g.player.CurrentAction = actors.Action{
+					Duration: g.player.DodgeDuration,
+					Type:     actors.Dodge,
+					Actor:    g.player,
+				}
+				g.spawnDodgeDust(10)
+				g.sounds.Play(soundDash, soundVolumeDash)
+			}
+
+			g.player.Act(g.frameCount)
+
+			if g.player.IsDodging() && g.frameCount%2 == 0 {
+				g.spawnDodgeDust(2)
+			}
+
+			if directionKeyPressed && g.frameCount%g.player.AnimationSpeed == 0 {
+				g.player.Animate()
+			}
+
+			if !directionKeyPressed {
+				g.player.StopAnimation()
+			}
+
+			firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"]
+			fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"]
+
+			if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
+				gun := g.player.GunBelt[g.player.CurrentWeapon]
+				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
+					g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
+				}
+			}
+
+			if firePressed {
+				ammoBefore := g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize
+				g.player.Shoot()
+				if g.player.GunBelt[g.player.CurrentWeapon].CurrentMagazineSize != ammoBefore {
+					g.addShake(2, 1.5)
+				}
+			}
+
+			if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] {
+				g.player.Reload()
+			}
 		}
 
 		for _, enemy := range g.enemies {
@@ -2031,6 +2227,7 @@ func (g *Game) Update() error {
 		// keep walking around until he presses N or the A button to continue
 		if g.mode == ModeGame && !g.levelComplete && len(g.enemies) > 0 && g.aliveEnemies() == 0 {
 			g.levelComplete = true
+			g.closeStore()
 			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
 		}
 		if g.mode == ModeGame && g.levelComplete && (inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
@@ -2047,6 +2244,143 @@ func (g *Game) Update() error {
 		}
 	}
 	return nil
+}
+
+func (g *Game) nearestStore() *world.Store {
+	if g.store == nil || g.player.Dead || g.storeOpen {
+		return nil
+	}
+
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+	dist := utils.DistanceBetweenPoints(px, py, g.store.Hitbox.CenterX(), g.store.Hitbox.CenterY())
+	if dist > storeInteractRadius {
+		return nil
+	}
+
+	return g.store
+}
+
+func (g *Game) openStore() {
+	if g.store == nil || g.player.Dead {
+		return
+	}
+
+	g.storeOpen = true
+	g.storeSelection = 0
+	g.player.StopAnimation()
+	g.player.MoveDirs[actors.Up] = false
+	g.player.MoveDirs[actors.Down] = false
+	g.player.MoveDirs[actors.Right] = false
+	g.player.MoveDirs[actors.Left] = false
+}
+
+func (g *Game) closeStore() {
+	g.storeOpen = false
+	g.storeSelection = 0
+}
+
+func (g *Game) updateStoreInput() {
+	if g.store == nil || len(g.store.Stock) == 0 {
+		g.closeStore()
+
+		return
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyP) || buttonsJustPressed["RR"] {
+		g.closeStore()
+
+		return
+	}
+
+	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LT"]
+	down := inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyS) || buttonsJustPressed["LB"]
+	if up {
+		g.storeSelection--
+		if g.storeSelection < 0 {
+			g.storeSelection = len(g.store.Stock) - 1
+		}
+	}
+	if down {
+		g.storeSelection++
+		if g.storeSelection >= len(g.store.Stock) {
+			g.storeSelection = 0
+		}
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyE) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) || buttonsJustPressed["RT"] {
+		g.buyStoreItem(&g.store.Stock[g.storeSelection])
+	}
+}
+
+func (g *Game) buyStoreItem(item *world.StoreItem) {
+	if item == nil || item.Sold || g.player.Gold < item.Price {
+		return
+	}
+
+	switch item.Kind {
+	case world.StoreAmmo:
+		index, ok := g.gunBeltIndexFor(item.Weapon)
+		if !ok {
+			return
+		}
+		g.player.GunBelt[index].Ammo += item.Amount
+	case world.StoreWeapon, world.StoreWhisky:
+		if !g.equipStoreGun(item.Gun) {
+			return
+		}
+	case world.StoreUpgrade:
+		if !g.player.ApplyUpgrade(item.Upgrade) {
+			return
+		}
+	}
+
+	g.player.Gold -= item.Price
+	item.Sold = true
+	g.sounds.Play(soundPickup, soundVolumePickup)
+
+	msg := "BOUGHT " + item.Name
+	if item.Kind == world.StoreAmmo {
+		msg = "+" + strconv.Itoa(item.Amount) + " " + item.Name
+	}
+	if item.Kind == world.StoreUpgrade {
+		msg = "UPGRADED " + item.Name
+	}
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, msg, color.RGBA{245, 205, 55, 240})
+}
+
+func (g *Game) equipStoreGun(gun *actors.Gun) bool {
+	if gun == nil {
+		return false
+	}
+
+	index, ok := g.gunBeltIndexFor(gun.GunType)
+	if !ok {
+		g.loot = append(g.loot, actors.NewLoot(gun, g.player.X+g.player.W/2, g.player.Y+g.player.H/2))
+
+		return true
+	}
+
+	oldGun := g.player.GunBelt[index]
+	gun.X, gun.Y = oldGun.X, oldGun.Y
+	g.player.GunBelt[index] = gun
+	if g.player.CurrentWeapon == index {
+		g.player.Reloading = false
+		g.player.ReloadTimer = 0
+		g.player.DrawWeapon(index)
+	}
+
+	if oldGun.GunType == actors.Fists {
+		return true
+	}
+
+	vx := math.Cos(g.player.AimAngle) * lootTossSpeed
+	vy := math.Sin(g.player.AimAngle) * lootTossSpeed
+	dropX := g.player.X + g.player.W/2
+	dropY := g.player.Y + g.player.H/2
+	g.loot = append(g.loot, actors.NewTossedLoot(oldGun, dropX, dropY, vx, vy))
+
+	return true
 }
 
 func (g *Game) nearestClosedChest() *world.Chest {
@@ -2131,7 +2465,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeGame:
 		g.drawWorld(screen)
 		g.drawHud(screen)
-		if loot := g.comparingLoot(); loot != nil {
+		if g.storeOpen {
+			g.drawStore(screen)
+		} else if loot := g.comparingLoot(); loot != nil {
 			g.drawLootComparison(screen, loot)
 		}
 		if g.levelComplete {
@@ -2224,11 +2560,16 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 		g.player.X,
 		g.player.Y,
 		g.campPositions(),
+		g.storePositions(),
 	)
 }
 
 // drawLootPrompt shows the controls of the gun lying next to the player.
 func (g *Game) drawLootPrompt(screen *ebiten.Image) {
+	if g.storeOpen {
+		return
+	}
+
 	if g.mode != ModeGame || g.player.Dead {
 		if g.nearestLoot() == nil {
 			return
@@ -2248,6 +2589,13 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 
 	if chest := g.nearestClosedChest(); chest != nil {
 		msg := "E OPEN"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
+	if g.nearestStore() != nil {
+		msg := "E SHOP"
 		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
 		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
@@ -2343,6 +2691,85 @@ func (g *Game) drawSmallText(screen *ebiten.Image, msg string, x, y float64, clr
 	drawOptions.GeoM.Translate(x, y)
 	drawOptions.ColorScale.ScaleWithColor(clr)
 	text.Draw(screen, msg, g.hudFace, drawOptions)
+}
+
+func (g *Game) drawStore(screen *ebiten.Image) {
+	if g.store == nil || len(g.store.Stock) == 0 {
+		return
+	}
+
+	const (
+		panelW = 560.0
+		panelH = 440.0
+		rowH   = 40.0
+	)
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := 110.0
+	borderColor := color.RGBA{245, 205, 55, 240}
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, borderColor, false)
+
+	g.drawSmallText(screen, "GENERAL STORE", panelX+20, panelY+18, color.RGBA{245, 205, 55, 255})
+	goldText := "GOLD " + strconv.Itoa(g.player.Gold)
+	g.drawSmallText(screen, goldText, panelX+panelW-20-float64(len(goldText)*g.hudFontSize), panelY+18, color.RGBA{240, 230, 190, 255})
+
+	for i, item := range g.store.Stock {
+		rowY := panelY + 60 + float64(i)*rowH
+		if i == g.storeSelection {
+			vector.FillRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, color.RGBA{70, 58, 30, 235}, false)
+			vector.StrokeRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, 1, borderColor, false)
+		}
+
+		nameColor := color.RGBA{230, 225, 210, 255}
+		if item.Kind == world.StoreUpgrade {
+			nameColor = color.RGBA{245, 205, 55, 255}
+		}
+		if item.Gun != nil {
+			nameColor = actors.TierColor(item.Gun.Tier)
+		}
+		if item.Sold {
+			nameColor = color.RGBA{120, 115, 105, 255}
+		}
+		g.drawSmallText(screen, item.Name, panelX+22, rowY, nameColor)
+
+		price := strconv.Itoa(item.Price) + " $"
+		priceColor := color.RGBA{240, 230, 190, 255}
+		if item.Sold {
+			price = "SOLD"
+			priceColor = color.RGBA{140, 135, 125, 255}
+		} else if g.player.Gold < item.Price {
+			priceColor = color.RGBA{235, 85, 75, 255}
+		}
+		g.drawSmallText(screen, price, panelX+panelW-22-float64(len(price)*g.hudFontSize), rowY, priceColor)
+
+		detailColor := color.RGBA{170, 160, 140, 255}
+		g.drawSmallText(screen, storeItemDetail(item), panelX+22, rowY+18, detailColor)
+	}
+
+	footer := "UP/DOWN SELECT   E BUY   ESC CLOSE"
+	g.drawSmallText(screen, footer, panelX+panelW/2-float64(len(footer)*g.hudFontSize)/2, panelY+panelH-26, color.RGBA{235, 220, 170, 255})
+}
+
+func storeItemDetail(item world.StoreItem) string {
+	switch item.Kind {
+	case world.StoreAmmo:
+		return strconv.Itoa(item.Amount) + " ROUNDS"
+	case world.StoreWeapon:
+		if item.Gun == nil {
+			return ""
+		}
+		return item.Gun.Tier.String() + "  DMG " + strconv.Itoa(item.Gun.Damage) + "  MAG " + strconv.Itoa(item.Gun.MagazineSize)
+	case world.StoreWhisky:
+		if item.Gun == nil {
+			return ""
+		}
+		return "HEAL " + strconv.Itoa(item.Gun.Damage) + "  BOTTLES " + strconv.Itoa(item.Gun.Ammo)
+	case world.StoreUpgrade:
+		return item.Upgrade.Description()
+	default:
+		return ""
+	}
 }
 
 // drawLootComparison shows the stats of the gun on the floor next to the
@@ -2465,6 +2892,14 @@ func (g *Game) campPositions() [][2]float64 {
 	}
 
 	return positions
+}
+
+func (g *Game) storePositions() [][2]float64 {
+	if g.store == nil {
+		return nil
+	}
+
+	return [][2]float64{{g.store.X + g.store.W*g.store.Scale/2, g.store.Y + g.store.H*g.store.Scale/2}}
 }
 
 // drawCenteredTexts draws a block of horizontally centered lines of text, the

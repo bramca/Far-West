@@ -16,6 +16,15 @@ const (
 	homeLeashFraction = 0.6
 )
 
+// EnemyTierStats holds the extra stats an enemy gets from its tier on top of
+// the level scaling. Tougher tiers are deadlier, faster and shoot more often.
+type EnemyTierStats struct {
+	Health   int
+	Damage   int
+	Speed    float64
+	FireRate int
+}
+
 type Enemy struct {
 	*Player
 
