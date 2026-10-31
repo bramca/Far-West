@@ -91,6 +91,8 @@ const (
 	// dodge cooldown keeps the player from spamming the dodge button
 	playerDodgeCooldown = 30
 
+	playerStartGold = 50
+
 	enemyHitboxOffset = 16
 
 	// sounds
@@ -624,7 +626,7 @@ func (g *Game) newPlayer() *actors.Player {
 			Damage:              3,
 			MagazineSize:        defaultMagazineSize[actors.Revolver],
 			CurrentMagazineSize: defaultMagazineSize[actors.Revolver],
-			Ammo:                99,
+			Ammo:                30,
 			ShootCooldown:       playerShootCooldown,
 			BulletDuration:      120,
 			BulletSpeed:         6.0,
@@ -641,7 +643,7 @@ func (g *Game) newPlayer() *actors.Player {
 			Damage:              3,
 			MagazineSize:        defaultMagazineSize[actors.Shotgun],
 			CurrentMagazineSize: defaultMagazineSize[actors.Shotgun],
-			Ammo:                20,
+			Ammo:                14,
 			ShootCooldown:       playerShootCooldown,
 			GunType:             actors.Shotgun,
 			BulletDuration:      50,
@@ -660,7 +662,7 @@ func (g *Game) newPlayer() *actors.Player {
 			Damage:              2,
 			MagazineSize:        defaultMagazineSize[actors.MachineGun],
 			CurrentMagazineSize: defaultMagazineSize[actors.MachineGun],
-			Ammo:                120,
+			Ammo:                75,
 			ShootCooldown:       playerShootCooldown / 2,
 			GunType:             actors.MachineGun,
 			BulletDuration:      90,
@@ -685,6 +687,7 @@ func (g *Game) newPlayer() *actors.Player {
 		CurrentWeapon:  1,
 		Scale:          2,
 		Speed:          2.8,
+		Gold:           playerStartGold,
 		DodgeSpeed:     4.5,
 		DodgeDuration:  15,
 		AnimationSpeed: 11,
