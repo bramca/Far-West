@@ -41,7 +41,7 @@ const (
 	worldTilesX   = 90
 	worldTilesY   = 60
 	worldTileSize = 64.0
-	cactusAmount  = 100
+	plantAmount   = 100
 	// bandit camps
 	maxCamps        = 3
 	campRadius      = 280.0
@@ -235,10 +235,10 @@ type Game struct {
 	freezeFrames int
 
 	// world
-	island         *world.Island
-	cactusSprites  []*ebiten.Image
-	cactusHitboxes []*actors.HitBox
-	cacti          []*world.Cactus
+	island        *world.Island
+	plantSprites  []*ebiten.Image
+	plantHitboxes []*actors.HitBox
+	plants        []*world.Plant
 
 	tentSprite *ebiten.Image
 	tentHitbox *actors.HitBox
@@ -400,8 +400,10 @@ func NewGame() *Game {
 		"assets/sprites/bullet.png",
 	}, 32, 32)[0]
 
-	game.cactusSprites = helpers.LoadSprites(assets, []string{
+	game.plantSprites = helpers.LoadSprites(assets, []string{
 		"assets/sprites/cactus.png",
+		"assets/sprites/dead-tree.png",
+		"assets/sprites/shrub.png",
 	}, 32, 32)
 
 	game.tentSprite = helpers.LoadSprites(assets, []string{
@@ -423,7 +425,7 @@ func NewGame() *Game {
 		"assets/sprites/machine-gun.png",
 	}, 32, 32)
 
-	game.cactusHitboxes = helpers.InitializeCactusHitboxes()
+	game.plantHitboxes = helpers.InitializePlantHitboxes()
 
 	game.tentHitbox = helpers.InitializeTentHitbox()
 
@@ -478,7 +480,7 @@ func (g *Game) startLevel(level int) {
 	g.chests = nil
 	g.spawnCamps()
 
-	g.cacti = helpers.SpawnCacti(g.island, cactusAmount, 4.0, g.cactusSprites, g.cactusHitboxes)
+	g.plants = helpers.SpawnPlants(g.island, plantAmount, 4.0, g.plantSprites, g.plantHitboxes)
 	g.clearSpawnArea()
 	g.clearCampAreas()
 
@@ -696,25 +698,25 @@ func (g *Game) clearSpawnArea() {
 		H: g.player.Hitbox.H * 3,
 	}
 
-	remaining := g.cacti[:0]
-	for _, cactus := range g.cacti {
-		if spawnArea.CheckCollision(cactus.Hitbox) {
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
+		if spawnArea.CheckCollision(plant.Hitbox) {
 			continue
 		}
-		remaining = append(remaining, cactus)
+		remaining = append(remaining, plant)
 	}
 
-	g.cacti = remaining
+	g.plants = remaining
 }
 
 // clearCampAreas removes the cacti that grew inside a bandit camp so the tents,
 // chests and bandits have room to move.
 func (g *Game) clearCampAreas() {
-	remaining := g.cacti[:0]
-	for _, cactus := range g.cacti {
+	remaining := g.plants[:0]
+	for _, plant := range g.plants {
 		inCamp := false
 		for _, camp := range g.camps {
-			if camp.Contains(cactus.X+cactus.W/2, cactus.Y+cactus.H/2) {
+			if camp.Contains(plant.X+plant.W/2, plant.Y+plant.H/2) {
 				inCamp = true
 
 				break
@@ -723,10 +725,10 @@ func (g *Game) clearCampAreas() {
 		if inCamp {
 			continue
 		}
-		remaining = append(remaining, cactus)
+		remaining = append(remaining, plant)
 	}
 
-	g.cacti = remaining
+	g.plants = remaining
 }
 
 // enemySpawnPoint looks for a land tile inside the camp that is far enough from
@@ -1187,7 +1189,7 @@ func (g *Game) updateParticles() {
 
 // knockbackEnemy pushes an enemy a short distance along the bullet path so
 // every hit that lands has some weight behind it. checkWorldCollisions pulls
-// the enemy back if the push would have put him on the ocean or a cactus.
+// the enemy back if the push would have put him on the ocean or a plant.
 func (g *Game) knockbackEnemy(enemy *actors.Enemy, bullet *actors.Bullet) {
 	const knockbackForce = 7.0
 	enemy.X += math.Cos(bullet.R) * knockbackForce
@@ -1292,15 +1294,15 @@ func (g *Game) checkBulletCollisions() {
 	}
 }
 
-// bulletBlocked reports whether the bullet hit a cactus or left the world.
+// bulletBlocked reports whether the bullet hit a plant or left the world.
 func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
 	x, y := float64(bullet.Hitbox.X), float64(bullet.Hitbox.Y)
 	if x < 0 || y < 0 || x > g.island.PixelWidth() || y > g.island.PixelHeight() {
 		return true
 	}
 
-	for _, cactus := range g.cacti {
-		if bullet.Hitbox.CheckCollision(cactus.Hitbox) {
+	for _, plant := range g.plants {
+		if bullet.Hitbox.CheckCollision(plant.Hitbox) {
 			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
 			return true
 		}
@@ -1373,14 +1375,14 @@ func (g *Game) setEnemyPosition(enemy *actors.Enemy, x, y float64) {
 }
 
 // canStandAt reports whether the given hitbox is completely on walkable land
-// and does not overlap a cactus.
+// and does not overlap a plant.
 func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
 	if !g.island.IsRectWalkable(float64(hitbox.X), float64(hitbox.Y), float64(hitbox.W), float64(hitbox.H)) {
 		return false
 	}
 
-	for _, cactus := range g.cacti {
-		if hitbox.CheckCollision(cactus.Hitbox) {
+	for _, plant := range g.plants {
+		if hitbox.CheckCollision(plant.Hitbox) {
 			return false
 		}
 	}
@@ -2102,8 +2104,8 @@ func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
 func (g *Game) drawWorld(screen *ebiten.Image) {
 	g.island.Draw(screen, g.camX, g.camY)
 
-	for _, cactus := range g.cacti {
-		cactus.Draw(screen, g.camX, g.camY)
+	for _, plant := range g.plants {
+		plant.Draw(screen, g.camX, g.camY)
 	}
 
 	for _, tent := range g.tents {

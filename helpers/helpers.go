@@ -50,7 +50,7 @@ func InitializeChestHitbox() *actors.HitBox {
 	}
 }
 
-func InitializeCactusHitboxes() []*actors.HitBox {
+func InitializePlantHitboxes() []*actors.HitBox {
 	result := []*actors.HitBox{
 		{
 			X: 11,
@@ -88,6 +88,54 @@ func InitializeCactusHitboxes() []*actors.HitBox {
 			W: 8,
 			H: 13,
 		},
+		{
+			X: 14,
+			Y: 6,
+			W: 5,
+			H: 21,
+		},
+		{
+			X: 14,
+			Y: 3,
+			W: 5,
+			H: 24,
+		},
+		{
+			X: 14,
+			Y: 9,
+			W: 5,
+			H: 19,
+		},
+		{
+			X: 14,
+			Y: 4,
+			W: 5,
+			H: 24,
+		},
+		{
+			X: 8,
+			Y: 17,
+			W: 15,
+			H: 11,
+		},
+		{
+			X: 8,
+			Y: 17,
+			W: 15,
+			H: 11,
+		},
+		{
+			X: 8,
+			Y: 17,
+			W: 15,
+			H: 11,
+		},
+		{
+			X: 8,
+			Y: 17,
+			W: 15,
+			H: 11,
+		},
 	}
 
 	return result
@@ -115,15 +163,15 @@ func LoadSprites(assets embed.FS, fileNames []string, xFrameSize int, yFrameSize
 	return result
 }
 
-// SpawnCacti spreads cacti over the land tiles of the given island.
-func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSprites []*ebiten.Image, hitboxes []*actors.HitBox) []*world.Cactus {
-	cacti := []*world.Cactus{}
+// SpawnPlants spreads plants over the land tiles of the given island.
+func SpawnPlants(island *world.Island, amount int, spriteScale float64, plantSprites []*ebiten.Image, hitboxes []*actors.HitBox) []*world.Plant {
+	plants := []*world.Plant{}
 	for range amount {
 		x, y := island.RandomLandPoint()
-		i := rand.IntN(len(cactusSprites))
-		sprite := cactusSprites[i]
+		i := rand.IntN(len(plantSprites))
+		sprite := plantSprites[i]
 		hitbox := hitboxes[i]
-		cactus := &world.Cactus{
+		plant := &world.Plant{
 			X:           x,
 			Y:           y,
 			W:           float64(sprite.Bounds().Dx()),
@@ -138,10 +186,10 @@ func SpawnCacti(island *world.Island, amount int, spriteScale float64, cactusSpr
 				H: hitbox.H * float32(spriteScale),
 			},
 		}
-		cacti = append(cacti, cactus)
+		plants = append(plants, plant)
 	}
 
-	return cacti
+	return plants
 }
 
 const (

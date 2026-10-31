@@ -18,7 +18,7 @@ func TestGameLoop(t *testing.T) {
 	// the first camp to let them find him. Clear the cover of the camp so this
 	// test is about combat and not about the player hiding behind a tent.
 	camp := game.camps[0]
-	game.cacti = nil
+	game.plants = nil
 	game.tents = nil
 	game.chests = nil
 	game.player.X = camp.X
@@ -221,7 +221,7 @@ func TestBlockedEnemyPicksFreeDirection(t *testing.T) {
 	// isolate the enemy in an open part of the island so the test cannot be
 	// foiled by a neighbouring bandit standing in every free direction
 	game.enemies = []*actors.Enemy{enemy}
-	game.cacti = nil
+	game.plants = nil
 	game.tents = nil
 	game.chests = nil
 	game.player.X = -10000
