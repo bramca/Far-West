@@ -41,6 +41,15 @@ func InitializeTentHitbox() *actors.HitBox {
 	}
 }
 
+func InitializeStoreHitbox() *actors.HitBox {
+	return &actors.HitBox{
+		X: 6,
+		Y: 7,
+		W: 19,
+		H: 22,
+	}
+}
+
 func InitializeChestHitbox() *actors.HitBox {
 	return &actors.HitBox{
 		X: 8,

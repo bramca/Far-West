@@ -38,10 +38,12 @@ const (
 	enemyHealthBarSize  = 7.0
 
 	// world
-	worldTilesX   = 90
-	worldTilesY   = 60
-	worldTileSize = 64.0
-	plantAmount   = 100
+	worldTilesX      = 90
+	worldTilesY      = 60
+	worldTileSize    = 64.0
+	plantAmount      = 100
+	storeRadius      = 140.0
+	storeMinDistance = 400.0
 	// bandit camps
 	maxCamps        = 3
 	campRadius      = 280.0
@@ -250,6 +252,10 @@ type Game struct {
 
 	camps []*world.BanditCamp
 
+	store       *world.Store
+	storeSprite *ebiten.Image
+	storeHitbox *actors.HitBox
+
 	// gameplay
 	frameCount   int
 	maxFramCount int
@@ -406,6 +412,10 @@ func NewGame() *Game {
 		"assets/sprites/shrub.png",
 	}, 32, 32)
 
+	game.storeSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/store.png",
+	}, 32, 32)[0]
+
 	game.tentSprite = helpers.LoadSprites(assets, []string{
 		"assets/sprites/tent.png",
 	}, 32, 32)[0]
@@ -430,6 +440,8 @@ func NewGame() *Game {
 	game.tentHitbox = helpers.InitializeTentHitbox()
 
 	game.chestHitbox = helpers.InitializeChestHitbox()
+
+	game.storeHitbox = helpers.InitializeStoreHitbox()
 
 	game.Initialize()
 
@@ -484,6 +496,9 @@ func (g *Game) startLevel(level int) {
 	g.clearSpawnArea()
 	g.clearCampAreas()
 
+	g.store = nil
+	g.spawnStore()
+
 	g.enemies = nil
 	g.loot = nil
 	g.spawnLevel()
@@ -523,6 +538,35 @@ func (g *Game) spawnCamps() {
 		g.chests = append(g.chests, camp.Chests...)
 		g.camps = append(g.camps, camp)
 		avoid = append(avoid, [2]float64{x, y})
+	}
+}
+
+// spawnStore picks one spot on the island that is far enough away
+// from the playerr
+func (g *Game) spawnStore() {
+	avoid := [][2]float64{{g.player.X, g.player.Y}}
+	x, y, ok := g.island.RandomOpenLandPoint(storeRadius, storeMinDistance, avoid...)
+	if !ok {
+		x, y = g.island.RandomLandPoint()
+	}
+
+	hitbox := g.storeHitbox
+	spriteScale := 6.0
+
+	g.store = &world.Store{
+		X:           x,
+		Y:           y,
+		W:           float64(g.storeSprite.Bounds().Dx()),
+		H:           float64(g.storeSprite.Bounds().Dy()),
+		Sprite:      g.storeSprite,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       spriteScale,
+		Hitbox: &actors.HitBox{
+			X: float32(x + float64(hitbox.X*float32(spriteScale))),
+			Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+			W: hitbox.W * float32(spriteScale),
+			H: hitbox.H * float32(spriteScale),
+		},
 	}
 }
 
@@ -1322,6 +1366,11 @@ func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
 		}
 	}
 
+	if bullet.Hitbox.CheckCollision(g.store.Hitbox) {
+		g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+		return true
+	}
+
 	return false
 }
 
@@ -1399,7 +1448,7 @@ func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
 		}
 	}
 
-	return true
+	return !hitbox.CheckCollision(g.store.Hitbox)
 }
 
 // checkActorCollisions stops actors from walking through each other.
@@ -2118,6 +2167,8 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 	for _, loot := range g.loot {
 		loot.Draw(screen, g.camX, g.camY)
 	}
+
+	g.store.Draw(screen, g.camX, g.camY)
 
 	// dead enemies are drawn first so corpses never cover a living actor
 	for _, enemy := range g.enemies {
