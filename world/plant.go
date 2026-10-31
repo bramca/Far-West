@@ -19,7 +19,6 @@ func (p *Plant) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	p.DrawOptions.GeoM.Scale(p.Scale, p.Scale)
 	p.DrawOptions.GeoM.Translate(float64(p.X-camX), float64(p.Y-camY))
 	screen.DrawImage(p.Sprite, p.DrawOptions)
-	p.Hitbox.Draw(screen, camX, camY)
 }
 
 func (p *Plant) DrawHitbox(screen *ebiten.Image, camX float64, camY float64) {
