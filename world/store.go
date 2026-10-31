@@ -40,7 +40,6 @@ func (s *Store) Draw(screen *ebiten.Image, camX float64, camY float64) {
 	s.DrawOptions.GeoM.Scale(s.Scale, s.Scale)
 	s.DrawOptions.GeoM.Translate(float64(s.X-camX), float64(s.Y-camY))
 	screen.DrawImage(s.Sprite, s.DrawOptions)
-	s.DrawHitbox(screen, camX, camY)
 }
 
 func (s *Store) DrawHitbox(screen *ebiten.Image, camX float64, camY float64) {

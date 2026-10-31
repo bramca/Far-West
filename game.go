@@ -41,7 +41,7 @@ const (
 	worldTilesX      = 90
 	worldTilesY      = 60
 	worldTileSize    = 64.0
-	plantAmount      = 100
+	plantAmount      = 70
 	storeRadius      = 140.0
 	storeMinDistance = 400.0
 
@@ -53,7 +53,7 @@ const (
 	storeInteractRadius   = 150.0
 
 	// boat and dock
-	boatScale          = 4.0
+	boatScale          = 8.0
 	boatInteractRadius = 200.0
 	dockLength         = 120.0
 	dockWidth          = 56.0
@@ -583,11 +583,13 @@ func (g *Game) spawnBoat() (float64, float64) {
 		boat.DockW = dockWidth
 		boat.DockH = dockLength
 	case world.DockEast:
+		boat.X += 100
 		boat.DockX = site.X
 		boat.DockY = site.Y - dockWidth/2
 		boat.DockW = dockLength
 		boat.DockH = dockWidth
 	case world.DockWest:
+		boat.X -= 100
 		boat.DockX = site.X - dockLength
 		boat.DockY = site.Y - dockWidth/2
 		boat.DockW = dockLength
@@ -2231,10 +2233,10 @@ func (g *Game) Update() error {
 
 			// picking up a gun swaps it with the matching gun in the gunbelt and
 			// tosses the old one in the aim direction
-			if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
-				g.pickUpLoot(loot)
-			} else if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
 				g.openChest(chest)
+			} else if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.pickUpLoot(loot)
 			} else if g.nearestStore() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
 				g.openStore()
 			}
@@ -2400,8 +2402,8 @@ func (g *Game) updateStoreInput() {
 		return
 	}
 
-	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LT"]
-	down := inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyS) || buttonsJustPressed["LB"]
+	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LS"]
+	down := inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyS) || buttonsJustPressed["LT"]
 	if up {
 		g.storeSelection--
 		if g.storeSelection < 0 {
@@ -2586,29 +2588,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 // drawLevelCompleteOverlay shows the summary of the finished level while the
 // player is still free to move around the island.
 func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
-	// TODO: display notification in top right corner on level complete
-	// const (
-	// 	panelW = 370.0
-	// 	panelH = 336.0
-	// )
-	// panelX := float64(ScreenWidth) - panelW - 20
-	// panelY := 160.0
-	//
-	// vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
-	// vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
-	// floorText := "GUN ON THE FLOOR"
-	// if loot.Gun.GunType == actors.Whisky {
-	// 	floorText = "WHISKY ON THE FLOOR"
-	// }
-	// g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
-	levelCompleteTexts := []string{
-		"LEVEL " + strconv.Itoa(g.level) + " COMPLETE!",
-		"SCORE " + strconv.Itoa(g.score),
-		"TIME  " + g.survivalTime(),
-		"YOU CAN GO BACK TO THE BOAT",
-		"TO GO TO THE NEXT LEVEL",
-	}
-	g.drawCenteredTexts(screen, levelCompleteTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
+	const (
+		panelW = 270.0
+		panelH = 100.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, color.RGBA{70, 140, 235, 240}, false)
+	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+	g.drawSmallText(screen, "GO TO THE BOAT", panelX+20, panelY+32, color.RGBA{235, 220, 170, 255})
 }
 
 // drawWorld renders the island and everything that lives on it.
@@ -2689,6 +2679,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 		g.player.Y,
 		g.campPositions(),
 		g.storePositions(),
+		g.boatPositions(),
 	)
 }
 
@@ -2698,11 +2689,8 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 		return
 	}
 
-	if g.mode != ModeGame || g.player.Dead {
-		if g.nearestLoot() == nil {
-			return
-		}
-		msg := "E TAKE   Q COMPARE"
+	if chest := g.nearestClosedChest(); chest != nil {
+		msg := "E OPEN"
 		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
 		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
@@ -2710,13 +2698,6 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 
 	if g.nearestLoot() != nil {
 		msg := "E TAKE   Q COMPARE"
-		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
-		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
-		return
-	}
-
-	if chest := g.nearestClosedChest(); chest != nil {
-		msg := "E OPEN"
 		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
 		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
@@ -3038,6 +3019,14 @@ func (g *Game) storePositions() [][2]float64 {
 	}
 
 	return [][2]float64{{g.store.X + g.store.W*g.store.Scale/2, g.store.Y + g.store.H*g.store.Scale/2}}
+}
+
+func (g *Game) boatPositions() [][2]float64 {
+	if g.boat == nil {
+		return nil
+	}
+
+	return [][2]float64{{g.boat.X + g.boat.W*g.boat.Scale/2, g.boat.Y + g.boat.H*g.boat.Scale/2}}
 }
 
 // drawCenteredTexts draws a block of horizontally centered lines of text, the

@@ -34,15 +34,19 @@ In the town there are `shops` were you can by stuff:
 - [X] reload
 - [X] random island world with an ocean border
 - [X] level based progression with tougher enemies
-- [ ] progress bar after each level when going to the next island
 - [ ] island boss (with dynamite sticks as weapon)
-- [ ] town buildings (store, sherrif)
+- [ ] town buildings
+    - [X] store
+    - [ ] jail
 - [X] bandit camps (tents, weapon chest, gold chest, ammo chest)
 - [ ] bounty post
-- [ ] boat dock (with ticket to next island when bounty is killed)
+- [X] boat dock (with ticket to next island when camps are cleared)
+- [ ] progress bar after each level when going to the next island
+- [ ] world map
     - [ ] player can choose which island to go next on a map (with difficulty level color coded)
     - [ ] 4 islands on the map (increased difficulty: green -> yellow -> red and one boss island)
 - [ ] more sounds (https://sfxr.me/)
+- [ ] islands with different biomes (snow, grass)
 
 ## Gameplay improvements
 ### Quick wins (feel/juice) - DONE
