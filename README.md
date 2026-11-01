@@ -47,6 +47,8 @@ In the town there are `shops` were you can by stuff:
     - [ ] 4 islands on the map (increased difficulty: green -> yellow -> red and one boss island)
 - [ ] more sounds (https://sfxr.me/)
 - [ ] islands with different biomes (snow, grass)
+    - [ ] snow (dead trees, pine trees ,rocks, iglos)
+    - [ ] grass (normal trees, shrubs, tipis)
 
 ## Gameplay improvements
 ### Quick wins (feel/juice) - DONE
