@@ -762,7 +762,7 @@ func scaledStorePrice(base, level int) int {
 		return base
 	}
 
-	return base + base*(level-1)/5
+	return base + (level - 1) + rand.IntN(level*2)
 }
 
 func (g *Game) newStoreWeaponItem() world.StoreItem {
@@ -2606,17 +2606,29 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 	g.island.Draw(screen, g.camX, g.camY)
 
 	for _, plant := range g.plants {
+		if utils.OutOfScreen(plant.X, plant.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		plant.Draw(screen, g.camX, g.camY)
 	}
 
 	for _, tent := range g.tents {
+		if utils.OutOfScreen(tent.X, tent.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		tent.Draw(screen, g.camX, g.camY)
 	}
 
 	for _, chest := range g.chests {
+		if utils.OutOfScreen(chest.X, chest.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		chest.Draw(screen, g.camX, g.camY)
 	}
 	for _, loot := range g.loot {
+		if utils.OutOfScreen(loot.X, loot.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		loot.Draw(screen, g.camX, g.camY)
 	}
 
@@ -2624,17 +2636,27 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 		return
 	}
 
-	g.store.Draw(screen, g.camX, g.camY)
-	g.boat.Draw(screen, g.camX, g.camY)
+	if !utils.OutOfScreen(g.store.X, g.store.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+		g.store.Draw(screen, g.camX, g.camY)
+	}
+	if !utils.OutOfScreen(g.boat.X, g.boat.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+		g.boat.Draw(screen, g.camX, g.camY)
+	}
 
 	// dead enemies are drawn first so corpses never cover a living actor
 	for _, enemy := range g.enemies {
+		if utils.OutOfScreen(enemy.X, enemy.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		if enemy.Dead {
 			enemy.Draw(screen, g.camX, g.camY)
 		}
 	}
 
 	for _, enemy := range g.enemies {
+		if utils.OutOfScreen(enemy.X, enemy.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+			continue
+		}
 		if !enemy.Dead {
 			enemy.Draw(screen, g.camX, g.camY)
 		}
