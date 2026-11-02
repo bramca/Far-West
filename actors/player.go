@@ -974,7 +974,7 @@ func (p *Player) StopAnimation() {
 }
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int, damage int) {
-	scale := float64(4)
+	scale := float64(6)
 	bounds := bulletSprite.Bounds()
 	bw := float64(bounds.Dx())
 	bh := float64(bounds.Dy())

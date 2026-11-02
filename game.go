@@ -31,8 +31,8 @@ const (
 )
 
 const (
-	ScreenWidth  = 1280
-	ScreenHeight = 720
+	ScreenWidth  = 960
+	ScreenHeight = 540
 
 	playerHealthBarSize = 9.0
 	enemyHealthBarSize  = 7.0
@@ -219,7 +219,6 @@ type Game struct {
 	hudFace    *text.GoXFace
 	hitFace    *text.GoXFace
 
-	backgroundColor       color.RGBA
 	playerHealthbarColors []color.RGBA
 	enemyHealthbarColors  []color.RGBA
 
@@ -240,6 +239,9 @@ type Game struct {
 	titleDrawOptions    *text.DrawOptions
 	gameOverDrawOptions *text.DrawOptions
 	pauseDrawOptions    *text.DrawOptions
+	// textDrawOptions is a scratch value reused by the hud and prompt text so
+	// drawing a frame does not allocate a new DrawOptions for every line.
+	textDrawOptions *text.DrawOptions
 
 	// actors
 	player                *actors.Player
@@ -318,7 +320,6 @@ func NewGame() *Game {
 		playerHealthBarFontSize: playerHealthBarSize,
 		enemyHealthBarFontSize:  enemyHealthBarSize,
 		hitFontSize:             8,
-		backgroundColor:         color.RGBA{R: 76, G: 70, B: 50, A: 1},
 		playerHealthbarColors:   []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
 		enemyHealthbarColors:    []color.RGBA{{0, 255, 0, 240}, {255, 0, 0, 240}},
 		camX:                    0.0,
@@ -395,6 +396,7 @@ func NewGame() *Game {
 			ColorScale: game.titleFontColorScale,
 		},
 	}
+	game.textDrawOptions = &text.DrawOptions{}
 
 	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/sprites/player-no-gun.png",
@@ -485,7 +487,6 @@ func NewGame() *Game {
 // Initialize starts a brand new run from level one. It is called on startup
 // and after every game over.
 func (g *Game) Initialize() {
-	g.island = world.NewIsland(worldTilesX, worldTilesY, worldTileSize)
 	g.player = g.newPlayer()
 	g.score = 0
 	g.elapsedFrames = 0
@@ -870,7 +871,10 @@ func enemyCountForLevel(level int) int {
 }
 
 func (g *Game) newPlayer() *actors.Player {
-	x, y := g.island.Center()
+	x, y := 0.0, 0.0
+	if g.island != nil {
+		x, y = g.island.Center()
+	}
 	defaultGunBelt := []*actors.Gun{
 		{
 			Damage:        2,
@@ -2549,7 +2553,6 @@ func (g *Game) openChest(chest *world.Chest) {
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(g.backgroundColor)
 	switch g.mode {
 	case ModeTitle:
 		g.drawWorld(screen)
@@ -2680,7 +2683,9 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 		"FOES  " + strconv.Itoa(g.aliveEnemies()) + "/" + strconv.Itoa(g.levelEnemies),
 	}
 	for i, line := range lines {
-		drawOptions := &text.DrawOptions{}
+		drawOptions := g.textDrawOptions
+		drawOptions.GeoM.Reset()
+		drawOptions.ColorScale.Reset()
 		drawOptions.GeoM.Translate(20, float64(20+i*(g.hudFontSize+6)))
 		text.Draw(screen, line, g.hudFace, drawOptions)
 	}
@@ -2828,7 +2833,9 @@ func shootSound(weapon actors.Weapon) (string, float64, bool) {
 
 // drawSmallText draws a hud sized line of text in the given color.
 func (g *Game) drawSmallText(screen *ebiten.Image, msg string, x, y float64, clr color.RGBA) {
-	drawOptions := &text.DrawOptions{}
+	drawOptions := g.textDrawOptions
+	drawOptions.GeoM.Reset()
+	drawOptions.ColorScale.Reset()
 	drawOptions.GeoM.Translate(x, y)
 	drawOptions.ColorScale.ScaleWithColor(clr)
 	text.Draw(screen, msg, g.hudFace, drawOptions)
@@ -2982,7 +2989,9 @@ func (g *Game) drawAmmo(screen *ebiten.Image) {
 	y := float64(ScreenHeight) - 120
 
 	if g.player.Reloading {
-		drawOptions := &text.DrawOptions{}
+		drawOptions := g.textDrawOptions
+		drawOptions.GeoM.Reset()
+		drawOptions.ColorScale.Reset()
 		drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
 		text.Draw(screen, "RELOADING", g.hudFace, drawOptions)
 	}
@@ -3011,7 +3020,9 @@ func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
 	x := 40.0
 	y := float64(ScreenHeight) - 76
 
-	drawOptions := &text.DrawOptions{}
+	drawOptions := g.textDrawOptions
+	drawOptions.GeoM.Reset()
+	drawOptions.ColorScale.Reset()
 	drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
 	text.Draw(screen, "DODGE", g.hudFace, drawOptions)
 
