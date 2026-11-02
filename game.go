@@ -105,6 +105,8 @@ const (
 	// weapons
 	playerReloadDuration          = 60
 	playerShootCooldown           = 16
+	playerFistDamage              = 8
+	playerFistCooldown            = 28
 	enemyReloadDuration           = 110
 	defaultShotgunBulletSpread    = 30 // lower number is more spread
 	defaultMachineGunBulletSpread = 40 // lower number is more spread
@@ -893,15 +895,14 @@ func (g *Game) newPlayer() *actors.Player {
 			AmmoFace:      g.hitFace,
 		},
 		{
-			Damage:        3,
-			ShootCooldown: playerShootCooldown,
+			Damage:        playerFistDamage,
+			ShootCooldown: playerFistCooldown,
 			GunType:       actors.Fists,
 			Sprite:        g.gunSprites[actors.Fists],
 			DrawOptions:   &ebiten.DrawImageOptions{},
 			Scale:         2.0,
 			X:             ScreenWidth/2 - 96,
 			Y:             ScreenHeight - 64,
-			AmmoFace:      g.hitFace,
 		},
 		{
 			Damage:              3,
@@ -972,12 +973,14 @@ func (g *Game) newPlayer() *actors.Player {
 		DodgeSpeed:     4.5,
 		DodgeDuration:  15,
 		AnimationSpeed: 11,
+		MeleeDuration:  actors.FistSweepDuration,
 		DrawOptions:    &ebiten.DrawImageOptions{},
 		BulletSprite:   g.bulletSprite,
 		GunBelt:        defaultGunBelt,
 		GunBeltSize:    len(defaultGunBelt),
 		OnShoot:        g.playPlayerShootSound,
 		OnDrink:        g.playPlayerDrinkSound,
+		OnMelee:        g.performMeleeSweep,
 		Health:         20,
 		MaxHealth:      20,
 		ReloadDuration: playerReloadDuration,
@@ -1508,10 +1511,60 @@ func (g *Game) updateParticles() {
 // the enemy back if the push would have put him on the ocean or a plant.
 func (g *Game) knockbackEnemy(enemy *actors.Enemy, bullet *actors.Bullet) {
 	const knockbackForce = 7.0
-	enemy.X += math.Cos(bullet.R) * knockbackForce
-	enemy.Y += math.Sin(bullet.R) * knockbackForce
+	g.knockbackEnemyAway(enemy, bullet.R, knockbackForce)
+}
+
+func (g *Game) knockbackEnemyAway(enemy *actors.Enemy, angle, force float64) {
+	enemy.X += math.Cos(angle) * force
+	enemy.Y += math.Sin(angle) * force
 	enemy.UpdateHitboxOffset(enemyHitboxOffset)
 	enemy.UpdateHealhBar()
+}
+
+func (g *Game) performMeleeSweep(damage int) {
+	if g.player == nil || g.player.Dead {
+		return
+	}
+
+	cx := g.player.X + g.player.W/2
+	cy := g.player.Y + g.player.H/2
+	hit := false
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			continue
+		}
+
+		ex := enemy.X + enemy.W/2
+		ey := enemy.Y + enemy.H/2
+		dx := ex - cx
+		dy := ey - cy
+		if math.Hypot(dx, dy) > actors.FistRange {
+			continue
+		}
+
+		angle := math.Atan2(dy, dx)
+		delta := math.Atan2(math.Sin(angle-g.player.MeleeAngle), math.Cos(angle-g.player.MeleeAngle))
+		if math.Abs(delta) > actors.FistArc/2 {
+			continue
+		}
+
+		enemy.Health -= damage
+		enemy.HitFlash = 8
+		g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 220, 120, 240})
+		enemy.UpdateHealhBar()
+		g.spawnHitSparks(ex, ey, 10, color.RGBA{255, 200, 100, 240})
+		if enemy.Health <= 0 {
+			g.killEnemy(enemy)
+		} else {
+			g.sounds.Play(soundHit, soundVolumeHit)
+			g.knockbackEnemyAway(enemy, angle, 9)
+		}
+		hit = true
+	}
+
+	if hit {
+		g.addShake(6, 3)
+	}
 }
 
 // removeCorpses drops enemies that have been dead for a while so the world

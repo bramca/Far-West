@@ -37,6 +37,12 @@ const (
 )
 
 const (
+	FistRange         = 56.0
+	FistArc           = math.Pi * 0.5
+	FistSweepDuration = 12
+)
+
+const (
 	PlayerNoGunRight PlayerState = iota
 	PlayerNoGunLeft
 	PlayerNoGunRunRight
@@ -135,11 +141,15 @@ type Player struct {
 	ReloadTimer    int
 	Reloading      bool
 	ShootTimer     int
+	MeleeTimer     int
+	MeleeDuration  int
+	MeleeAngle     float64
 	// OnShoot is called after a gun successfully fires, the game uses it to
 	// play the sound that belongs to the weapon.
 	OnShoot func(Weapon)
 	// OnDrink is called when an actor starts drinking a whisky.
 	OnDrink func()
+	OnMelee func(damage int)
 
 	// healing handling
 	Healing      bool
@@ -156,6 +166,7 @@ type Player struct {
 
 	Upgrades           map[Upgrade]bool
 	DamageBonus        int
+	FistDamageBonus    int
 	Armor              int
 	ShootCooldownBonus int
 }
@@ -182,6 +193,9 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	}
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.DrawOptions.ColorScale.Reset()
+	if p.MeleeTimer > 0 && !p.Dead {
+		p.drawMeleeSweep(screen, camX, camY)
+	}
 	weapon := p.GunBelt[p.CurrentWeapon].GunType
 	if p.MuzzleFlash > 0 && !p.Dead && weapon != Fists && weapon != Whisky {
 		drawMuzzleFlash(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle)
@@ -231,6 +245,8 @@ func (p *Player) ApplyUpgrade(upgrade Upgrade) bool {
 		}
 	case UpgradeDamage:
 		p.DamageBonus += 1
+	case UpgradeFists:
+		p.FistDamageBonus += 4
 	case UpgradeReload:
 		p.ReloadDuration = max(10, p.ReloadDuration-10)
 	case UpgradeSpeed:
@@ -311,11 +327,16 @@ func (p *Player) UpdateHealhBar() {
 
 func (p *Player) Shoot() {
 	gun := p.GunBelt[p.CurrentWeapon]
-	if gun.GunType == Fists || p.Dead {
+	if p.Dead {
 		return
 	}
 
-	if gun.GunType == Whisky {
+	switch gun.GunType {
+	case Fists:
+		p.punch(gun)
+
+		return
+	case Whisky:
 		p.drinkWhisky(gun)
 
 		return
@@ -356,9 +377,28 @@ func (p *Player) Shoot() {
 	}
 }
 
+func (p *Player) punch(gun *Gun) {
+	if !p.CanShoot() {
+		return
+	}
+
+	if p.MeleeDuration <= 0 {
+		p.MeleeDuration = FistSweepDuration
+	}
+	p.ShootTimer = p.shootCooldown(gun)
+	p.MeleeTimer = p.MeleeDuration
+	p.MeleeAngle = p.AimAngle
+	if p.OnMelee != nil {
+		p.OnMelee(gun.Damage + p.FistDamageBonus)
+	}
+}
+
 // CanShoot reports whether the weapon is loaded and ready to fire again.
 func (p *Player) CanShoot() bool {
 	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.GunType == Fists {
+		return !p.Reloading && p.ShootTimer <= 0
+	}
 	if gun.GunType == Whisky {
 		return !p.Reloading && !p.Healing && p.ShootTimer <= 0 && gun.Ammo > 0 && p.Health < p.MaxHealth
 	}
@@ -411,6 +451,9 @@ func (p *Player) UpdateWeapon() {
 	}
 	if p.MuzzleFlash > 0 {
 		p.MuzzleFlash -= 1
+	}
+	if p.MeleeTimer > 0 {
+		p.MeleeTimer -= 1
 	}
 	if p.Healing {
 		p.updateHealing()
@@ -1005,6 +1048,42 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	}
 
 	p.Bullets = append(p.Bullets, bullet)
+}
+
+func (p *Player) drawMeleeSweep(screen *ebiten.Image, camX, camY float64) {
+	if p.MeleeTimer <= 0 || p.MeleeDuration <= 0 {
+		return
+	}
+
+	progress := 1 - float64(p.MeleeTimer)/float64(p.MeleeDuration)
+	progress = min(1, max(0, progress))
+	life := float64(p.MeleeTimer) / float64(p.MeleeDuration)
+	cx := p.X + p.W/2 - camX
+	cy := p.Y + p.H/2 - camY
+	start := p.MeleeAngle - FistArc/2
+	const (
+		segments = 18
+		radius   = 40.0
+	)
+
+	for i := range segments {
+		t0 := float64(i) / segments
+		if t0 >= progress {
+			break
+		}
+		t1 := min(float64(i+1)/segments, progress)
+		a0 := start + FistArc*t0
+		a1 := start + FistArc*t1
+		fade := t1 / progress
+		alpha := uint8((50 + 190*fade) * life)
+		width := float32(3 + 4*fade)
+		vector.StrokeLine(
+			screen,
+			float32(cx+math.Cos(a0)*radius), float32(cy+math.Sin(a0)*radius),
+			float32(cx+math.Cos(a1)*radius), float32(cy+math.Sin(a1)*radius),
+			width, color.RGBA{255, 238, 190, alpha}, true,
+		)
+	}
 }
 
 // drawAimCursor draws a small arrow at a fixed distance from the actor

@@ -376,6 +376,112 @@ func TestBulletsAlwaysDealDamage(t *testing.T) {
 	}
 }
 
+func TestFistsShootWithoutAmmo(t *testing.T) {
+	game := NewGame()
+	game.player.DrawWeapon(1)
+	fists := game.player.GunBelt[game.player.CurrentWeapon]
+	if fists.GunType != actors.Fists {
+		t.Fatal("the second belt slot does not hold the fists")
+	}
+	fists.Ammo = 0
+	fists.CurrentMagazineSize = 0
+	game.player.ShootTimer = 0
+	game.player.Reloading = false
+
+	if !game.player.CanShoot() {
+		t.Fatal("the fists cannot be used without ammo")
+	}
+	if fists.AmmoFace != nil {
+		t.Fatal("the fists still show an ammo counter")
+	}
+
+	game.player.Shoot()
+
+	if fists.Ammo != 0 {
+		t.Fatal("punching used ammo")
+	}
+	if game.player.Reloading {
+		t.Fatal("punching started a reload")
+	}
+	if game.player.MeleeTimer <= 0 {
+		t.Fatal("punching did not start the sweep animation")
+	}
+	if game.player.ShootTimer <= 0 {
+		t.Fatal("punching did not start the cooldown")
+	}
+}
+
+func TestFistSweepHitsEnemiesInFront(t *testing.T) {
+	game := NewGame()
+	player := game.player
+	player.DrawWeapon(1)
+	player.AimAngle = 0
+	player.ShootTimer = 0
+	player.Reloading = false
+
+	target := game.enemies[0]
+	target.Health = 100
+	target.MaxHealth = 100
+	target.X = player.X + player.W/2 + 40 - target.W/2
+	target.Y = player.Y + player.H/2 - target.H/2
+	target.UpdateHitboxOffset(enemyHitboxOffset)
+
+	behind := game.enemies[1]
+	behind.Health = 100
+	behind.MaxHealth = 100
+	behind.X = player.X + player.W/2 - 40 - behind.W/2
+	behind.Y = player.Y + player.H/2 - behind.H/2
+	behind.UpdateHitboxOffset(enemyHitboxOffset)
+
+	healthBefore := target.Health
+	behindBefore := behind.Health
+	damage := player.GunBelt[player.CurrentWeapon].Damage + player.FistDamageBonus
+
+	player.Shoot()
+
+	if target.Health != healthBefore-damage {
+		t.Fatalf("the enemy in front took %d damage, expected %d", healthBefore-target.Health, damage)
+	}
+	if behind.Health != behindBefore {
+		t.Fatal("the enemy behind the player was hit by the sweep")
+	}
+}
+
+func TestFistUpgradeIncreasesSweepDamage(t *testing.T) {
+	game := NewGame()
+	player := game.player
+	player.DrawWeapon(1)
+	player.AimAngle = 0
+	player.ShootTimer = 0
+	player.Reloading = false
+
+	target := game.enemies[0]
+	target.Health = 100
+	target.MaxHealth = 100
+	target.X = player.X + player.W/2 + 40 - target.W/2
+	target.Y = player.Y + player.H/2 - target.H/2
+	target.UpdateHitboxOffset(enemyHitboxOffset)
+
+	baseDamage := player.GunBelt[player.CurrentWeapon].Damage
+	player.Shoot()
+	baseDealt := 100 - target.Health
+	if baseDealt != baseDamage {
+		t.Fatalf("the base punch dealt %d damage, expected %d", baseDealt, baseDamage)
+	}
+
+	player.ApplyUpgrade(actors.UpgradeFists)
+	target.Health = 100
+	player.ShootTimer = 0
+	player.Shoot()
+	upgradedDealt := 100 - target.Health
+	if upgradedDealt != baseDamage+player.FistDamageBonus {
+		t.Fatalf("the upgraded punch dealt %d damage, expected %d", upgradedDealt, baseDamage+player.FistDamageBonus)
+	}
+	if upgradedDealt <= baseDealt {
+		t.Fatal("the fist upgrade did not increase the punch damage")
+	}
+}
+
 // TestKillTriggersHitStop makes sure a kill freezes the game for a couple of
 // frames before it keeps running.
 func TestKillTriggersHitStop(t *testing.T) {

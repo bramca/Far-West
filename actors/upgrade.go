@@ -9,6 +9,7 @@ const (
 	UpgradeSpeed
 	UpgradeDodge
 	UpgradeArmor
+	UpgradeFists
 )
 
 var AllUpgrades = []Upgrade{
@@ -18,6 +19,7 @@ var AllUpgrades = []Upgrade{
 	UpgradeSpeed,
 	UpgradeDodge,
 	UpgradeArmor,
+	UpgradeFists,
 }
 
 func (u Upgrade) String() string {
@@ -34,6 +36,8 @@ func (u Upgrade) String() string {
 		return "COOL HEAD"
 	case UpgradeArmor:
 		return "TOUGH HIDE"
+	case UpgradeFists:
+		return "IRON KNUCKLES"
 	default:
 		return "UNKNOWN UPGRADE"
 	}
@@ -53,6 +57,8 @@ func (u Upgrade) Description() string {
 		return "-6 DODGE COOLDOWN"
 	case UpgradeArmor:
 		return "-1 DAMAGE TAKEN"
+	case UpgradeFists:
+		return "+4 FIST DAMAGE"
 	default:
 		return ""
 	}
@@ -72,6 +78,8 @@ func (u Upgrade) BasePrice() int {
 		return 180
 	case UpgradeArmor:
 		return 300
+	case UpgradeFists:
+		return 240
 	default:
 		return 200
 	}
