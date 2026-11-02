@@ -27,7 +27,7 @@ func (h *Hit) PrepareText() {
 }
 
 func (h *Hit) Update() {
-	h.Y -= 1.4
+	h.Y -= 1
 	h.Duration -= 1
 }
 

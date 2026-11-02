@@ -1143,7 +1143,7 @@ func (p *Player) finishHealing() {
 		Color:    color.RGBA{90, 220, 100, 240},
 		Msg:      "+" + strconv.Itoa(healed),
 		TextFont: gun.AmmoFace,
-		Duration: 30,
+		Duration: 60,
 	}
 	hit.PrepareText()
 	p.Hits = append(p.Hits, hit)

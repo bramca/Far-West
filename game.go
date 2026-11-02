@@ -2000,7 +2000,7 @@ func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor col
 		Color:    hitColor,
 		Msg:      msg,
 		TextFont: g.hitFace,
-		Duration: g.framesPerSecond / 2,
+		Duration: g.framesPerSecond,
 	}
 	hit.PrepareText()
 	*hits = append(*hits, hit)
@@ -2854,7 +2854,7 @@ func (g *Game) drawStore(screen *ebiten.Image) {
 		rowH   = 40.0
 	)
 	panelX := (float64(ScreenWidth) - panelW) / 2
-	panelY := 110.0
+	panelY := 80.0
 	borderColor := color.RGBA{245, 205, 55, 240}
 
 	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
