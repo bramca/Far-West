@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // Particle is a tiny short lived speck of sparks or dust, it gives impacts
@@ -20,9 +19,9 @@ type Particle struct {
 
 // NewParticle spawns a particle at the given position that flies along the
 // given velocity and fades out over its lifetime.
-func NewParticle(x, y, vx, vy float64, clr color.RGBA) *Particle {
+func NewParticle(x, y, vx, vy float64, clr color.RGBA) Particle {
 	life := 14 + rand.IntN(8)
-	return &Particle{
+	return Particle{
 		X:       x,
 		Y:       y,
 		VX:      vx,
@@ -44,5 +43,5 @@ func (p *Particle) Draw(screen *ebiten.Image, camX, camY float64) {
 	clr := p.Color
 	clr.A = uint8(float64(clr.A) * float64(p.Life) / float64(p.MaxLife))
 	size := 2 + float32(p.Life)/float32(p.MaxLife)*2
-	vector.FillRect(screen, float32(p.X-camX), float32(p.Y-camY), size, size, clr, false)
+	fillRect(screen, float32(p.X-camX), float32(p.Y-camY), size, size, clr)
 }

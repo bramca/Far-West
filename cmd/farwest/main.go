@@ -14,6 +14,7 @@ func main() {
 	ebiten.SetWindowSize(farwest.ScreenWidth, farwest.ScreenHeight)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowTitle("Far West")
+	ebiten.SetScreenClearedEveryFrame(false)
 	// ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
 	// Call ebiten.RunGame to start your game loop.

@@ -1065,8 +1065,9 @@ func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
 
 	x := cx + math.Cos(angle)*distance
 	y := cy + math.Sin(angle)*distance
-	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
-	vector.FillCircle(screen, float32(x), float32(y), 3, color.RGBA{255, 255, 230, 255}, true)
+	var op ebiten.DrawImageOptions
+	op.GeoM.Translate(x-7, y-7)
+	screen.DrawImage(muzzleFlashSprite(), &op)
 }
 
 // drinkWhisky starts healing the player over the shoot cooldown, the damage of
@@ -1144,6 +1145,6 @@ func (p *Player) finishHealing() {
 		TextFont: gun.AmmoFace,
 		Duration: 30,
 	}
-	hit.SetDrawOptions()
+	hit.PrepareText()
 	p.Hits = append(p.Hits, hit)
 }

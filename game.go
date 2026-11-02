@@ -214,10 +214,12 @@ type Game struct {
 	enemyHealthBarFont  font.Face
 	hitTextFont         font.Face
 
-	titleFace  *text.GoXFace
-	arcadeFace *text.GoXFace
-	hudFace    *text.GoXFace
-	hitFace    *text.GoXFace
+	titleFace           *text.GoXFace
+	arcadeFace          *text.GoXFace
+	hudFace             *text.GoXFace
+	hitFace             *text.GoXFace
+	playerHealthBarFace *text.GoXFace
+	enemyHealthBarFace  *text.GoXFace
 
 	playerHealthbarColors []color.RGBA
 	enemyHealthbarColors  []color.RGBA
@@ -252,7 +254,7 @@ type Game struct {
 	gunSprites            []*ebiten.Image
 	bulletSprite          *ebiten.Image
 	enemies               []*actors.Enemy
-	particles             []*actors.Particle
+	particles             []actors.Particle
 	loot                  []*actors.Loot
 
 	// hit feedback
@@ -372,6 +374,8 @@ func NewGame() *Game {
 	game.arcadeFace = text.NewGoXFace(game.arcadeFont)
 	game.hudFace = text.NewGoXFace(game.hudFont)
 	game.hitFace = text.NewGoXFace(game.hitTextFont)
+	game.playerHealthBarFace = text.NewGoXFace(game.playerHealthBarFont)
+	game.enemyHealthBarFace = text.NewGoXFace(game.enemyHealthBarFont)
 
 	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
 	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
@@ -1003,11 +1007,10 @@ func (g *Game) newPlayer() *actors.Player {
 		MaxPoints:       player.MaxHealth,
 		HealthBarColor:  g.playerHealthbarColors[0],
 		HealthLostColor: g.playerHealthbarColors[1],
-		TextFont:        text.NewGoXFace(g.playerHealthBarFont),
+		TextFont:        g.playerHealthBarFace,
 		FontColor:       color.RGBA{0, 0, 0, 240},
 		FontSize:        g.playerHealthBarFontSize,
 	}
-	player.Healthbar.SetDrawOptions()
 	player.SavePosition()
 
 	return player
@@ -1392,11 +1395,10 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 		MaxPoints:       enemy.MaxHealth,
 		HealthBarColor:  g.enemyHealthbarColors[0],
 		HealthLostColor: g.enemyHealthbarColors[1],
-		TextFont:        text.NewGoXFace(g.enemyHealthBarFont),
+		TextFont:        g.enemyHealthBarFace,
 		FontColor:       color.RGBA{0, 0, 0, 240},
 		FontSize:        g.enemyHealthBarFontSize,
 	}
-	enemy.Healthbar.SetDrawOptions()
 	enemy.SavePosition()
 
 	g.enemies = append(g.enemies, enemy)
@@ -1492,10 +1494,10 @@ func (g *Game) spawnDodgeDust(count int) {
 // updateParticles advances every spark and drops the ones that burned out.
 func (g *Game) updateParticles() {
 	remaining := g.particles[:0]
-	for _, particle := range g.particles {
-		particle.Update()
-		if particle.Life > 0 {
-			remaining = append(remaining, particle)
+	for i := range g.particles {
+		g.particles[i].Update()
+		if g.particles[i].Life > 0 {
+			remaining = append(remaining, g.particles[i])
 		}
 	}
 	g.particles = remaining
@@ -2000,7 +2002,7 @@ func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor col
 		TextFont: g.hitFace,
 		Duration: g.framesPerSecond / 2,
 	}
-	hit.SetDrawOptions()
+	hit.PrepareText()
 	*hits = append(*hits, hit)
 }
 
@@ -2669,8 +2671,8 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 	g.player.Draw(screen, g.camX, g.camY)
 	g.player.DrawBullets(screen, g.camX, g.camY)
 
-	for _, particle := range g.particles {
-		particle.Draw(screen, g.camX, g.camY)
+	for i := range g.particles {
+		g.particles[i].Draw(screen, g.camX, g.camY)
 	}
 }
 

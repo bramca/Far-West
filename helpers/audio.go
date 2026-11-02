@@ -22,15 +22,25 @@ var (
 	audioContext     *audio.Context
 )
 
+const maxSoundPlayers = 4
+
+type soundPool struct {
+	pcm     []byte
+	players []*audio.Player
+	next    int
+}
+
 type SoundManager struct {
 	context *audio.Context
 	sounds  map[string][]byte
+	pools   map[string]*soundPool
 	muted   bool
 }
 
 func NewSoundManager(assets embed.FS, soundFiles map[string]string) *SoundManager {
 	manager := &SoundManager{
 		sounds: loadSounds(assets, soundFiles),
+		pools:  make(map[string]*soundPool, len(soundFiles)),
 		muted:  testing.Testing(),
 	}
 	if !manager.muted {
@@ -82,7 +92,35 @@ func (s *SoundManager) Play(name string, volume float64) {
 		return
 	}
 
-	player := s.context.NewPlayerFromBytes(pcm)
+	pool := s.pools[name]
+	if pool == nil {
+		pool = &soundPool{pcm: pcm}
+		s.pools[name] = pool
+	}
+
+	player := pool.idlePlayer(s.context)
 	player.SetVolume(volume)
+	_ = player.Rewind()
 	player.Play()
+}
+
+func (p *soundPool) idlePlayer(context *audio.Context) *audio.Player {
+	for i := range p.players {
+		index := (p.next + i) % len(p.players)
+		if !p.players[index].IsPlaying() {
+			p.next = (index + 1) % len(p.players)
+			return p.players[index]
+		}
+	}
+
+	if len(p.players) < maxSoundPlayers {
+		player := context.NewPlayerFromBytes(p.pcm)
+		p.players = append(p.players, player)
+		p.next = len(p.players) % maxSoundPlayers
+		return player
+	}
+
+	player := p.players[p.next]
+	p.next = (p.next + 1) % len(p.players)
+	return player
 }
