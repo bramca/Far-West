@@ -42,6 +42,8 @@ type Enemy struct {
 	Blocked bool
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int
+	// actionTimerAccumulator keeps the action duration in sync with TimeScale.
+	actionTimerAccumulator float64
 }
 
 func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -81,15 +83,16 @@ func (e *Enemy) UpdateHitboxOffset(offset int) {
 
 func (e *Enemy) Move(d Direction) {
 	e.MoveDirs[d] = true
+	step := e.Speed * e.timeScale()
 	switch d {
 	case Right:
-		e.X += e.Speed
+		e.X += step
 	case Left:
-		e.X -= e.Speed
+		e.X -= step
 	case Up:
-		e.Y -= e.Speed
+		e.Y -= step
 	case Down:
-		e.Y += e.Speed
+		e.Y += step
 	}
 	e.UpdateHitboxOffset(16)
 	e.Healthbar.Update(e.X-e.W/2, e.Y-(e.H-e.H/3), e.Health, e.MaxHealth)
@@ -140,7 +143,7 @@ func (e *Enemy) switchWeapon(index int) {
 }
 
 func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount int) {
-	e.CurrentAction.Duration -= 1
+	e.CurrentAction.Duration -= e.consumeTime(&e.actionTimerAccumulator)
 
 	if e.CurrentAction.Type == Heal {
 		if e.CurrentAction.Duration > 0 {

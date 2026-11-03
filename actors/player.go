@@ -162,6 +162,16 @@ type Player struct {
 	DodgeCooldown      int
 	DodgeCooldownTimer int
 
+	// dead eye handling
+	DeadEyeCharge    float64
+	DeadEyeMaxCharge float64
+
+	// TimeScale slows the actor's movement and timers without changing the
+	// player's controls. A value of zero means the actor runs at normal speed.
+	TimeScale float64
+	// weaponTimerAccumulator keeps the weapon timers in sync with TimeScale.
+	weaponTimerAccumulator float64
+
 	Gold int
 
 	Upgrades           map[Upgrade]bool
@@ -255,6 +265,9 @@ func (p *Player) ApplyUpgrade(upgrade Upgrade) bool {
 		p.DodgeCooldown = max(8, p.DodgeCooldown-6)
 	case UpgradeArmor:
 		p.Armor += 1
+	case UpgradeDeadEye:
+		p.DeadEyeMaxCharge += DeadEyeChargeUpgrade
+		p.DeadEyeCharge = min(p.DeadEyeMaxCharge, p.DeadEyeCharge+DeadEyeChargeUpgrade)
 	}
 
 	p.Upgrades[upgrade] = true
@@ -444,8 +457,33 @@ func (p *Player) Reload() {
 	p.ReloadTimer = p.ReloadDuration
 }
 
+// timeScale returns the effective speed the actor runs at.
+func (p *Player) timeScale() float64 {
+	if p.TimeScale <= 0 {
+		return 1
+	}
+
+	return p.TimeScale
+}
+
+// consumeTime advances the accumulator by one frame of scaled time and returns
+// how many whole simulation steps the actor is allowed to take.
+func (p *Player) consumeTime(accumulator *float64) int {
+	*accumulator += p.timeScale()
+	steps := int(*accumulator)
+	*accumulator -= float64(steps)
+
+	return steps
+}
+
 // UpdateWeapon ticks the reload and fire rate timers, it has to be called once per frame.
 func (p *Player) UpdateWeapon() {
+	for range p.consumeTime(&p.weaponTimerAccumulator) {
+		p.updateWeapon()
+	}
+}
+
+func (p *Player) updateWeapon() {
 	if p.ShootTimer > 0 {
 		p.ShootTimer -= 1
 	}
@@ -472,15 +510,16 @@ func (p *Player) UpdateWeapon() {
 
 func (p *Player) Move(d Direction) {
 	p.MoveDirs[d] = true
+	step := p.Speed * p.timeScale()
 	switch d {
 	case Right:
-		p.X += p.Speed
+		p.X += step
 	case Left:
-		p.X -= p.Speed
+		p.X -= step
 	case Up:
-		p.Y -= p.Speed
+		p.Y -= step
 	case Down:
-		p.Y += p.Speed
+		p.Y += step
 	}
 	p.UpdateHitbox()
 	p.UpdateHealhBar()
@@ -1028,16 +1067,17 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	bulletPixelHeight := 3.0
 	offset := float64(14)
 	bullet := Bullet{
-		X:        x,
-		Y:        y,
-		W:        bw,
-		H:        bh,
-		R:        bulletRotation,
-		Scale:    scale,
-		Speed:    bulletSpeed,
-		Sprite:   bulletSprite,
-		Damage:   1 + p.DamageBonus + rand.IntN(damage),
-		Duration: duration,
+		X:         x,
+		Y:         y,
+		W:         bw,
+		H:         bh,
+		R:         bulletRotation,
+		Scale:     scale,
+		Speed:     bulletSpeed,
+		Sprite:    bulletSprite,
+		Damage:    1 + p.DamageBonus + rand.IntN(damage),
+		Duration:  duration,
+		TimeScale: p.timeScale(),
 		Hitbox: HitBox{
 			X: float32(x + offset*scale),
 			Y: float32(y + offset*scale),

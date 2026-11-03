@@ -351,6 +351,114 @@ func TestDodgeGivesIFrames(t *testing.T) {
 	}
 }
 
+// TestDeadEyeDrainsAndRegenerates makes sure the dead eye gauge runs dry
+// while the ability is active and only trickles back afterwards.
+func TestDeadEyeDrainsAndRegenerates(t *testing.T) {
+	game := NewGame()
+	game.player.DeadEyeCharge = game.player.DeadEyeMaxCharge
+
+	game.toggleDeadEye()
+	if !game.deadEyeActive {
+		t.Fatal("dead eye did not activate with a full gauge")
+	}
+
+	chargeBefore := game.player.DeadEyeCharge
+	game.updateDeadEye()
+	if game.player.DeadEyeCharge >= chargeBefore {
+		t.Fatal("dead eye did not drain while active")
+	}
+
+	game.player.DeadEyeCharge = deadEyeDrainPerFrame / 2
+	game.updateDeadEye()
+	if game.deadEyeActive {
+		t.Fatal("dead eye stayed active after the gauge ran dry")
+	}
+	if game.player.DeadEyeCharge != 0 {
+		t.Fatalf("dead eye charge is %f after running dry, want 0", game.player.DeadEyeCharge)
+	}
+
+	game.updateDeadEye()
+	if game.player.DeadEyeCharge <= 0 {
+		t.Fatal("dead eye did not regenerate after it was switched off")
+	}
+}
+
+// TestDeadEyeNeedsCharge makes sure an empty gauge cannot be activated.
+func TestDeadEyeNeedsCharge(t *testing.T) {
+	game := NewGame()
+	game.player.DeadEyeCharge = 0
+
+	game.toggleDeadEye()
+	if game.deadEyeActive {
+		t.Fatal("dead eye activated without any charge")
+	}
+}
+
+// TestDeadEyeChargeUpgrade makes sure a fresh player starts with a full gauge
+// and that the store upgrade raises the maximum and refills some charge.
+func TestDeadEyeChargeUpgrade(t *testing.T) {
+	game := NewGame()
+	if game.player.DeadEyeMaxCharge != actors.DefaultDeadEyeMaxCharge {
+		t.Fatalf("fresh dead eye max charge is %f, want %f", game.player.DeadEyeMaxCharge, actors.DefaultDeadEyeMaxCharge)
+	}
+	if game.player.DeadEyeCharge != game.player.DeadEyeMaxCharge {
+		t.Fatal("a fresh player does not start with a full dead eye gauge")
+	}
+
+	game.player.DeadEyeCharge = 40
+	if !game.player.ApplyUpgrade(actors.UpgradeDeadEye) {
+		t.Fatal("the dead eye upgrade could not be applied")
+	}
+
+	if game.player.DeadEyeMaxCharge != actors.DefaultDeadEyeMaxCharge+actors.DeadEyeChargeUpgrade {
+		t.Fatalf("dead eye max charge is %f after the upgrade", game.player.DeadEyeMaxCharge)
+	}
+	if game.player.DeadEyeCharge != 40+actors.DeadEyeChargeUpgrade {
+		t.Fatalf("dead eye charge is %f after the upgrade", game.player.DeadEyeCharge)
+	}
+}
+
+// TestDeadEyeSlowsWorldButNotPlayer makes sure enemies and their bullets slow
+// down while the player keeps moving and firing at full speed.
+func TestDeadEyeSlowsWorldButNotPlayer(t *testing.T) {
+	game := NewGame()
+	enemy := game.enemies[0]
+
+	enemyX := enemy.X
+	enemy.TimeScale = 0
+	enemy.Move(actors.Right)
+	normalStep := enemy.X - enemyX
+
+	enemy.X = enemyX
+	enemy.TimeScale = deadEyeTimeScale
+	enemy.Move(actors.Right)
+	slowStep := enemy.X - enemyX
+
+	if slowStep >= normalStep {
+		t.Fatalf("the enemy moved %f under dead eye and %f normally, it was not slowed down", slowStep, normalStep)
+	}
+	if math.Abs(slowStep-normalStep*deadEyeTimeScale) > 1e-9 {
+		t.Fatalf("the enemy moved %f, want %f", slowStep, normalStep*deadEyeTimeScale)
+	}
+
+	playerX := game.player.X
+	game.deadEyeActive = true
+	game.player.Move(actors.Right)
+	playerStep := game.player.X - playerX
+	if math.Abs(playerStep-game.player.Speed) > 1e-9 {
+		t.Fatalf("the player moved %f under dead eye, want %f", playerStep, game.player.Speed)
+	}
+
+	normalBullet := &actors.Bullet{Speed: 10, Duration: 10}
+	normalBullet.Update()
+	slowBullet := &actors.Bullet{Speed: 10, Duration: 10, TimeScale: deadEyeTimeScale}
+	slowBullet.Update()
+
+	if slowBullet.X >= normalBullet.X {
+		t.Fatalf("the slowed bullet travelled %f while the normal bullet travelled %f", slowBullet.X, normalBullet.X)
+	}
+}
+
 // TestBulletsAlwaysDealDamage makes sure the damage roll never produces a
 // zero damage bullet, a shot that does nothing is not fun.
 func TestBulletsAlwaysDealDamage(t *testing.T) {

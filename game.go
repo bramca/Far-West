@@ -115,6 +115,14 @@ const (
 	// dodge cooldown keeps the player from spamming the dodge button
 	playerDodgeCooldown = 30
 
+	// dead eye slows the world down while the player keeps moving and shooting
+	// at full speed. The gauge drains while it is active and only trickles
+	// back, so the player has to pick the right moment to use it.
+	deadEyeDrainPerFrame = 0.55
+	deadEyeRegenPerFrame = 0.04
+	deadEyeMinCharge     = 10.0
+	deadEyeTimeScale     = 0.35
+
 	playerStartGold = 50
 
 	enemyHitboxOffset = 16
@@ -294,6 +302,10 @@ type Game struct {
 	// gameplay
 	frameCount   int
 	maxFramCount int
+
+	// dead eye
+	deadEyeActive        bool
+	worldTimeAccumulator float64
 
 	// level state
 	level                 int
@@ -524,6 +536,10 @@ func (g *Game) startLevel(level int) {
 	g.player.HealTotal = 0
 	g.player.HealApplied = 0
 	g.player.DodgeCooldownTimer = 0
+	g.player.TimeScale = 0
+	g.deadEyeActive = false
+	g.player.DeadEyeCharge = g.player.DeadEyeMaxCharge
+	g.worldTimeAccumulator = 0
 	g.player.Dead = false
 	g.player.Health = g.player.MaxHealth
 	g.player.CurrentAction = actors.Action{}
@@ -960,31 +976,33 @@ func (g *Game) newPlayer() *actors.Player {
 		},
 	}
 	player := &actors.Player{
-		X:              x,
-		Y:              y,
-		W:              float64(g.playerSprites[0].Bounds().Dx()),
-		H:              float64(g.playerSprites[0].Bounds().Dy()),
-		Sprites:        g.playerSprites,
-		CurrentState:   actors.PlayerNoGunRight,
-		CurrentWeapon:  1,
-		Scale:          2,
-		Speed:          2.8,
-		Gold:           playerStartGold,
-		DodgeSpeed:     4.5,
-		DodgeDuration:  15,
-		AnimationSpeed: 11,
-		MeleeDuration:  actors.FistSweepDuration,
-		DrawOptions:    &ebiten.DrawImageOptions{},
-		BulletSprite:   g.bulletSprite,
-		GunBelt:        defaultGunBelt,
-		GunBeltSize:    len(defaultGunBelt),
-		OnShoot:        g.playPlayerShootSound,
-		OnDrink:        g.playPlayerDrinkSound,
-		OnMelee:        g.performMeleeSweep,
-		Health:         20,
-		MaxHealth:      20,
-		ReloadDuration: playerReloadDuration,
-		DodgeCooldown:  playerDodgeCooldown,
+		X:                x,
+		Y:                y,
+		W:                float64(g.playerSprites[0].Bounds().Dx()),
+		H:                float64(g.playerSprites[0].Bounds().Dy()),
+		Sprites:          g.playerSprites,
+		CurrentState:     actors.PlayerNoGunRight,
+		CurrentWeapon:    1,
+		Scale:            2,
+		Speed:            2.8,
+		Gold:             playerStartGold,
+		DodgeSpeed:       4.5,
+		DodgeDuration:    15,
+		AnimationSpeed:   11,
+		MeleeDuration:    actors.FistSweepDuration,
+		DrawOptions:      &ebiten.DrawImageOptions{},
+		BulletSprite:     g.bulletSprite,
+		GunBelt:          defaultGunBelt,
+		GunBeltSize:      len(defaultGunBelt),
+		OnShoot:          g.playPlayerShootSound,
+		OnDrink:          g.playPlayerDrinkSound,
+		OnMelee:          g.performMeleeSweep,
+		Health:           20,
+		MaxHealth:        20,
+		DeadEyeCharge:    actors.DefaultDeadEyeMaxCharge,
+		DeadEyeMaxCharge: actors.DefaultDeadEyeMaxCharge,
+		ReloadDuration:   playerReloadDuration,
+		DodgeCooldown:    playerDodgeCooldown,
 		MoveDirs: map[actors.Direction]bool{
 			actors.Up:    false,
 			actors.Down:  false,
@@ -1200,7 +1218,7 @@ func rollGunTier(enemyTier actors.Tier) actors.Tier {
 // gunTierForRoll maps a roll in [0, 1) to a gun tier, the tougher the enemy
 // the higher the chance of a better gun.
 func gunTierForRoll(enemyTier actors.Tier, roll float64) actors.Tier {
-	legendaryChance, rareChance := 0.05, 0.20
+	legendaryChance, rareChance := 0.01, 0.10
 	switch enemyTier {
 	case actors.Rare:
 		legendaryChance, rareChance = 0.15, 0.40
@@ -1464,6 +1482,66 @@ func (g *Game) dodgeDirection() (float64, float64, bool) {
 	}
 
 	return dirX / length, dirY / length, true
+}
+
+// updateDeadEye drains the gauge while the ability is active and slowly
+// refills it when it is not. Running dry switches dead eye off automatically.
+func (g *Game) updateDeadEye() {
+	if g.player == nil || g.player.Dead {
+		g.deadEyeActive = false
+
+		return
+	}
+
+	if g.deadEyeActive {
+		g.player.DeadEyeCharge -= deadEyeDrainPerFrame
+		if g.player.DeadEyeCharge <= 0 {
+			g.player.DeadEyeCharge = 0
+			g.deadEyeActive = false
+		}
+
+		return
+	}
+
+	g.player.DeadEyeCharge = min(g.player.DeadEyeMaxCharge, g.player.DeadEyeCharge+deadEyeRegenPerFrame)
+}
+
+// toggleDeadEye turns dead eye on when the gauge has enough charge left and
+// switches it off again when it is already running.
+func (g *Game) toggleDeadEye() {
+	if g.player == nil || g.player.Dead {
+		return
+	}
+
+	if g.deadEyeActive {
+		g.deadEyeActive = false
+
+		return
+	}
+
+	if g.player.DeadEyeCharge < deadEyeMinCharge {
+		return
+	}
+
+	g.deadEyeActive = true
+}
+
+// worldTimeScale is the speed the world outside the player runs at.
+func (g *Game) worldTimeScale() float64 {
+	if g.deadEyeActive {
+		return deadEyeTimeScale
+	}
+
+	return 1
+}
+
+// worldTimeSteps returns how many world simulation steps happen this frame.
+func (g *Game) worldTimeSteps() int {
+	g.worldTimeAccumulator += g.worldTimeScale()
+	steps := int(g.worldTimeAccumulator)
+	g.worldTimeAccumulator -= float64(steps)
+
+	return steps
 }
 
 // spawnDodgeDust kicks up a puff of dust behind the dashing player so the
@@ -1910,6 +1988,7 @@ func (g *Game) damagePlayer(damage int) {
 		g.player.Health = 0
 		g.player.Dead = true
 		g.player.UpdateCurrentState(actors.PlayerDead)
+		g.deadEyeActive = false
 		g.mode = ModeGameOver
 		g.closeStore()
 		g.sounds.Play(soundGameOver, soundVolumeGameOver)
@@ -2168,6 +2247,7 @@ func (g *Game) Update() error {
 		if g.levelClearNoticeTimer > 0 {
 			g.levelClearNoticeTimer--
 		}
+		g.updateDeadEye()
 		g.removeCorpses()
 
 		g.player.SavePosition()
@@ -2179,6 +2259,10 @@ func (g *Game) Update() error {
 		g.player.MoveDirs[actors.Left] = false
 
 		for _, enemy := range g.enemies {
+			enemy.TimeScale = g.worldTimeScale()
+			for i := range enemy.Bullets {
+				enemy.Bullets[i].TimeScale = g.worldTimeScale()
+			}
 			enemy.SavePosition()
 			enemy.UpdateWeapon()
 			enemy.MoveDirs[actors.Up] = false
@@ -2217,11 +2301,11 @@ func (g *Game) Update() error {
 				g.player.DrawWeapon(0)
 			}
 
-			if buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+			if buttonsJustPressed["LR"] || buttonsJustPressed["RS"] || inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 				g.player.DrawWeapon((g.player.CurrentWeapon + 1) % len(g.player.GunBelt))
 			}
 
-			if buttonsJustPressed["LB"] {
+			if buttonsJustPressed["LL"] || buttonsJustPressed["LB"] {
 				newWeapon := g.player.CurrentWeapon - 1
 				if newWeapon < 0 {
 					newWeapon = len(g.player.GunBelt) - 1
@@ -2346,6 +2430,10 @@ func (g *Game) Update() error {
 			if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] {
 				g.player.Reload()
 			}
+
+			if inpututil.IsKeyJustPressed(ebiten.KeyX) || buttonsJustPressed["RB"] {
+				g.toggleDeadEye()
+			}
 		}
 
 		for _, enemy := range g.enemies {
@@ -2357,10 +2445,12 @@ func (g *Game) Update() error {
 		}
 
 		g.CheckCollisions()
-		g.updateParticles()
 
-		for _, loot := range g.loot {
-			loot.Update()
+		for range g.worldTimeSteps() {
+			g.updateParticles()
+			for _, loot := range g.loot {
+				loot.Update()
+			}
 		}
 
 		// a level is cleared when every enemy of it is dead, then the player
@@ -2461,7 +2551,7 @@ func (g *Game) updateStoreInput() {
 		return
 	}
 
-	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LS"]
+	up := inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyW) || buttonsJustPressed["LS"] || buttonsJustPressed["LB"]
 	down := inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyS) || buttonsJustPressed["LT"]
 	if up {
 		g.storeSelection--
@@ -2631,6 +2721,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	case ModeGame:
 		g.drawWorld(screen)
+		if g.deadEyeActive {
+			g.drawDeadEyeOverlay(screen)
+		}
 		g.drawHud(screen)
 		if g.storeOpen {
 			g.drawStore(screen)
@@ -2729,6 +2822,12 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 	}
 }
 
+// drawDeadEyeOverlay tints the world while dead eye is active so the player
+// can tell at a glance that everything around him is moving in slow motion.
+func (g *Game) drawDeadEyeOverlay(screen *ebiten.Image) {
+	vector.FillRect(screen, 0, 0, ScreenWidth, ScreenHeight, color.RGBA{110, 15, 15, 26}, false)
+}
+
 // drawHud renders the survival timer, the score, the ammo and the mini map.
 func (g *Game) drawHud(screen *ebiten.Image) {
 	lines := []string{
@@ -2747,6 +2846,8 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 
 	g.drawAmmo(screen)
 	g.drawDodgeCooldown(screen)
+	g.drawDeadEye(screen)
+	g.drawHealthLabel(screen)
 	g.player.DrawGunBelt(screen, 0, 0)
 	g.player.DrawGold(screen, g.hudFace, float64(ScreenWidth-128), float64(ScreenHeight)-32)
 	g.drawLootPrompt(screen)
@@ -3041,7 +3142,7 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 // drawAmmo shows the bullets left in the magazine and the reload progress.
 func (g *Game) drawAmmo(screen *ebiten.Image) {
 	x := 40.0
-	y := float64(ScreenHeight) - 120
+	y := float64(ScreenHeight) - 144
 
 	if g.player.Reloading {
 		drawOptions := g.textDrawOptions
@@ -3073,7 +3174,7 @@ func (g *Game) drawAmmo(screen *ebiten.Image) {
 // can only dodge again once it refills.
 func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
 	x := 40.0
-	y := float64(ScreenHeight) - 76
+	y := float64(ScreenHeight) - 106
 
 	drawOptions := g.textDrawOptions
 	drawOptions.GeoM.Reset()
@@ -3087,7 +3188,38 @@ func (g *Game) drawDodgeCooldown(screen *ebiten.Image) {
 	}
 	vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{60, 60, 60, 220}, false)
 	vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, color.RGBA{110, 200, 220, 240}, false)
-	drawOptions.GeoM.Translate(0, float64(g.hudFontSize)+22)
+}
+
+// drawDeadEye shows the dead eye charge under the dodge bar. The gauge is red
+// and drains while the ability slows the world down.
+func (g *Game) drawDeadEye(screen *ebiten.Image) {
+	x := 40.0
+	y := float64(ScreenHeight) - 74
+
+	drawOptions := g.textDrawOptions
+	drawOptions.GeoM.Reset()
+	drawOptions.GeoM.Translate(x, y-float64(g.hudFontSize)-6)
+	text.Draw(screen, "DEAD EYE", g.hudFace, drawOptions)
+
+	progress := 0.0
+	if g.player.DeadEyeMaxCharge > 0 {
+		progress = g.player.DeadEyeCharge / g.player.DeadEyeMaxCharge
+	}
+	progress = max(0, min(1, progress))
+	fillColor := color.RGBA{190, 35, 35, 240}
+	if g.deadEyeActive {
+		fillColor = color.RGBA{255, 60, 45, 250}
+	}
+	vector.FillRect(screen, float32(x), float32(y), 100, 8, color.RGBA{55, 20, 20, 220}, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(100*progress), 8, fillColor, false)
+}
+
+// drawHealthLabel puts the health label back under the dead eye gauge.
+func (g *Game) drawHealthLabel(screen *ebiten.Image) {
+	drawOptions := g.textDrawOptions
+	drawOptions.GeoM.Reset()
+	drawOptions.ColorScale.Reset()
+	drawOptions.GeoM.Translate(40, float64(ScreenHeight)-60)
 	text.Draw(screen, "HEALTH", g.hudFace, drawOptions)
 }
 
