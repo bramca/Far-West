@@ -351,6 +351,114 @@ func TestDodgeGivesIFrames(t *testing.T) {
 	}
 }
 
+// TestDeadEyeDrainsAndRegenerates makes sure the dead eye gauge runs dry
+// while the ability is active and only trickles back afterwards.
+func TestDeadEyeDrainsAndRegenerates(t *testing.T) {
+	game := NewGame()
+	game.player.DeadEyeCharge = game.player.DeadEyeMaxCharge
+
+	game.toggleDeadEye()
+	if !game.deadEyeActive {
+		t.Fatal("dead eye did not activate with a full gauge")
+	}
+
+	chargeBefore := game.player.DeadEyeCharge
+	game.updateDeadEye()
+	if game.player.DeadEyeCharge >= chargeBefore {
+		t.Fatal("dead eye did not drain while active")
+	}
+
+	game.player.DeadEyeCharge = deadEyeDrainPerFrame / 2
+	game.updateDeadEye()
+	if game.deadEyeActive {
+		t.Fatal("dead eye stayed active after the gauge ran dry")
+	}
+	if game.player.DeadEyeCharge != 0 {
+		t.Fatalf("dead eye charge is %f after running dry, want 0", game.player.DeadEyeCharge)
+	}
+
+	game.updateDeadEye()
+	if game.player.DeadEyeCharge <= 0 {
+		t.Fatal("dead eye did not regenerate after it was switched off")
+	}
+}
+
+// TestDeadEyeNeedsCharge makes sure an empty gauge cannot be activated.
+func TestDeadEyeNeedsCharge(t *testing.T) {
+	game := NewGame()
+	game.player.DeadEyeCharge = 0
+
+	game.toggleDeadEye()
+	if game.deadEyeActive {
+		t.Fatal("dead eye activated without any charge")
+	}
+}
+
+// TestDeadEyeChargeUpgrade makes sure a fresh player starts with a full gauge
+// and that the store upgrade raises the maximum and refills some charge.
+func TestDeadEyeChargeUpgrade(t *testing.T) {
+	game := NewGame()
+	if game.player.DeadEyeMaxCharge != actors.DefaultDeadEyeMaxCharge {
+		t.Fatalf("fresh dead eye max charge is %f, want %f", game.player.DeadEyeMaxCharge, actors.DefaultDeadEyeMaxCharge)
+	}
+	if game.player.DeadEyeCharge != game.player.DeadEyeMaxCharge {
+		t.Fatal("a fresh player does not start with a full dead eye gauge")
+	}
+
+	game.player.DeadEyeCharge = 40
+	if !game.player.ApplyUpgrade(actors.UpgradeDeadEye, defaultUpgradeLimits) {
+		t.Fatal("the dead eye upgrade could not be applied")
+	}
+
+	if game.player.DeadEyeMaxCharge != actors.DefaultDeadEyeMaxCharge+actors.DeadEyeChargeUpgrade {
+		t.Fatalf("dead eye max charge is %f after the upgrade", game.player.DeadEyeMaxCharge)
+	}
+	if game.player.DeadEyeCharge != 40+actors.DeadEyeChargeUpgrade {
+		t.Fatalf("dead eye charge is %f after the upgrade", game.player.DeadEyeCharge)
+	}
+}
+
+// TestDeadEyeSlowsWorldButNotPlayer makes sure enemies and their bullets slow
+// down while the player keeps moving and firing at full speed.
+func TestDeadEyeSlowsWorldButNotPlayer(t *testing.T) {
+	game := NewGame()
+	enemy := game.enemies[0]
+
+	enemyX := enemy.X
+	enemy.TimeScale = 0
+	enemy.Move(actors.Right)
+	normalStep := enemy.X - enemyX
+
+	enemy.X = enemyX
+	enemy.TimeScale = deadEyeTimeScale
+	enemy.Move(actors.Right)
+	slowStep := enemy.X - enemyX
+
+	if slowStep >= normalStep {
+		t.Fatalf("the enemy moved %f under dead eye and %f normally, it was not slowed down", slowStep, normalStep)
+	}
+	if math.Abs(slowStep-normalStep*deadEyeTimeScale) > 1e-9 {
+		t.Fatalf("the enemy moved %f, want %f", slowStep, normalStep*deadEyeTimeScale)
+	}
+
+	playerX := game.player.X
+	game.deadEyeActive = true
+	game.player.Move(actors.Right)
+	playerStep := game.player.X - playerX
+	if math.Abs(playerStep-game.player.Speed) > 1e-9 {
+		t.Fatalf("the player moved %f under dead eye, want %f", playerStep, game.player.Speed)
+	}
+
+	normalBullet := &actors.Bullet{Speed: 10, Duration: 10}
+	normalBullet.Update()
+	slowBullet := &actors.Bullet{Speed: 10, Duration: 10, TimeScale: deadEyeTimeScale}
+	slowBullet.Update()
+
+	if slowBullet.X >= normalBullet.X {
+		t.Fatalf("the slowed bullet travelled %f while the normal bullet travelled %f", slowBullet.X, normalBullet.X)
+	}
+}
+
 // TestBulletsAlwaysDealDamage makes sure the damage roll never produces a
 // zero damage bullet, a shot that does nothing is not fun.
 func TestBulletsAlwaysDealDamage(t *testing.T) {
@@ -373,6 +481,112 @@ func TestBulletsAlwaysDealDamage(t *testing.T) {
 		if bullet.Damage < 1 {
 			t.Fatalf("a bullet dealt %d damage, every shot should hurt", bullet.Damage)
 		}
+	}
+}
+
+func TestFistsShootWithoutAmmo(t *testing.T) {
+	game := NewGame()
+	game.player.DrawWeapon(1)
+	fists := game.player.GunBelt[game.player.CurrentWeapon]
+	if fists.GunType != actors.Fists {
+		t.Fatal("the second belt slot does not hold the fists")
+	}
+	fists.Ammo = 0
+	fists.CurrentMagazineSize = 0
+	game.player.ShootTimer = 0
+	game.player.Reloading = false
+
+	if !game.player.CanShoot() {
+		t.Fatal("the fists cannot be used without ammo")
+	}
+	if fists.AmmoFace != nil {
+		t.Fatal("the fists still show an ammo counter")
+	}
+
+	game.player.Shoot()
+
+	if fists.Ammo != 0 {
+		t.Fatal("punching used ammo")
+	}
+	if game.player.Reloading {
+		t.Fatal("punching started a reload")
+	}
+	if game.player.MeleeTimer <= 0 {
+		t.Fatal("punching did not start the sweep animation")
+	}
+	if game.player.ShootTimer <= 0 {
+		t.Fatal("punching did not start the cooldown")
+	}
+}
+
+func TestFistSweepHitsEnemiesInFront(t *testing.T) {
+	game := NewGame()
+	player := game.player
+	player.DrawWeapon(1)
+	player.AimAngle = 0
+	player.ShootTimer = 0
+	player.Reloading = false
+
+	target := game.enemies[0]
+	target.Health = 100
+	target.MaxHealth = 100
+	target.X = player.X + player.W/2 + 40 - target.W/2
+	target.Y = player.Y + player.H/2 - target.H/2
+	target.UpdateHitboxOffset(enemyHitboxOffset)
+
+	behind := game.enemies[1]
+	behind.Health = 100
+	behind.MaxHealth = 100
+	behind.X = player.X + player.W/2 - 40 - behind.W/2
+	behind.Y = player.Y + player.H/2 - behind.H/2
+	behind.UpdateHitboxOffset(enemyHitboxOffset)
+
+	healthBefore := target.Health
+	behindBefore := behind.Health
+	damage := player.GunBelt[player.CurrentWeapon].Damage + player.FistDamageBonus
+
+	player.Shoot()
+
+	if target.Health != healthBefore-damage {
+		t.Fatalf("the enemy in front took %d damage, expected %d", healthBefore-target.Health, damage)
+	}
+	if behind.Health != behindBefore {
+		t.Fatal("the enemy behind the player was hit by the sweep")
+	}
+}
+
+func TestFistUpgradeIncreasesSweepDamage(t *testing.T) {
+	game := NewGame()
+	player := game.player
+	player.DrawWeapon(1)
+	player.AimAngle = 0
+	player.ShootTimer = 0
+	player.Reloading = false
+
+	target := game.enemies[0]
+	target.Health = 100
+	target.MaxHealth = 100
+	target.X = player.X + player.W/2 + 40 - target.W/2
+	target.Y = player.Y + player.H/2 - target.H/2
+	target.UpdateHitboxOffset(enemyHitboxOffset)
+
+	baseDamage := player.GunBelt[player.CurrentWeapon].Damage
+	player.Shoot()
+	baseDealt := 100 - target.Health
+	if baseDealt != baseDamage {
+		t.Fatalf("the base punch dealt %d damage, expected %d", baseDealt, baseDamage)
+	}
+
+	player.ApplyUpgrade(actors.UpgradeFists, defaultUpgradeLimits)
+	target.Health = 100
+	player.ShootTimer = 0
+	player.Shoot()
+	upgradedDealt := 100 - target.Health
+	if upgradedDealt != baseDamage+player.FistDamageBonus {
+		t.Fatalf("the upgraded punch dealt %d damage, expected %d", upgradedDealt, baseDamage+player.FistDamageBonus)
+	}
+	if upgradedDealt <= baseDealt {
+		t.Fatal("the fist upgrade did not increase the punch damage")
 	}
 }
 
@@ -914,30 +1128,40 @@ func TestBuyStoreWeaponSwapsAndDropsOldGun(t *testing.T) {
 
 func TestBuyStoreUpgrade(t *testing.T) {
 	game := NewGame()
-	item := addStoreItem(game, world.StoreItem{
-		Kind:    world.StoreUpgrade,
-		Name:    actors.UpgradeDamage.String(),
-		Price:   100,
-		Upgrade: actors.UpgradeDamage,
-	})
-	game.player.Gold = 100
-
-	game.buyStoreItem(item)
-
-	if game.player.DamageBonus != 1 {
-		t.Fatalf("expected 1 bonus damage, got %d", game.player.DamageBonus)
+	upgrade := actors.UpgradeDamage
+	upgradeLimit := defaultUpgradeLimits[upgrade]
+	items := []*world.StoreItem{}
+	for range upgradeLimit {
+		items = append(items,
+			addStoreItem(game, world.StoreItem{
+				Kind:    world.StoreUpgrade,
+				Name:    upgrade.String(),
+				Price:   100,
+				Upgrade: upgrade,
+			}))
 	}
-	if !game.player.HasUpgrade(actors.UpgradeDamage) {
+	game.player.Gold = upgradeLimit * 100
+
+	for _, item := range items {
+		game.buyStoreItem(item)
+	}
+
+	if game.player.DamageBonus != 2*upgradeLimit {
+		t.Fatalf("expected %d bonus damage, got %d", 2*upgradeLimit, game.player.DamageBonus)
+	}
+	if game.player.GetUpgradeCount(actors.UpgradeDamage) == 0 {
 		t.Fatal("the upgrade was not recorded as owned")
 	}
 	if game.player.Gold != 0 {
 		t.Fatalf("expected no gold left, got %d", game.player.Gold)
 	}
-	if !item.Sold {
-		t.Fatal("the upgrade offer was not marked as sold")
+	for _, item := range items {
+		if !item.Sold {
+			t.Fatal("the upgrade offer was not marked as sold")
+		}
 	}
 
-	for _, upgrade := range game.unownedUpgrades() {
+	for _, upgrade := range game.availableUpgrades() {
 		if upgrade == actors.UpgradeDamage {
 			t.Fatal("an owned upgrade is still offered")
 		}
@@ -946,26 +1170,36 @@ func TestBuyStoreUpgrade(t *testing.T) {
 
 func TestBuyStoreMaxHealthUpgrade(t *testing.T) {
 	game := NewGame()
-	game.player.Health = 10
-	game.player.MaxHealth = 20
+	maxHealth := 20
+	health := 10
+	game.player.Health = health
+	game.player.MaxHealth = maxHealth
 	game.player.UpdateHealhBar()
-	item := addStoreItem(game, world.StoreItem{
-		Kind:    world.StoreUpgrade,
-		Name:    actors.UpgradeMaxHealth.String(),
-		Price:   100,
-		Upgrade: actors.UpgradeMaxHealth,
-	})
-	game.player.Gold = 100
-
-	game.buyStoreItem(item)
-
-	if game.player.MaxHealth != 25 {
-		t.Fatalf("expected 25 max health, got %d", game.player.MaxHealth)
+	upgrade := actors.UpgradeMaxHealth
+	upgradeLimit := defaultUpgradeLimits[upgrade]
+	items := []*world.StoreItem{}
+	for range upgradeLimit {
+		items = append(items,
+			addStoreItem(game, world.StoreItem{
+				Kind:    world.StoreUpgrade,
+				Name:    upgrade.String(),
+				Price:   100,
+				Upgrade: upgrade,
+			}))
 	}
-	if game.player.Health != 15 {
-		t.Fatalf("expected 15 health, got %d", game.player.Health)
+	game.player.Gold = upgradeLimit * 100
+
+	for _, item := range items {
+		game.buyStoreItem(item)
 	}
-	if game.player.Healthbar.MaxPoints != 25 {
+
+	if game.player.MaxHealth != upgradeLimit*10+maxHealth {
+		t.Fatalf("expected %d max health, got %d", upgradeLimit*10+maxHealth, game.player.MaxHealth)
+	}
+	if game.player.Health != upgradeLimit*10+health {
+		t.Fatalf("expected %d health, got %d", upgradeLimit*5+health, game.player.Health)
+	}
+	if game.player.Healthbar.MaxPoints != game.player.MaxHealth {
 		t.Fatal("the healthbar was not updated for the new max health")
 	}
 }
@@ -1003,7 +1237,9 @@ func TestBuyStoreItemWithoutEnoughGold(t *testing.T) {
 func TestOwnedUpgradesAreNotStocked(t *testing.T) {
 	game := NewGame()
 	for _, upgrade := range actors.AllUpgrades {
-		game.player.ApplyUpgrade(upgrade)
+		for range defaultUpgradeLimits[upgrade] {
+			game.player.ApplyUpgrade(upgrade, defaultUpgradeLimits)
+		}
 	}
 
 	game.spawnStoreStock()

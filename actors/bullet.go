@@ -17,6 +17,21 @@ type Bullet struct {
 	Sprite       *ebiten.Image
 	Hitbox       HitBox
 	HitboxOffset float64
+	// TimeScale slows the bullet down without changing how far it travels.
+	// A value of zero means the bullet moves at its normal speed.
+	TimeScale float64
+	// durationAccumulator keeps the lifetime in sync with the time scale so a
+	// slowed bullet also lives longer on screen.
+	durationAccumulator float64
+}
+
+// scale returns the effective time scale of the bullet.
+func (b *Bullet) scale() float64 {
+	if b.TimeScale <= 0 {
+		return 1
+	}
+
+	return b.TimeScale
 }
 
 func (b *Bullet) Draw(screen *ebiten.Image, camX float64, camY float64) {
@@ -30,11 +45,17 @@ func (b *Bullet) Draw(screen *ebiten.Image, camX float64, camY float64) {
 }
 
 func (b *Bullet) Update() {
-	b.X += b.Speed * math.Cos(b.R)
-	b.Y += b.Speed * math.Sin(b.R)
+	scale := b.scale()
+	b.X += b.Speed * scale * math.Cos(b.R)
+	b.Y += b.Speed * scale * math.Sin(b.R)
+
+	b.durationAccumulator += scale
+	for b.durationAccumulator >= 1 {
+		b.Duration -= 1
+		b.durationAccumulator -= 1
+	}
 
 	b.UpdateHitbox()
-	b.Duration -= 1
 }
 
 func (b *Bullet) DrawHitbox(screen *ebiten.Image, camX, camY float64) {

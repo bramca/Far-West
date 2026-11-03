@@ -42,8 +42,15 @@ type Island struct {
 	// shade holds a small per tile brightness offset so the terrain does not look flat.
 	shade [][]int
 
+	// terrain is the whole island baked into one pixel per tile. Scaling it up
+	// with the nearest filter reproduces the tile grid with a single draw
+	// command instead of building a rectangle for every visible tile.
+	terrain *ebiten.Image
+
 	miniMap *ebiten.Image
 }
+
+const shadeRange = 15
 
 // NewIsland generates a random island of width x height tiles.
 func NewIsland(width, height int, tileSize float64) *Island {
@@ -62,13 +69,36 @@ func NewIsland(width, height int, tileSize float64) *Island {
 	for x := range island.shade {
 		island.shade[x] = make([]int, height)
 		for y := range island.shade[x] {
-			island.shade[x][y] = rand.IntN(15) - 7
+			island.shade[x][y] = rand.IntN(shadeRange) - shadeRange/2
 		}
 	}
 
+	island.terrain = island.renderTerrain()
 	island.miniMap = island.renderMiniMap()
 
 	return island
+}
+
+// renderTerrain bakes the shaded tile grid into one pixel per tile. Because
+// every tile is a solid color, drawing this image scaled by the tile size with
+// the nearest filter looks exactly like drawing every tile separately.
+func (i *Island) renderTerrain() *ebiten.Image {
+	pixels := make([]byte, i.Width*i.Height*4)
+	for x := range i.Width {
+		for y := range i.Height {
+			clr := shadeColor(tileColors[i.tiles[x][y]], i.shade[x][y])
+			offset := (y*i.Width + x) * 4
+			pixels[offset] = clr.R
+			pixels[offset+1] = clr.G
+			pixels[offset+2] = clr.B
+			pixels[offset+3] = clr.A
+		}
+	}
+
+	img := ebiten.NewImage(i.Width, i.Height)
+	img.WritePixels(pixels)
+
+	return img
 }
 
 // generateLandMask builds the raw shape of the island using overlapping
@@ -527,32 +557,16 @@ func (i *Island) Center() (float64, float64) {
 	return (bestX + 0.5) * i.TileSize, (bestY + 0.5) * i.TileSize
 }
 
-// Draw renders every tile that is visible on screen.
+// Draw renders the island terrain with a single scaled draw call.
 func (i *Island) Draw(screen *ebiten.Image, camX, camY float64) {
+	// the fill covers the ocean beyond the edge of the world when the camera
+	// reaches the border
 	screen.Fill(tileColors[DeepWater])
 
-	startX := max(int(camX/i.TileSize), 0)
-	startY := max(int(camY/i.TileSize), 0)
-	endX := min(int((camX+float64(screen.Bounds().Dx()))/i.TileSize)+1, i.Width)
-	endY := min(int((camY+float64(screen.Bounds().Dy()))/i.TileSize)+1, i.Height)
-
-	for x := startX; x < endX; x++ {
-		for y := startY; y < endY; y++ {
-			tile := i.tiles[x][y]
-			if tile == DeepWater {
-				continue
-			}
-			vector.FillRect(
-				screen,
-				float32(float64(x)*i.TileSize-camX),
-				float32(float64(y)*i.TileSize-camY),
-				float32(i.TileSize)+1,
-				float32(i.TileSize)+1,
-				shadeColor(tileColors[tile], i.shade[x][y]),
-				false,
-			)
-		}
-	}
+	drawOptions := &ebiten.DrawImageOptions{}
+	drawOptions.GeoM.Scale(i.TileSize, i.TileSize)
+	drawOptions.GeoM.Translate(-camX, -camY)
+	screen.DrawImage(i.terrain, drawOptions)
 }
 
 func shadeColor(c color.RGBA, offset int) color.RGBA {
@@ -569,12 +583,20 @@ func shadeColor(c color.RGBA, offset int) color.RGBA {
 }
 
 func (i *Island) renderMiniMap() *ebiten.Image {
-	img := ebiten.NewImage(i.Width, i.Height)
+	pixels := make([]byte, i.Width*i.Height*4)
 	for x := range i.Width {
 		for y := range i.Height {
-			img.Set(x, y, tileColors[i.tiles[x][y]])
+			clr := tileColors[i.tiles[x][y]]
+			offset := (y*i.Width + x) * 4
+			pixels[offset] = clr.R
+			pixels[offset+1] = clr.G
+			pixels[offset+2] = clr.B
+			pixels[offset+3] = clr.A
 		}
 	}
+
+	img := ebiten.NewImage(i.Width, i.Height)
+	img.WritePixels(pixels)
 
 	return img
 }

@@ -32,7 +32,16 @@ func LeadAngle(fromX, fromY, targetX, targetY, targetVelX, targetVelY, projectil
 	return AngleBetweenPoints(fromX, fromY, targetX+leadX, targetY+leadY)
 }
 
+// screenCullMargin keeps large sprites that are anchored just outside the
+// screen from popping out before any of their pixels could be visible.
+const screenCullMargin = 320.0
+
 func OutOfScreen(x, y, camX, camY float64, screenWidth, screenHeight int) bool {
-	return ((x-camX) < 0 || int(x-camX) > screenWidth) &&
-		((y-camY) < 0 || int(y-camY) > screenHeight)
+	screenX := x - camX
+	screenY := y - camY
+
+	return screenX < -screenCullMargin ||
+		screenX > float64(screenWidth)+screenCullMargin ||
+		screenY < -screenCullMargin ||
+		screenY > float64(screenHeight)+screenCullMargin
 }

@@ -144,17 +144,18 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 		a.Actor.FaceFromAim()
 
 		if player.Hitbox.CheckCollision(a.Actor.Hitbox) {
+			step := a.Actor.Speed * a.Actor.timeScale()
 			for dir, moving := range a.Actor.MoveDirs {
 				if moving {
 					switch dir {
 					case Up:
-						a.Actor.Y += a.Actor.Speed
+						a.Actor.Y += step
 					case Down:
-						a.Actor.Y -= a.Actor.Speed
+						a.Actor.Y -= step
 					case Right:
-						a.Actor.X -= a.Actor.Speed
+						a.Actor.X -= step
 					case Left:
-						a.Actor.X += a.Actor.Speed
+						a.Actor.X += step
 					}
 				}
 			}

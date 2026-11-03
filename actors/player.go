@@ -37,6 +37,12 @@ const (
 )
 
 const (
+	FistRange         = 56.0
+	FistArc           = math.Pi * 0.5
+	FistSweepDuration = 12
+)
+
+const (
 	PlayerNoGunRight PlayerState = iota
 	PlayerNoGunLeft
 	PlayerNoGunRunRight
@@ -135,11 +141,15 @@ type Player struct {
 	ReloadTimer    int
 	Reloading      bool
 	ShootTimer     int
+	MeleeTimer     int
+	MeleeDuration  int
+	MeleeAngle     float64
 	// OnShoot is called after a gun successfully fires, the game uses it to
 	// play the sound that belongs to the weapon.
 	OnShoot func(Weapon)
 	// OnDrink is called when an actor starts drinking a whisky.
 	OnDrink func()
+	OnMelee func(damage int)
 
 	// healing handling
 	Healing      bool
@@ -152,10 +162,21 @@ type Player struct {
 	DodgeCooldown      int
 	DodgeCooldownTimer int
 
+	// dead eye handling
+	DeadEyeCharge    float64
+	DeadEyeMaxCharge float64
+
+	// TimeScale slows the actor's movement and timers without changing the
+	// player's controls. A value of zero means the actor runs at normal speed.
+	TimeScale float64
+	// weaponTimerAccumulator keeps the weapon timers in sync with TimeScale.
+	weaponTimerAccumulator float64
+
 	Gold int
 
-	Upgrades           map[Upgrade]bool
+	Upgrades           map[Upgrade]int
 	DamageBonus        int
+	FistDamageBonus    int
 	Armor              int
 	ShootCooldownBonus int
 }
@@ -182,6 +203,9 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 	}
 	screen.DrawImage(p.Sprites[p.CurrentState], p.DrawOptions)
 	p.DrawOptions.ColorScale.Reset()
+	if p.MeleeTimer > 0 && !p.Dead {
+		p.drawMeleeSweep(screen, camX, camY)
+	}
 	weapon := p.GunBelt[p.CurrentWeapon].GunType
 	if p.MuzzleFlash > 0 && !p.Dead && weapon != Fists && weapon != Whisky {
 		drawMuzzleFlash(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle)
@@ -210,38 +234,43 @@ func (p *Player) DrawGold(screen *ebiten.Image, textFace *text.GoXFace, X, Y flo
 	text.Draw(screen, msg, textFace, drawOptions)
 }
 
-func (p *Player) HasUpgrade(upgrade Upgrade) bool {
+func (p *Player) GetUpgradeCount(upgrade Upgrade) int {
 	return p.Upgrades[upgrade]
 }
 
-func (p *Player) ApplyUpgrade(upgrade Upgrade) bool {
+func (p *Player) ApplyUpgrade(upgrade Upgrade, upgradeLimits map[Upgrade]int) bool {
 	if p.Upgrades == nil {
-		p.Upgrades = map[Upgrade]bool{}
+		p.Upgrades = map[Upgrade]int{}
 	}
-	if p.Upgrades[upgrade] {
+	if p.Upgrades[upgrade] == upgradeLimits[upgrade] {
 		return false
 	}
 
 	switch upgrade {
 	case UpgradeMaxHealth:
-		p.MaxHealth += 5
-		p.Health = min(p.MaxHealth, p.Health+5)
+		p.MaxHealth += 10
+		p.Health = min(p.MaxHealth, p.Health+10)
 		if p.Healthbar != nil {
 			p.UpdateHealhBar()
 		}
 	case UpgradeDamage:
-		p.DamageBonus += 1
+		p.DamageBonus += 2
+	case UpgradeFists:
+		p.FistDamageBonus += 4
 	case UpgradeReload:
-		p.ReloadDuration = max(10, p.ReloadDuration-10)
+		p.ReloadDuration = max(10, p.ReloadDuration-20)
 	case UpgradeSpeed:
-		p.Speed += 0.25
+		p.Speed += 0.4
 	case UpgradeDodge:
-		p.DodgeCooldown = max(8, p.DodgeCooldown-6)
+		p.DodgeCooldown = max(8, p.DodgeCooldown-10)
 	case UpgradeArmor:
-		p.Armor += 1
+		p.Armor += 2
+	case UpgradeDeadEye:
+		p.DeadEyeMaxCharge += DeadEyeChargeUpgrade
+		p.DeadEyeCharge = min(p.DeadEyeMaxCharge, p.DeadEyeCharge+DeadEyeChargeUpgrade)
 	}
 
-	p.Upgrades[upgrade] = true
+	p.Upgrades[upgrade] += 1
 
 	return true
 }
@@ -311,11 +340,16 @@ func (p *Player) UpdateHealhBar() {
 
 func (p *Player) Shoot() {
 	gun := p.GunBelt[p.CurrentWeapon]
-	if gun.GunType == Fists || p.Dead {
+	if p.Dead {
 		return
 	}
 
-	if gun.GunType == Whisky {
+	switch gun.GunType {
+	case Fists:
+		p.punch(gun)
+
+		return
+	case Whisky:
 		p.drinkWhisky(gun)
 
 		return
@@ -356,9 +390,28 @@ func (p *Player) Shoot() {
 	}
 }
 
+func (p *Player) punch(gun *Gun) {
+	if !p.CanShoot() {
+		return
+	}
+
+	if p.MeleeDuration <= 0 {
+		p.MeleeDuration = FistSweepDuration
+	}
+	p.ShootTimer = p.shootCooldown(gun)
+	p.MeleeTimer = p.MeleeDuration
+	p.MeleeAngle = p.AimAngle
+	if p.OnMelee != nil {
+		p.OnMelee(gun.Damage + p.FistDamageBonus)
+	}
+}
+
 // CanShoot reports whether the weapon is loaded and ready to fire again.
 func (p *Player) CanShoot() bool {
 	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.GunType == Fists {
+		return !p.Reloading && p.ShootTimer <= 0
+	}
 	if gun.GunType == Whisky {
 		return !p.Reloading && !p.Healing && p.ShootTimer <= 0 && gun.Ammo > 0 && p.Health < p.MaxHealth
 	}
@@ -404,13 +457,41 @@ func (p *Player) Reload() {
 	p.ReloadTimer = p.ReloadDuration
 }
 
+// timeScale returns the effective speed the actor runs at.
+func (p *Player) timeScale() float64 {
+	if p.TimeScale <= 0 {
+		return 1
+	}
+
+	return p.TimeScale
+}
+
+// consumeTime advances the accumulator by one frame of scaled time and returns
+// how many whole simulation steps the actor is allowed to take.
+func (p *Player) consumeTime(accumulator *float64) int {
+	*accumulator += p.timeScale()
+	steps := int(*accumulator)
+	*accumulator -= float64(steps)
+
+	return steps
+}
+
 // UpdateWeapon ticks the reload and fire rate timers, it has to be called once per frame.
 func (p *Player) UpdateWeapon() {
+	for range p.consumeTime(&p.weaponTimerAccumulator) {
+		p.updateWeapon()
+	}
+}
+
+func (p *Player) updateWeapon() {
 	if p.ShootTimer > 0 {
 		p.ShootTimer -= 1
 	}
 	if p.MuzzleFlash > 0 {
 		p.MuzzleFlash -= 1
+	}
+	if p.MeleeTimer > 0 {
+		p.MeleeTimer -= 1
 	}
 	if p.Healing {
 		p.updateHealing()
@@ -429,15 +510,16 @@ func (p *Player) UpdateWeapon() {
 
 func (p *Player) Move(d Direction) {
 	p.MoveDirs[d] = true
+	step := p.Speed * p.timeScale()
 	switch d {
 	case Right:
-		p.X += p.Speed
+		p.X += step
 	case Left:
-		p.X -= p.Speed
+		p.X -= step
 	case Up:
-		p.Y -= p.Speed
+		p.Y -= step
 	case Down:
-		p.Y += p.Speed
+		p.Y += step
 	}
 	p.UpdateHitbox()
 	p.UpdateHealhBar()
@@ -974,7 +1056,7 @@ func (p *Player) StopAnimation() {
 }
 
 func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bulletRotation float64, duration int, damage int) {
-	scale := float64(4)
+	scale := float64(6)
 	bounds := bulletSprite.Bounds()
 	bw := float64(bounds.Dx())
 	bh := float64(bounds.Dy())
@@ -985,16 +1067,17 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	bulletPixelHeight := 3.0
 	offset := float64(14)
 	bullet := Bullet{
-		X:        x,
-		Y:        y,
-		W:        bw,
-		H:        bh,
-		R:        bulletRotation,
-		Scale:    scale,
-		Speed:    bulletSpeed,
-		Sprite:   bulletSprite,
-		Damage:   1 + p.DamageBonus + rand.IntN(damage),
-		Duration: duration,
+		X:         x,
+		Y:         y,
+		W:         bw,
+		H:         bh,
+		R:         bulletRotation,
+		Scale:     scale,
+		Speed:     bulletSpeed,
+		Sprite:    bulletSprite,
+		Damage:    1 + p.DamageBonus + rand.IntN(damage),
+		Duration:  duration,
+		TimeScale: p.timeScale(),
 		Hitbox: HitBox{
 			X: float32(x + offset*scale),
 			Y: float32(y + offset*scale),
@@ -1005,6 +1088,42 @@ func (p *Player) addBullet(bulletSprite *ebiten.Image, bulletSpeed float64, bull
 	}
 
 	p.Bullets = append(p.Bullets, bullet)
+}
+
+func (p *Player) drawMeleeSweep(screen *ebiten.Image, camX, camY float64) {
+	if p.MeleeTimer <= 0 || p.MeleeDuration <= 0 {
+		return
+	}
+
+	progress := 1 - float64(p.MeleeTimer)/float64(p.MeleeDuration)
+	progress = min(1, max(0, progress))
+	life := float64(p.MeleeTimer) / float64(p.MeleeDuration)
+	cx := p.X + p.W/2 - camX
+	cy := p.Y + p.H/2 - camY
+	start := p.MeleeAngle - FistArc/2
+	const (
+		segments = 18
+		radius   = 40.0
+	)
+
+	for i := range segments {
+		t0 := float64(i) / segments
+		if t0 >= progress {
+			break
+		}
+		t1 := min(float64(i+1)/segments, progress)
+		a0 := start + FistArc*t0
+		a1 := start + FistArc*t1
+		fade := t1 / progress
+		alpha := uint8((50 + 190*fade) * life)
+		width := float32(3 + 4*fade)
+		vector.StrokeLine(
+			screen,
+			float32(cx+math.Cos(a0)*radius), float32(cy+math.Sin(a0)*radius),
+			float32(cx+math.Cos(a1)*radius), float32(cy+math.Sin(a1)*radius),
+			width, color.RGBA{255, 238, 190, alpha}, true,
+		)
+	}
 }
 
 // drawAimCursor draws a small arrow at a fixed distance from the actor
@@ -1065,8 +1184,9 @@ func drawMuzzleFlash(screen *ebiten.Image, cx, cy, angle float64) {
 
 	x := cx + math.Cos(angle)*distance
 	y := cy + math.Sin(angle)*distance
-	vector.FillCircle(screen, float32(x), float32(y), 6, color.RGBA{255, 220, 110, 200}, true)
-	vector.FillCircle(screen, float32(x), float32(y), 3, color.RGBA{255, 255, 230, 255}, true)
+	var op ebiten.DrawImageOptions
+	op.GeoM.Translate(x-7, y-7)
+	screen.DrawImage(muzzleFlashSprite(), &op)
 }
 
 // drinkWhisky starts healing the player over the shoot cooldown, the damage of
@@ -1142,8 +1262,8 @@ func (p *Player) finishHealing() {
 		Color:    color.RGBA{90, 220, 100, 240},
 		Msg:      "+" + strconv.Itoa(healed),
 		TextFont: gun.AmmoFace,
-		Duration: 30,
+		Duration: 60,
 	}
-	hit.SetDrawOptions()
+	hit.PrepareText()
 	p.Hits = append(p.Hits, hit)
 }
