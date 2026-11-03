@@ -41,7 +41,7 @@ const (
 	worldTilesX      = 90
 	worldTilesY      = 60
 	worldTileSize    = 64.0
-	plantAmount      = 70
+	plantAmount      = 60
 	storeRadius      = 140.0
 	storeMinDistance = 400.0
 
@@ -155,6 +155,17 @@ var (
 		actors.Revolver:   6,
 		actors.Shotgun:    2,
 		actors.MachineGun: 15,
+	}
+
+	defaultUpgradeLimits = map[actors.Upgrade]int{
+		actors.UpgradeMaxHealth: 2,
+		actors.UpgradeDamage:    3,
+		actors.UpgradeReload:    2,
+		actors.UpgradeSpeed:     2,
+		actors.UpgradeDodge:     3,
+		actors.UpgradeArmor:     3,
+		actors.UpgradeFists:     3,
+		actors.UpgradeDeadEye:   4,
 	}
 
 	buttonsJustPressed = map[string]bool{}
@@ -741,7 +752,7 @@ func (g *Game) spawnStoreStock() {
 		stock = append(stock, g.newStoreWeaponItem())
 	}
 
-	upgrades := g.unownedUpgrades()
+	upgrades := g.availableUpgrades()
 	rand.Shuffle(len(upgrades), func(i, j int) {
 		upgrades[i], upgrades[j] = upgrades[j], upgrades[i]
 	})
@@ -857,10 +868,10 @@ func storeGunPrice(tier actors.Tier) int {
 	}
 }
 
-func (g *Game) unownedUpgrades() []actors.Upgrade {
+func (g *Game) availableUpgrades() []actors.Upgrade {
 	upgrades := make([]actors.Upgrade, 0, len(actors.AllUpgrades))
 	for _, upgrade := range actors.AllUpgrades {
-		if !g.player.HasUpgrade(upgrade) {
+		if g.player.GetUpgradeCount(upgrade) < defaultUpgradeLimits[upgrade] {
 			upgrades = append(upgrades, upgrade)
 		}
 	}
@@ -2588,7 +2599,7 @@ func (g *Game) buyStoreItem(item *world.StoreItem) {
 			return
 		}
 	case world.StoreUpgrade:
-		if !g.player.ApplyUpgrade(item.Upgrade) {
+		if !g.player.ApplyUpgrade(item.Upgrade, defaultUpgradeLimits) {
 			return
 		}
 	}
@@ -2685,6 +2696,9 @@ func (g *Game) openChest(chest *world.Chest) {
 			gun := g.player.GunBelt[idx]
 			if gun != nil {
 				ammo := 5 + rand.IntN(20)
+				if gun.GunType == actors.MachineGun {
+					ammo += 20
+				}
 				gun.Ammo += ammo
 				g.addHit(&g.player.Hits, chest.X, chest.Y-chest.H*chest.Scale/2, "+"+strconv.Itoa(ammo)+" "+gun.GunType.String()+" AMMO", color.RGBA{200, 200, 200, 240})
 			}

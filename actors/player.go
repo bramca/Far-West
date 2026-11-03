@@ -174,7 +174,7 @@ type Player struct {
 
 	Gold int
 
-	Upgrades           map[Upgrade]bool
+	Upgrades           map[Upgrade]int
 	DamageBonus        int
 	FistDamageBonus    int
 	Armor              int
@@ -234,43 +234,43 @@ func (p *Player) DrawGold(screen *ebiten.Image, textFace *text.GoXFace, X, Y flo
 	text.Draw(screen, msg, textFace, drawOptions)
 }
 
-func (p *Player) HasUpgrade(upgrade Upgrade) bool {
+func (p *Player) GetUpgradeCount(upgrade Upgrade) int {
 	return p.Upgrades[upgrade]
 }
 
-func (p *Player) ApplyUpgrade(upgrade Upgrade) bool {
+func (p *Player) ApplyUpgrade(upgrade Upgrade, upgradeLimits map[Upgrade]int) bool {
 	if p.Upgrades == nil {
-		p.Upgrades = map[Upgrade]bool{}
+		p.Upgrades = map[Upgrade]int{}
 	}
-	if p.Upgrades[upgrade] {
+	if p.Upgrades[upgrade] == upgradeLimits[upgrade] {
 		return false
 	}
 
 	switch upgrade {
 	case UpgradeMaxHealth:
-		p.MaxHealth += 5
-		p.Health = min(p.MaxHealth, p.Health+5)
+		p.MaxHealth += 10
+		p.Health = min(p.MaxHealth, p.Health+10)
 		if p.Healthbar != nil {
 			p.UpdateHealhBar()
 		}
 	case UpgradeDamage:
-		p.DamageBonus += 1
+		p.DamageBonus += 2
 	case UpgradeFists:
 		p.FistDamageBonus += 4
 	case UpgradeReload:
-		p.ReloadDuration = max(10, p.ReloadDuration-10)
+		p.ReloadDuration = max(10, p.ReloadDuration-20)
 	case UpgradeSpeed:
-		p.Speed += 0.25
+		p.Speed += 0.4
 	case UpgradeDodge:
-		p.DodgeCooldown = max(8, p.DodgeCooldown-6)
+		p.DodgeCooldown = max(8, p.DodgeCooldown-10)
 	case UpgradeArmor:
-		p.Armor += 1
+		p.Armor += 2
 	case UpgradeDeadEye:
 		p.DeadEyeMaxCharge += DeadEyeChargeUpgrade
 		p.DeadEyeCharge = min(p.DeadEyeMaxCharge, p.DeadEyeCharge+DeadEyeChargeUpgrade)
 	}
 
-	p.Upgrades[upgrade] = true
+	p.Upgrades[upgrade] += 1
 
 	return true
 }

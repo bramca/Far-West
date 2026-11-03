@@ -406,7 +406,7 @@ func TestDeadEyeChargeUpgrade(t *testing.T) {
 	}
 
 	game.player.DeadEyeCharge = 40
-	if !game.player.ApplyUpgrade(actors.UpgradeDeadEye) {
+	if !game.player.ApplyUpgrade(actors.UpgradeDeadEye, defaultUpgradeLimits) {
 		t.Fatal("the dead eye upgrade could not be applied")
 	}
 
@@ -577,7 +577,7 @@ func TestFistUpgradeIncreasesSweepDamage(t *testing.T) {
 		t.Fatalf("the base punch dealt %d damage, expected %d", baseDealt, baseDamage)
 	}
 
-	player.ApplyUpgrade(actors.UpgradeFists)
+	player.ApplyUpgrade(actors.UpgradeFists, defaultUpgradeLimits)
 	target.Health = 100
 	player.ShootTimer = 0
 	player.Shoot()
@@ -1128,30 +1128,40 @@ func TestBuyStoreWeaponSwapsAndDropsOldGun(t *testing.T) {
 
 func TestBuyStoreUpgrade(t *testing.T) {
 	game := NewGame()
-	item := addStoreItem(game, world.StoreItem{
-		Kind:    world.StoreUpgrade,
-		Name:    actors.UpgradeDamage.String(),
-		Price:   100,
-		Upgrade: actors.UpgradeDamage,
-	})
-	game.player.Gold = 100
-
-	game.buyStoreItem(item)
-
-	if game.player.DamageBonus != 1 {
-		t.Fatalf("expected 1 bonus damage, got %d", game.player.DamageBonus)
+	upgrade := actors.UpgradeDamage
+	upgradeLimit := defaultUpgradeLimits[upgrade]
+	items := []*world.StoreItem{}
+	for range upgradeLimit {
+		items = append(items,
+			addStoreItem(game, world.StoreItem{
+				Kind:    world.StoreUpgrade,
+				Name:    upgrade.String(),
+				Price:   100,
+				Upgrade: upgrade,
+			}))
 	}
-	if !game.player.HasUpgrade(actors.UpgradeDamage) {
+	game.player.Gold = upgradeLimit * 100
+
+	for _, item := range items {
+		game.buyStoreItem(item)
+	}
+
+	if game.player.DamageBonus != 2*upgradeLimit {
+		t.Fatalf("expected %d bonus damage, got %d", 2*upgradeLimit, game.player.DamageBonus)
+	}
+	if game.player.GetUpgradeCount(actors.UpgradeDamage) == 0 {
 		t.Fatal("the upgrade was not recorded as owned")
 	}
 	if game.player.Gold != 0 {
 		t.Fatalf("expected no gold left, got %d", game.player.Gold)
 	}
-	if !item.Sold {
-		t.Fatal("the upgrade offer was not marked as sold")
+	for _, item := range items {
+		if !item.Sold {
+			t.Fatal("the upgrade offer was not marked as sold")
+		}
 	}
 
-	for _, upgrade := range game.unownedUpgrades() {
+	for _, upgrade := range game.availableUpgrades() {
 		if upgrade == actors.UpgradeDamage {
 			t.Fatal("an owned upgrade is still offered")
 		}
@@ -1160,26 +1170,36 @@ func TestBuyStoreUpgrade(t *testing.T) {
 
 func TestBuyStoreMaxHealthUpgrade(t *testing.T) {
 	game := NewGame()
-	game.player.Health = 10
-	game.player.MaxHealth = 20
+	maxHealth := 20
+	health := 10
+	game.player.Health = health
+	game.player.MaxHealth = maxHealth
 	game.player.UpdateHealhBar()
-	item := addStoreItem(game, world.StoreItem{
-		Kind:    world.StoreUpgrade,
-		Name:    actors.UpgradeMaxHealth.String(),
-		Price:   100,
-		Upgrade: actors.UpgradeMaxHealth,
-	})
-	game.player.Gold = 100
-
-	game.buyStoreItem(item)
-
-	if game.player.MaxHealth != 25 {
-		t.Fatalf("expected 25 max health, got %d", game.player.MaxHealth)
+	upgrade := actors.UpgradeMaxHealth
+	upgradeLimit := defaultUpgradeLimits[upgrade]
+	items := []*world.StoreItem{}
+	for range upgradeLimit {
+		items = append(items,
+			addStoreItem(game, world.StoreItem{
+				Kind:    world.StoreUpgrade,
+				Name:    upgrade.String(),
+				Price:   100,
+				Upgrade: upgrade,
+			}))
 	}
-	if game.player.Health != 15 {
-		t.Fatalf("expected 15 health, got %d", game.player.Health)
+	game.player.Gold = upgradeLimit * 100
+
+	for _, item := range items {
+		game.buyStoreItem(item)
 	}
-	if game.player.Healthbar.MaxPoints != 25 {
+
+	if game.player.MaxHealth != upgradeLimit*10+maxHealth {
+		t.Fatalf("expected %d max health, got %d", upgradeLimit*10+maxHealth, game.player.MaxHealth)
+	}
+	if game.player.Health != upgradeLimit*10+health {
+		t.Fatalf("expected %d health, got %d", upgradeLimit*5+health, game.player.Health)
+	}
+	if game.player.Healthbar.MaxPoints != game.player.MaxHealth {
 		t.Fatal("the healthbar was not updated for the new max health")
 	}
 }
@@ -1217,7 +1237,9 @@ func TestBuyStoreItemWithoutEnoughGold(t *testing.T) {
 func TestOwnedUpgradesAreNotStocked(t *testing.T) {
 	game := NewGame()
 	for _, upgrade := range actors.AllUpgrades {
-		game.player.ApplyUpgrade(upgrade)
+		for range defaultUpgradeLimits[upgrade] {
+			game.player.ApplyUpgrade(upgrade, defaultUpgradeLimits)
+		}
 	}
 
 	game.spawnStoreStock()

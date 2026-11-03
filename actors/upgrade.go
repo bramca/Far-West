@@ -58,17 +58,17 @@ func (u Upgrade) String() string {
 func (u Upgrade) Description() string {
 	switch u {
 	case UpgradeMaxHealth:
-		return "+5 MAX HEALTH"
+		return "+10 MAX HEALTH"
 	case UpgradeDamage:
-		return "+1 BULLET DAMAGE"
+		return "+2 BULLET DAMAGE"
 	case UpgradeReload:
-		return "-10 RELOAD FRAMES"
+		return "-20 RELOAD FRAMES"
 	case UpgradeSpeed:
-		return "+0.25 MOVE SPEED"
+		return "+0.4 MOVE SPEED"
 	case UpgradeDodge:
-		return "-6 DODGE COOLDOWN"
+		return "-10 DODGE COOLDOWN"
 	case UpgradeArmor:
-		return "-1 DAMAGE TAKEN"
+		return "-2 DAMAGE TAKEN"
 	case UpgradeFists:
 		return "+4 FIST DAMAGE"
 	case UpgradeDeadEye:
