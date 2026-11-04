@@ -2321,7 +2321,7 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	g.player.Gold += gold
 	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill)+" PTS +"+strconv.Itoa(gold)+" $", color.RGBA{255, 215, 0, 240})
 	if enemy.IsBounty {
-		g.showNotice("BOUNTY KILLED!", "THE REWARD IS LOST")
+		g.showNotice("BOUNTY KILLED!", "REWARD IS LOST")
 	}
 	g.addShake(5, 3)
 	g.freezeFrames = 3
@@ -2347,7 +2347,7 @@ func (g *Game) knockOutBounty(enemy *actors.Enemy) {
 	g.freezeFrames = 3
 	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{120, 200, 255, 240})
 	g.sounds.Play(soundEnemyDeath, soundVolumeEnemyDeath)
-	g.showNotice("BOUNTY CAPTURED!", "RETURN HIM TO THE JAIL")
+	g.showNotice("BOUNTY CAPTURED!", "RETURN TO JAIL")
 }
 
 // dropEnemyGun leaves the gun of a dead enemy on the floor so the player can
@@ -3433,7 +3433,6 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 	instructions := []string{
 		"CAPTURE ALIVE:",
 		"KNOCK HIM OUT WITH YOUR FISTS",
-		"SHOOTING HIM FORFEITS THE REWARD",
 	}
 	for i, line := range instructions {
 		g.drawSmallText(screen, line, centerX-float64(len(line)*g.hudFontSize)/2, panelY+250+float64(i)*20, color.RGBA{230, 220, 195, 255})
