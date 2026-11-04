@@ -3443,7 +3443,7 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 		status = "REWARD CLAIMED"
 		statusColor = color.RGBA{140, 135, 125, 255}
 	case g.bounty.KnockedOut:
-		status = "BOUNTY CAPTURED - PRESS E TO COLLECT"
+		status = "BOUNTY CAPTURED"
 		statusColor = color.RGBA{100, 225, 100, 255}
 		hint = "E COLLECT REWARD"
 	case g.bounty.Dead:
