@@ -29,6 +29,12 @@ type Enemy struct {
 	*Player
 
 	Tier Tier
+	// IsBounty marks the one bounty target of a level. Bounties are optional
+	// side targets and have to be knocked out with fists to be captured.
+	IsBounty bool
+	// KnockedOut marks a bounty that was defeated with fists and can be
+	// collected at the jail.
+	KnockedOut bool
 
 	VisualDist int
 	// HomeX and HomeY are the center of the bandit camp the enemy belongs to

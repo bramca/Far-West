@@ -1314,3 +1314,108 @@ func TestNearestStore(t *testing.T) {
 		t.Fatal("a store out of reach was found")
 	}
 }
+
+func TestBountySpawnsOnEveryLevel(t *testing.T) {
+	game := NewGame()
+
+	if game.bounty == nil {
+		t.Fatal("the level did not spawn a bounty target")
+	}
+	if !game.bounty.IsBounty {
+		t.Fatal("the bounty target is not marked as a bounty")
+	}
+	if game.bounty.Dead {
+		t.Fatal("the bounty spawned dead")
+	}
+	if game.bountyReward < bountyBaseReward(game.bounty.Tier) {
+		t.Fatalf("the bounty reward %d is below its base price", game.bountyReward)
+	}
+	if game.aliveEnemies() != game.levelEnemies {
+		t.Fatalf("the bounty was counted as a level enemy: %d foes for %d enemies", game.aliveEnemies(), game.levelEnemies)
+	}
+}
+
+func TestBountyRewardScalesWithTierAndLevel(t *testing.T) {
+	common := bountyRewardFor(actors.Common, 1, 0)
+	rare := bountyRewardFor(actors.Rare, 1, 0)
+	legendary := bountyRewardFor(actors.Legendary, 1, 0)
+	if common >= rare || rare >= legendary {
+		t.Fatal("higher rarity bounties should pay more")
+	}
+	if bountyRewardFor(actors.Common, 5, 0) <= common {
+		t.Fatal("the bounty reward did not grow with the level")
+	}
+	if bountyRewardFor(actors.Common, 1, 0.99) <= common {
+		t.Fatal("the random addition did not increase the reward")
+	}
+}
+
+func TestFistsKnockOutBounty(t *testing.T) {
+	game := NewGame()
+	bounty := game.bounty
+	player := game.player
+
+	bounty.Health = 1
+	bounty.MaxHealth = 1
+	bounty.X = player.X + player.W/2 + 30 - bounty.W/2
+	bounty.Y = player.Y + player.H/2 - bounty.H/2
+	bounty.UpdateHitboxOffset(enemyHitboxOffset)
+	player.MeleeAngle = 0
+
+	game.performMeleeSweep(50)
+
+	if !bounty.Dead || !bounty.KnockedOut {
+		t.Fatal("the bounty was not knocked out by the fist sweep")
+	}
+	if game.bountyClaimed {
+		t.Fatal("the bounty was paid out before it reached the jail")
+	}
+}
+
+func TestGunsKillBountyWithoutCapture(t *testing.T) {
+	game := NewGame()
+	goldBefore := game.player.Gold
+
+	game.killEnemy(game.bounty)
+
+	if !game.bounty.Dead {
+		t.Fatal("the bounty did not die")
+	}
+	if game.bounty.KnockedOut {
+		t.Fatal("a bounty killed by a gun was marked as captured")
+	}
+
+	game.claimBountyReward()
+	if game.player.Gold != goldBefore+goldRewardForTier(game.bounty.Tier) {
+		t.Fatal("a killed bounty could still be turned in")
+	}
+}
+
+func TestClaimBountyRewardAtJail(t *testing.T) {
+	game := NewGame()
+	game.bounty.Dead = true
+	game.bounty.KnockedOut = true
+
+	game.player.X = game.jail.Hitbox.CenterX() - game.player.W/2
+	game.player.Y = game.jail.Hitbox.CenterY() - game.player.H/2
+	game.player.UpdateHitbox()
+
+	if game.nearestJail() == nil {
+		t.Fatal("the jail in reach was not found")
+	}
+
+	goldBefore := game.player.Gold
+	game.claimBountyReward()
+
+	if !game.bountyClaimed {
+		t.Fatal("the bounty reward was not marked as claimed")
+	}
+	if game.player.Gold != goldBefore+game.bountyReward {
+		t.Fatalf("expected %d gold, got %d", game.bountyReward, game.player.Gold-goldBefore)
+	}
+
+	game.claimBountyReward()
+	if game.player.Gold != goldBefore+game.bountyReward {
+		t.Fatal("the bounty reward was paid out twice")
+	}
+}

@@ -50,7 +50,7 @@ func InitializeStoreHitbox() *actors.HitBox {
 	}
 }
 
-func InitializeJailbox() *actors.HitBox {
+func InitializeJailHitbox() *actors.HitBox {
 	return &actors.HitBox{
 		X: 6,
 		Y: 7,
