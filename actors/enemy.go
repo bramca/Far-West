@@ -14,6 +14,33 @@ const (
 	// homeLeashFraction is the part of the camp radius an idle enemy wanders
 	// before it turns back towards the camp center.
 	homeLeashFraction = 0.6
+	// enemyAlertDuration is how long a bandit keeps hunting after the player
+	// was last seen before he calms down and returns to his camp.
+	enemyAlertDuration = 3 * 60
+	// enemyLastSeenRadius is how close an alerted bandit has to get to the
+	// last place he saw the player before he gives up the chase.
+	enemyLastSeenRadius = 200.0
+	// enemyCombatDodgeChance is how often a fighting enemy picks a defensive
+	// dodge over a strafing attack.
+	enemyCombatDodgeChance = 0.12
+	// enemyIdleDodgeChance is how often a wandering enemy stops to dodge.
+	enemyIdleDodgeChance = 0.25
+	// enemyCombatDodgeDuration is how long a fighting enemy dodges before it
+	// attacks again. Dodges are kept short so they do not stall the fight.
+	enemyCombatDodgeMinDuration = 2 * 60
+	enemyCombatDodgeMaxDuration = 4 * 60
+	// enemyRepositionMinDuration and enemyRepositionMaxDuration bound the
+	// short strafe an enemy takes between attack bursts. It does not fire
+	// during this window.
+	enemyRepositionMinDuration = 1 * 60
+	enemyRepositionMaxDuration = 3 * 60
+	// engage ranges keep the different guns in their own niche: shotguns
+	// close in, revolvers hold the middle and machine guns keep their
+	// distance.
+	fistsEngageRange      = 40.0
+	shotgunEngageRange    = 110.0
+	revolverEngageRange   = 220.0
+	machineGunEngageRange = 320.0
 )
 
 // EnemyTierStats holds the extra stats an enemy gets from its tier on top of
@@ -37,6 +64,19 @@ type Enemy struct {
 	KnockedOut bool
 
 	VisualDist int
+	// Alerted is true while the enemy is hunting the player. The whole camp
+	// is alerted when one of its bandits spots the player or gets shot.
+	Alerted bool
+	// AlertTimer counts the frames since the enemy last saw the player, once
+	// it runs out the enemy calms down again.
+	AlertTimer int
+	// LastSeenX and LastSeenY remember where the player was when the camp
+	// was alerted, so bandits can hunt him after he breaks line of sight.
+	LastSeenX float64
+	LastSeenY float64
+	// CampID identifies the bandit camp the enemy belongs to, bandits of the
+	// same camp raise the alarm for each other.
+	CampID int
 	// HomeX and HomeY are the center of the bandit camp the enemy belongs to
 	// and HomeRadius is how far it may wander away from it.
 	HomeX      float64
@@ -46,6 +86,9 @@ type Enemy struct {
 	// or another actor was in the way. The game uses it to steer the enemy
 	// into a free direction instead of letting it push against the obstacle.
 	Blocked bool
+	// SteerTimer keeps an unstick move from being replaced by the AI for a
+	// short while, so the enemy can walk around the obstacle it ran into.
+	SteerTimer int
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int
 	// actionTimerAccumulator keeps the action duration in sync with TimeScale.
@@ -178,48 +221,204 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount i
 		}
 	}
 
-	// Detect player
-	if utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist) && e.CurrentAction.Type != MoveAndShoot && e.CurrentAction.Duration <= 0 {
-		actionType := MoveAndShoot
-		if rand.Float64() < 0.5 {
-			actionType = Dodge
-		}
-		e.CurrentAction = Action{
-			Duration: 85 + rand.IntN(170),
-			Type:     actionType,
-			Actor:    e.Player,
+	// an unstick move has to play out before the hunt logic can take over,
+	// otherwise the enemy walks straight back into the obstacle
+	if e.SteerTimer > 0 {
+		e.SteerTimer--
+		e.CurrentAction.PerformAction(player, frameCount)
+		e.UpdateHitboxOffset(16)
+
+		return
+	}
+
+	seesPlayer := e.CanSee(player)
+	if seesPlayer && !e.Alerted {
+		e.Alert(player.X, player.Y)
+	}
+
+	if e.Alerted {
+		if seesPlayer {
+			e.engage(player)
+		} else {
+			e.huntLastSeen()
 		}
 	}
 
 	if e.CurrentAction.Duration <= 0 {
-		e.StopAnimation()
-		actionType := Move
-		if rand.Float64() < 0.5 {
-			actionType = Dodge
-		}
-		dirs := []Direction{
-			Up,
-			Down,
-			Left,
-			Right,
-		}
-		e.CurrentAction = Action{
-			Duration: 85 + rand.IntN(170),
-			Type:     actionType,
-			MoveDir:  e.wanderDirection(dirs),
-			LookDir:  dirs[rand.IntN(len(dirs))],
-			Actor:    e.Player,
-		}
+		e.wander()
 	}
 
-	// a bandit that wandered too far heads back to his camp instead of
+	// a calm bandit that wandered too far heads back to his camp instead of
 	// drifting over the whole island
-	if e.HomeRadius > 0 && e.CurrentAction.Type == Move && e.distanceFromHome() > e.HomeRadius {
+	if !e.Alerted && e.HomeRadius > 0 && e.CurrentAction.Type == Move && e.distanceFromHome() > e.HomeRadius {
 		e.CurrentAction.MoveDir = e.directionTowardsPoint(e.HomeX, e.HomeY)
 	}
 
 	e.CurrentAction.PerformAction(player, frameCount)
 	e.UpdateHitboxOffset(16)
+}
+
+// CanSee reports whether the enemy is close enough to spot the player.
+func (e *Enemy) CanSee(player *Player) bool {
+	return !player.Dead && utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist)
+}
+
+// Alert makes the enemy hunt the player at the given position. The whole camp
+// shares the alarm, so one bandit spotting the player warns his friends.
+func (e *Enemy) Alert(x, y float64) {
+	e.Alerted = true
+	e.AlertTimer = enemyAlertDuration
+	e.LastSeenX, e.LastSeenY = x, y
+}
+
+// TickAlert counts the hunt down, once it runs out the enemy calms down and
+// returns to his camp.
+func (e *Enemy) TickAlert() {
+	if !e.Alerted {
+		return
+	}
+
+	e.AlertTimer--
+	if e.AlertTimer <= 0 {
+		e.CalmDown()
+	}
+}
+
+// CalmDown ends the hunt and cancels the current fight so the enemy goes back
+// to wandering around his camp.
+func (e *Enemy) CalmDown() {
+	e.Alerted = false
+	e.AlertTimer = 0
+	if e.CurrentAction.Type == MoveAndShoot || e.CurrentAction.Type == Dodge || e.CurrentAction.Type == Reposition {
+		e.CurrentAction = Action{}
+	}
+}
+
+// engage picks a fight action that keeps the enemy at the range its weapon
+// likes. After an attack burst the enemy repositions without firing, so the
+// player gets a clear window to shoot back.
+func (e *Enemy) engage(player *Player) {
+	if e.CurrentAction.Duration > 0 {
+		switch e.CurrentAction.Type {
+		case MoveAndShoot:
+			e.CurrentAction.PreferredRange = e.engageRange()
+
+			return
+		case Dodge, Reposition:
+			return
+		}
+	}
+
+	if e.CurrentAction.Type == MoveAndShoot {
+		moveDir := e.repositionDirection(player)
+		e.CurrentAction = Action{
+			Duration: enemyRepositionMinDuration + rand.IntN(enemyRepositionMaxDuration-enemyRepositionMinDuration+1),
+			Type:     Reposition,
+			MoveDir:  moveDir,
+			LookDir:  e.directionTowardsPoint(player.X, player.Y),
+			Actor:    e.Player,
+		}
+
+		return
+	}
+
+	actionType := MoveAndShoot
+	duration := 85 + rand.IntN(170)
+	if rand.Float64() < enemyCombatDodgeChance {
+		actionType = Dodge
+		duration = enemyCombatDodgeMinDuration + rand.IntN(enemyCombatDodgeMaxDuration-enemyCombatDodgeMinDuration+1)
+	}
+
+	e.CurrentAction = Action{
+		Duration:       duration,
+		Type:           actionType,
+		Actor:          e.Player,
+		PreferredRange: e.engageRange(),
+	}
+}
+
+// repositionDirection strafes around the player instead of closing in or
+// backing off, so the reposition after an attack never walks the enemy into
+// or away from the player.
+func (e *Enemy) repositionDirection(player *Player) Direction {
+	if math.Abs(player.X-e.X) > math.Abs(player.Y-e.Y) {
+		if player.Y < e.Y {
+			return Down
+		}
+
+		return Up
+	}
+
+	if player.X < e.X {
+		return Right
+	}
+
+	return Left
+}
+
+// huntLastSeen walks toward the place the player was last seen, so a camp
+// keeps searching after the player breaks line of sight.
+func (e *Enemy) huntLastSeen() {
+	if utils.DistanceBetweenPoints(e.X, e.Y, e.LastSeenX, e.LastSeenY) <= enemyLastSeenRadius {
+		e.CalmDown()
+
+		return
+	}
+
+	dir := e.directionTowardsPoint(e.LastSeenX, e.LastSeenY)
+	e.CurrentAction = Action{
+		Duration: 45 + rand.IntN(30),
+		Type:     Move,
+		MoveDir:  dir,
+		LookDir:  dir,
+		Actor:    e.Player,
+	}
+}
+
+// wander picks a new random direction for an idle bandit.
+func (e *Enemy) wander() {
+	e.StopAnimation()
+	actionType := Move
+	if rand.Float64() < enemyIdleDodgeChance {
+		actionType = Dodge
+	}
+	dirs := []Direction{
+		Up,
+		Down,
+		Left,
+		Right,
+	}
+	e.CurrentAction = Action{
+		Duration: 85 + rand.IntN(170),
+		Type:     actionType,
+		MoveDir:  e.wanderDirection(dirs),
+		LookDir:  dirs[rand.IntN(len(dirs))],
+		Actor:    e.Player,
+	}
+}
+
+// engageRange returns the distance the enemy tries to keep from the player,
+// based on the gun in his hands. Shotguns close in, machine guns keep their
+// distance.
+func (e *Enemy) engageRange() float64 {
+	index := e.CurrentWeapon
+	if index < 0 || index >= len(e.GunBelt) || e.GunBelt[index] == nil || e.GunBelt[index].GunType == Whisky {
+		index = e.primaryWeaponIndex()
+	}
+	if index < 0 || index >= len(e.GunBelt) || e.GunBelt[index] == nil {
+		return revolverEngageRange
+	}
+
+	switch e.GunBelt[index].GunType {
+	case Shotgun:
+		return shotgunEngageRange
+	case MachineGun:
+		return machineGunEngageRange
+	case Fists:
+		return fistsEngageRange
+	default:
+		return revolverEngageRange
+	}
 }
 
 // wanderDirection picks a direction for an idle bandit. Once he is far enough
@@ -239,20 +438,5 @@ func (e *Enemy) distanceFromHome() float64 {
 // directionTowardsPoint returns the cardinal direction that brings the enemy
 // closer to the given point.
 func (e *Enemy) directionTowardsPoint(x, y float64) Direction {
-	xDelta := x - e.X
-	yDelta := y - e.Y
-
-	if math.Abs(xDelta) > math.Abs(yDelta) {
-		if xDelta > 0 {
-			return Right
-		}
-
-		return Left
-	}
-
-	if yDelta > 0 {
-		return Down
-	}
-
-	return Up
+	return directionTowardsPoint(e.X, e.Y, x, y)
 }

@@ -213,6 +213,116 @@ func TestEnemiesWanderAroundTheirCamp(t *testing.T) {
 	}
 }
 
+// TestEnemiesKnowTheirCamp makes sure every spawned bandit can tell which
+// camp it belongs to, the camp alert relies on it.
+func TestEnemiesKnowTheirCamp(t *testing.T) {
+	game := NewGame()
+
+	for i, camp := range game.camps {
+		for _, enemy := range camp.Enemies {
+			if enemy.CampID != i {
+				t.Fatalf("an enemy of camp %d has camp id %d", i, enemy.CampID)
+			}
+		}
+	}
+}
+
+// TestCampAlertRalliesTheWholeCamp makes sure one bandit raising the alarm
+// alerts every bandit of the same camp and leaves other camps alone.
+func TestCampAlertRalliesTheWholeCamp(t *testing.T) {
+	game := NewGame()
+	first := &actors.Enemy{Player: &actors.Player{}, CampID: 0}
+	second := &actors.Enemy{Player: &actors.Player{}, CampID: 0}
+	other := &actors.Enemy{Player: &actors.Player{}, CampID: 1}
+	game.enemies = []*actors.Enemy{first, second, other}
+
+	game.alertCamp(first, 120, 340)
+
+	if !first.Alerted || !second.Alerted {
+		t.Fatal("the alarm did not spread to every bandit of the camp")
+	}
+	if other.Alerted {
+		t.Fatal("the alarm spread to a bandit of another camp")
+	}
+	if second.LastSeenX != 120 || second.LastSeenY != 340 {
+		t.Fatalf("the camp remembered the player at %f,%f, want 120,340", second.LastSeenX, second.LastSeenY)
+	}
+}
+
+// TestBanditsSpotThePlayerAndAlertTheirCamp makes sure a camp raises the
+// alarm when one of its bandits spots the player.
+func TestBanditsSpotThePlayerAndAlertTheirCamp(t *testing.T) {
+	game := NewGame()
+	camp := game.camps[0]
+	game.player.X = camp.X
+	game.player.Y = camp.Y
+
+	game.updateEnemyAlerts()
+
+	for _, enemy := range camp.Enemies {
+		if !enemy.Alerted {
+			t.Fatal("a camp member was not alerted when the player was spotted")
+		}
+	}
+}
+
+// TestFreshSightingRalliesTheWholeCamp makes sure one bandit spotting the
+// player still warns camp members that cannot see him yet.
+func TestFreshSightingRalliesTheWholeCamp(t *testing.T) {
+	game := NewGame()
+	seer := &actors.Enemy{
+		Player:     &actors.Player{X: 100, Y: 100},
+		CampID:     0,
+		VisualDist: 1000,
+	}
+	sleeper := &actors.Enemy{
+		Player:     &actors.Player{X: -10000, Y: -10000},
+		CampID:     0,
+		VisualDist: 1,
+	}
+	game.enemies = []*actors.Enemy{seer, sleeper}
+	game.player.X = 100
+	game.player.Y = 100
+
+	game.updateEnemyAlerts()
+
+	if !seer.Alerted || !sleeper.Alerted {
+		t.Fatal("a fresh sighting did not rally the whole camp")
+	}
+}
+
+// TestCampAlertDoesNotRefreshBanditsThatLostSight makes sure a camp-wide hunt
+// does not last forever just because one bandit can still see the player.
+func TestCampAlertDoesNotRefreshBanditsThatLostSight(t *testing.T) {
+	game := NewGame()
+	seer := &actors.Enemy{
+		Player:     &actors.Player{X: 100, Y: 100},
+		CampID:     0,
+		VisualDist: 1000,
+	}
+	seer.Alert(100, 100)
+	seer.AlertTimer = 1
+	sleeper := &actors.Enemy{
+		Player:     &actors.Player{X: -10000, Y: -10000},
+		CampID:     0,
+		VisualDist: 1,
+	}
+	sleeper.Alert(100, 100)
+	sleeper.AlertTimer = 100
+	game.enemies = []*actors.Enemy{seer, sleeper}
+	game.player.X = 100
+	game.player.Y = 100
+
+	game.updateEnemyAlerts()
+
+	if seer.AlertTimer <= 1 {
+		t.Fatal("the bandit that still sees the player stopped hunting")
+	}
+	if sleeper.AlertTimer != 99 {
+		t.Fatalf("the bandit that lost sight kept a %d frame alert, want 99", sleeper.AlertTimer)
+	}
+}
+
 // TestBlockedEnemyPicksFreeDirection makes sure an enemy that walked into an
 // obstacle is steered into a direction it can actually move in.
 func TestBlockedEnemyPicksFreeDirection(t *testing.T) {
@@ -243,6 +353,32 @@ func TestBlockedEnemyPicksFreeDirection(t *testing.T) {
 	}
 	if !game.canEnemyStep(enemy, enemy.CurrentAction.MoveDir) {
 		t.Fatal("the blocked enemy was steered into another obstacle")
+	}
+}
+
+// TestUnstickMoveSurvivesTheAlertLogic makes sure a bandit that was steered
+// around an obstacle keeps walking that way instead of turning straight back
+// into it while hunting the player.
+func TestUnstickMoveSurvivesTheAlertLogic(t *testing.T) {
+	game := NewGame()
+	enemy := game.enemies[0]
+	enemy.Alert(0, 0)
+	enemy.LastSeenX = enemy.X - 1000
+	enemy.LastSeenY = enemy.Y
+	enemy.VisualDist = 0
+	enemy.CurrentAction = actors.Action{
+		Duration: 50,
+		Type:     actors.Move,
+		MoveDir:  actors.Right,
+		LookDir:  actors.Right,
+		Actor:    enemy.Player,
+	}
+	enemy.SteerTimer = 50
+
+	enemy.ThinkAndAct(game.player, nil, 1)
+
+	if enemy.CurrentAction.Type != actors.Move || enemy.CurrentAction.MoveDir != actors.Right {
+		t.Fatal("the unstick move was replaced by the hunt logic")
 	}
 }
 

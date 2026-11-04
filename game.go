@@ -1574,6 +1574,18 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 	return gun
 }
 
+// campID returns the index of the camp in the game's camp list, enemies use
+// it to tell which camp they belong to without keeping a world reference.
+func (g *Game) campID(camp *world.BanditCamp) int {
+	for i, c := range g.camps {
+		if c == camp {
+			return i
+		}
+	}
+
+	return -1
+}
+
 func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 	g.spawnEnemyOfTier(camp, rollEnemyTier(g.level), false)
 }
@@ -1624,6 +1636,7 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 	enemy := &actors.Enemy{
 		Tier:     tier,
 		IsBounty: bounty,
+		CampID:   g.campID(camp),
 		Player: &actors.Player{
 			X:              x,
 			Y:              y,
@@ -1663,7 +1676,7 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 				H: float32(g.enemyCommonSprites[state].Bounds().Dy()),
 			},
 		},
-		VisualDist: rand.IntN(350) + 400,
+		VisualDist: 200 + rand.IntN(300),
 		HomeX:      camp.X,
 		HomeY:      camp.Y,
 		HomeRadius: camp.Radius,
@@ -1723,6 +1736,44 @@ func (g *Game) aliveEnemies() int {
 // bountyKnockedOut reports whether the bounty can be collected at the jail.
 func (g *Game) bountyKnockedOut() bool {
 	return g.bounty != nil && g.bounty.KnockedOut && !g.bountyClaimed
+}
+
+// alertCamp raises the alarm in the camp the enemy belongs to. Every bandit
+// in the same camp starts hunting the player at the position he was seen at.
+func (g *Game) alertCamp(source *actors.Enemy, x, y float64) {
+	if source.CampID < 0 {
+		source.Alert(x, y)
+
+		return
+	}
+
+	for _, enemy := range g.enemies {
+		if enemy.Dead || enemy.KnockedOut || enemy.CampID != source.CampID {
+			continue
+		}
+		enemy.Alert(x, y)
+	}
+}
+
+// updateEnemyAlerts lets bandits spot the player and warn their camp. A fresh
+// sighting rallies the whole camp, but after that only the bandits that keep
+// seeing the player stay locked on; the rest calm down if they lose him.
+func (g *Game) updateEnemyAlerts() {
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			continue
+		}
+		if enemy.CanSee(g.player) {
+			if !enemy.Alerted {
+				g.alertCamp(enemy, g.player.X, g.player.Y)
+			} else {
+				enemy.Alert(g.player.X, g.player.Y)
+			}
+
+			continue
+		}
+		enemy.TickAlert()
+	}
 }
 
 // addShake triggers a screen shake that decays over the given frames, a
@@ -1915,6 +1966,7 @@ func (g *Game) performMeleeSweep(damage int) {
 
 		enemy.Health -= damage
 		enemy.HitFlash = 8
+		g.alertCamp(enemy, g.player.X, g.player.Y)
 		g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 220, 120, 240})
 		enemy.UpdateHealhBar()
 		g.spawnHitSparks(ex, ey, 10, color.RGBA{255, 200, 100, 240})
@@ -1987,6 +2039,7 @@ func (g *Game) checkBulletCollisions() {
 			}
 			enemy.Health -= bullet.Damage
 			enemy.HitFlash = 6
+			g.alertCamp(enemy, g.player.X, g.player.Y)
 			g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(bullet.Damage), color.RGBA{255, 255, 255, 240})
 			enemy.UpdateHealhBar()
 			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 6, color.RGBA{255, 200, 100, 240})
@@ -2222,6 +2275,7 @@ func (g *Game) unstickEnemy(enemy *actors.Enemy) {
 		LookDir:  bestDir,
 		Actor:    enemy.Player,
 	}
+	enemy.SteerTimer = enemy.CurrentAction.Duration
 }
 
 // enemyStepDistance returns how close a single step in the given direction
@@ -2776,6 +2830,8 @@ func (g *Game) Update() error {
 				g.toggleDeadEye()
 			}
 		}
+
+		g.updateEnemyAlerts()
 
 		for _, enemy := range g.enemies {
 			if enemy.Dead {
