@@ -1038,10 +1038,13 @@ func (g *Game) spawnLevel() {
 		return
 	}
 
-	for i := range g.levelEnemies {
+	// one less then the count for level
+	// the extra one will be the bounty
+	for i := range g.levelEnemies - 1 {
 		g.spawnEnemy(g.camps[i%len(g.camps)])
 	}
 
+	// bounty counts as one of the enemies
 	g.spawnBounty()
 }
 
@@ -1681,9 +1684,7 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 	enemy.SavePosition()
 
 	g.enemies = append(g.enemies, enemy)
-	if !bounty {
-		camp.AddEnemy(enemy)
-	}
+	camp.AddEnemy(enemy)
 
 	return enemy
 }
@@ -1697,20 +1698,13 @@ func (g *Game) spawnBounty() {
 	}
 
 	tier := rollBountyTier(g.level)
-	camps := make([]*world.BanditCamp, len(g.camps))
-	copy(camps, g.camps)
-	rand.Shuffle(len(camps), func(i, j int) {
-		camps[i], camps[j] = camps[j], camps[i]
-	})
-
-	for _, camp := range camps {
-		if enemy := g.spawnEnemyOfTier(camp, tier, true); enemy != nil {
-			g.bounty = enemy
-			g.bountyReward = rollBountyReward(tier, g.level)
-
-			return
-		}
+	randCamp := rand.IntN(len(g.camps))
+	bounty := g.spawnEnemyOfTier(g.camps[randCamp], tier, true)
+	if bounty == nil {
+		return
 	}
+	g.bounty = bounty
+	g.bountyReward = rollBountyReward(tier, g.level)
 }
 
 // aliveEnemies counts the enemies that are still a threat to the player. The
@@ -1718,7 +1712,7 @@ func (g *Game) spawnBounty() {
 func (g *Game) aliveEnemies() int {
 	alive := 0
 	for _, enemy := range g.enemies {
-		if !enemy.Dead && !enemy.IsBounty {
+		if !enemy.Dead && !enemy.KnockedOut {
 			alive++
 		}
 	}
