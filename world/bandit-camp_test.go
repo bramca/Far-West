@@ -17,6 +17,26 @@ func TestBanditCampContains(t *testing.T) {
 	}
 }
 
+func TestBanditCampAssignsFightRoles(t *testing.T) {
+	camp := NewBanditCamp(100, 100, 50)
+	enemies := make([]*actors.Enemy, 6)
+	for i := range enemies {
+		enemies[i] = &actors.Enemy{Player: &actors.Player{}}
+		camp.AddEnemy(enemies[i])
+	}
+
+	roles := map[actors.EnemyRole]int{}
+	for _, enemy := range enemies {
+		roles[enemy.Role]++
+	}
+	if roles[actors.RolePin] != 2 || roles[actors.RoleFlank] != 2 || roles[actors.RoleRusher] != 2 {
+		t.Fatalf("the camp handed out roles %v, want two of each", roles)
+	}
+	if enemies[1].FlankAngle == enemies[4].FlankAngle {
+		t.Fatal("the two flankers target the same side of the player")
+	}
+}
+
 func TestBanditCampEnemies(t *testing.T) {
 	camp := NewBanditCamp(100, 100, 50)
 	first := &actors.Enemy{Player: &actors.Player{}}

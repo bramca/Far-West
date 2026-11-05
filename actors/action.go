@@ -41,6 +41,10 @@ type Action struct {
 	// PreferredRange is the distance from the player the actor tries to keep
 	// while moving and shooting. Zero means the actor only strafes.
 	PreferredRange float64
+	// TargetOffsetX and TargetOffsetY shift the point the actor moves toward
+	// away from the player, so camp members can flank instead of stacking up.
+	TargetOffsetX float64
+	TargetOffsetY float64
 }
 
 // directionTowardsPoint returns the cardinal direction that brings an actor
@@ -124,21 +128,23 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 		}
 		actionPerformed = true
 	case MoveAndShoot:
-		angle := utils.AngleBetweenPoints(player.X, player.Y, a.Actor.X, a.Actor.Y)
+		focusX := player.X + a.TargetOffsetX
+		focusY := player.Y + a.TargetOffsetY
+		angle := utils.AngleBetweenPoints(focusX, focusY, a.Actor.X, a.Actor.Y)
 		if math.Abs(angle-3*math.Pi/2) < 0.1 || math.Abs(angle-math.Pi) < 0.1 || math.Abs(angle) < 0.1 || math.Abs(angle-math.Pi/2) < 0.1 {
 			a.Actor.StopAnimation()
 		}
 
-		distance := utils.DistanceBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
+		distance := utils.DistanceBetweenPoints(a.Actor.X, a.Actor.Y, focusX, focusY)
 		advance := a.PreferredRange > 0 && distance > a.PreferredRange+engageRangeTolerance
 
 		if advance {
-			dir := directionTowardsPoint(a.Actor.X, a.Actor.Y, player.X, player.Y)
+			dir := directionTowardsPoint(a.Actor.X, a.Actor.Y, focusX, focusY)
 			a.Actor.Look(dir)
 			a.Actor.Move(dir)
 		} else {
-			xDelta := math.Abs(a.Actor.X - player.X)
-			yDelta := math.Abs(a.Actor.Y - player.Y)
+			xDelta := math.Abs(a.Actor.X - focusX)
+			yDelta := math.Abs(a.Actor.Y - focusY)
 			moveX := false
 			moveY := false
 			if xDelta <= yDelta && angle >= 0 && angle <= math.Pi {

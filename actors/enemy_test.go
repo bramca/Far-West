@@ -139,6 +139,53 @@ func TestRepositionDoesNotShoot(t *testing.T) {
 	}
 }
 
+func TestEnemyRolesTargetDifferentPoints(t *testing.T) {
+	player := newCombatTestPlayer(500, 500)
+	flanker := &Enemy{Player: newCombatTestPlayer(500, 300), Role: RoleFlank, FlankAngle: math.Pi / 2}
+	pin := &Enemy{Player: newCombatTestPlayer(500, 300), Role: RolePin}
+
+	offsetX, offsetY := flanker.engageOffset()
+	if math.Abs(offsetX) > 0.001 || math.Abs(offsetY-flankOffsetDistance) > 0.001 {
+		t.Fatalf("the flanker targets offset %f,%f, want 0,%f", offsetX, offsetY, flankOffsetDistance)
+	}
+
+	focusX, focusY := flanker.focusPoint(player)
+	if math.Hypot(focusX-player.X, focusY-player.Y) < flankOffsetDistance-0.001 {
+		t.Fatal("the flanker focused on the player instead of a point beside him")
+	}
+
+	offsetX, offsetY = pin.engageOffset()
+	if offsetX != 0 || offsetY != 0 {
+		t.Fatalf("the pin targets offset %f,%f, want the player himself", offsetX, offsetY)
+	}
+}
+
+func TestRusherClosesInMoreThanPin(t *testing.T) {
+	gunBelt := []*Gun{{GunType: Revolver}}
+	pin := &Enemy{Player: &Player{CurrentWeapon: 0, GunBelt: gunBelt}, Role: RolePin}
+	rusher := &Enemy{Player: &Player{CurrentWeapon: 0, GunBelt: gunBelt}, Role: RoleRusher}
+
+	if rusher.engageRange() >= pin.engageRange() {
+		t.Fatalf("a rusher keeps %f distance while a pin keeps %f, the rusher should close in", rusher.engageRange(), pin.engageRange())
+	}
+}
+
+func TestFlankerMovesTowardsOffsetPoint(t *testing.T) {
+	target := newCombatTestPlayer(500, 500)
+	enemy := newCombatTestPlayer(500, 300)
+
+	Action{
+		Type:           MoveAndShoot,
+		Actor:          enemy,
+		PreferredRange: 100,
+		TargetOffsetX:  300,
+	}.PerformAction(target, 1)
+
+	if enemy.X <= 500 {
+		t.Fatalf("the flanker moved to %f, it should head for the offset point to the right", enemy.X)
+	}
+}
+
 func newCombatTestPlayer(x, y float64) *Player {
 	return &Player{
 		X:              x,

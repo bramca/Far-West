@@ -41,6 +41,24 @@ const (
 	shotgunEngageRange    = 110.0
 	revolverEngageRange   = 220.0
 	machineGunEngageRange = 320.0
+	// flankOffsetDistance is how far to the side of the player a flanking
+	// bandit aims to stand, so the camp spreads out instead of stacking up.
+	flankOffsetDistance = 120.0
+	// rusherEngageFraction scales the distance a rusher keeps, so it charges
+	// in while the pins hold the player at their weapon's range.
+	rusherEngageFraction = 0.5
+)
+
+// EnemyRole decides how a bandit approaches a fight.
+type EnemyRole int
+
+const (
+	// RolePin holds the player's attention at the weapon's usual range.
+	RolePin EnemyRole = iota
+	// RoleFlank circles around to the side of the player.
+	RoleFlank
+	// RoleRusher charges in close.
+	RoleRusher
 )
 
 // EnemyTierStats holds the extra stats an enemy gets from its tier on top of
@@ -77,6 +95,10 @@ type Enemy struct {
 	// CampID identifies the bandit camp the enemy belongs to, bandits of the
 	// same camp raise the alarm for each other.
 	CampID int
+	// Role decides how the bandit approaches the player during a fight.
+	Role EnemyRole
+	// FlankAngle is the world angle around the player a flanker targets.
+	FlankAngle float64
 	// HomeX and HomeY are the center of the bandit camp the enemy belongs to
 	// and HomeRadius is how far it may wander away from it.
 	HomeX      float64
@@ -302,6 +324,7 @@ func (e *Enemy) engage(player *Player) {
 		switch e.CurrentAction.Type {
 		case MoveAndShoot:
 			e.CurrentAction.PreferredRange = e.engageRange()
+			e.CurrentAction.TargetOffsetX, e.CurrentAction.TargetOffsetY = e.engageOffset()
 
 			return
 		case Dodge, Reposition:
@@ -310,7 +333,8 @@ func (e *Enemy) engage(player *Player) {
 	}
 
 	if e.CurrentAction.Type == MoveAndShoot {
-		moveDir := e.repositionDirection(player)
+		focusX, focusY := e.focusPoint(player)
+		moveDir := e.repositionDirection(focusX, focusY)
 		e.CurrentAction = Action{
 			Duration: enemyRepositionMinDuration + rand.IntN(enemyRepositionMaxDuration-enemyRepositionMinDuration+1),
 			Type:     Reposition,
@@ -329,27 +353,47 @@ func (e *Enemy) engage(player *Player) {
 		duration = enemyCombatDodgeMinDuration + rand.IntN(enemyCombatDodgeMaxDuration-enemyCombatDodgeMinDuration+1)
 	}
 
+	offsetX, offsetY := e.engageOffset()
 	e.CurrentAction = Action{
 		Duration:       duration,
 		Type:           actionType,
 		Actor:          e.Player,
 		PreferredRange: e.engageRange(),
+		TargetOffsetX:  offsetX,
+		TargetOffsetY:  offsetY,
 	}
 }
 
-// repositionDirection strafes around the player instead of closing in or
+// focusPoint returns the point around the player the enemy moves toward. Pins
+// and rushers aim straight at the player, flankers aim at a spot beside him.
+func (e *Enemy) focusPoint(player *Player) (float64, float64) {
+	offsetX, offsetY := e.engageOffset()
+
+	return player.X + offsetX, player.Y + offsetY
+}
+
+// engageOffset returns the offset from the player the enemy's role targets.
+func (e *Enemy) engageOffset() (float64, float64) {
+	if e.Role != RoleFlank {
+		return 0, 0
+	}
+
+	return math.Cos(e.FlankAngle) * flankOffsetDistance, math.Sin(e.FlankAngle) * flankOffsetDistance
+}
+
+// repositionDirection strafes around the focus point instead of closing in or
 // backing off, so the reposition after an attack never walks the enemy into
 // or away from the player.
-func (e *Enemy) repositionDirection(player *Player) Direction {
-	if math.Abs(player.X-e.X) > math.Abs(player.Y-e.Y) {
-		if player.Y < e.Y {
+func (e *Enemy) repositionDirection(x, y float64) Direction {
+	if math.Abs(x-e.X) > math.Abs(y-e.Y) {
+		if y < e.Y {
 			return Down
 		}
 
 		return Up
 	}
 
-	if player.X < e.X {
+	if x < e.X {
 		return Right
 	}
 
@@ -409,16 +453,24 @@ func (e *Enemy) engageRange() float64 {
 		return revolverEngageRange
 	}
 
+	var engageRange float64
 	switch e.GunBelt[index].GunType {
 	case Shotgun:
-		return shotgunEngageRange
+		engageRange = shotgunEngageRange
 	case MachineGun:
-		return machineGunEngageRange
+		engageRange = machineGunEngageRange
 	case Fists:
-		return fistsEngageRange
+		engageRange = fistsEngageRange
 	default:
-		return revolverEngageRange
+		engageRange = revolverEngageRange
 	}
+
+	// a rusher charges closer than his weapon would normally like
+	if e.Role == RoleRusher {
+		return max(fistsEngageRange, engageRange*rusherEngageFraction)
+	}
+
+	return engageRange
 }
 
 // wanderDirection picks a direction for an idle bandit. Once he is far enough
