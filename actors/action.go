@@ -66,6 +66,9 @@ func directionTowardsPoint(fromX, fromY, toX, toY float64) Direction {
 
 func (a Action) PerformAction(player *Player, frameCount int) {
 	actionPerformed := false
+	if a.Actor == nil {
+		return
+	}
 	switch a.Type {
 	case Dodge:
 		if a.Actor.IsNpc {
