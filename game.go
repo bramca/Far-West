@@ -970,8 +970,12 @@ func scaledStorePrice(base, level int) int {
 }
 
 func (g *Game) newStoreWeaponItem() world.StoreItem {
-	if rand.Float64() < 0.30 {
+	roll := rand.Float64()
+	switch {
+	case roll < 0.25:
 		return g.newStoreWhiskyItem()
+	case roll < 0.45:
+		return g.newStoreCigarItem()
 	}
 
 	gunType := rollEnemyWeapon()
@@ -1008,6 +1012,23 @@ func (g *Game) newStoreWhiskyItem() world.StoreItem {
 		Price:  scaledStorePrice(20+heal*3+bottles*5, g.level),
 		Amount: bottles,
 		Weapon: actors.Whisky,
+		Gun:    &gun,
+	}
+}
+
+func (g *Game) newStoreCigarItem() world.StoreItem {
+	refill := 4 + g.level/2 + rand.IntN(4)
+	cigars := 2 + rand.IntN(4)
+	tier := rollStoreGunTier(g.level)
+	gun := g.newEnemyGun(actors.Cigar, tier, refill)
+	gun.Ammo = cigars
+
+	return world.StoreItem{
+		Kind:   world.StoreCigar,
+		Name:   "CIGAR",
+		Price:  scaledStorePrice(16+refill*3+cigars*5, g.level),
+		Amount: cigars,
+		Weapon: actors.Cigar,
 		Gun:    &gun,
 	}
 }
@@ -1585,12 +1606,17 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.Ammo = 5 + rand.IntN(10)
 		gun.MuzzleFlash = 0
 		gun.Sprite = g.gunSprites[actors.Whisky]
+	case actors.Cigar:
+		gun.ShootCooldown = playerShootCooldown * 2
+		gun.Ammo = 3 + rand.IntN(5)
+		gun.MuzzleFlash = 0
+		gun.Sprite = g.gunSprites[actors.Cigar]
 	}
 
 	stats := rollGunTierStats(tier)
 	gun.Damage += stats.Damage
 	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.ShootCoolAmmo)
-	if gunType == actors.Whisky {
+	if gunType == actors.Whisky || gunType == actors.Cigar {
 		gun.Ammo += min(stats.Ammo, 2)
 
 		return gun
@@ -2999,7 +3025,7 @@ func (g *Game) Update() error {
 
 			if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
 				gun := g.player.GunBelt[g.player.CurrentWeapon]
-				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
+				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky && gun.GunType != actors.Cigar {
 					g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
 				}
 			}
@@ -3238,7 +3264,7 @@ func (g *Game) buyStoreItem(item *world.StoreItem) {
 			return
 		}
 		g.player.GunBelt[index].Ammo += item.Amount
-	case world.StoreWeapon, world.StoreWhisky:
+	case world.StoreWeapon, world.StoreWhisky, world.StoreCigar:
 		if !g.equipStoreGun(item.Gun) {
 			return
 		}
@@ -3350,6 +3376,9 @@ func (g *Game) openChest(chest *world.Chest) {
 	case world.Whisky:
 		whisky := g.newEnemyGun(actors.Whisky, actors.Common, 2+rand.IntN(3))
 		g.loot = append(g.loot, actors.NewLoot(&whisky, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	case world.Cigar:
+		cigar := g.newEnemyGun(actors.Cigar, rollGunTier(actors.Common), 5+rand.IntN(5))
+		g.loot = append(g.loot, actors.NewLoot(&cigar, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	}
 }
 
@@ -3731,6 +3760,13 @@ func gunStatRows(current, loot *actors.Gun) []gunStatRow {
 			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
 		}
 	}
+	if loot.GunType == actors.Cigar {
+		return []gunStatRow{
+			{"DEAD EYE", float64(current.Damage), float64(loot.Damage), true, 0},
+			{"CIGARS", float64(current.Ammo), float64(loot.Ammo), true, 0},
+			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		}
+	}
 
 	rows := []gunStatRow{
 		{"DAMAGE", float64(current.Damage), float64(loot.Damage), true, 0},
@@ -3879,6 +3915,11 @@ func storeItemDetail(item world.StoreItem) string {
 			return ""
 		}
 		return "HEAL " + strconv.Itoa(item.Gun.Damage) + "  BOTTLES " + strconv.Itoa(item.Gun.Ammo)
+	case world.StoreCigar:
+		if item.Gun == nil {
+			return ""
+		}
+		return "DEAD EYE +" + strconv.Itoa(item.Gun.Damage) + "  CIGARS " + strconv.Itoa(item.Gun.Ammo)
 	case world.StoreUpgrade:
 		return item.Upgrade.Description()
 	default:
@@ -3909,6 +3950,9 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 	floorText := "GUN ON THE FLOOR"
 	if loot.Gun.GunType == actors.Whisky {
 		floorText = "WHISKY ON THE FLOOR"
+	}
+	if loot.Gun.GunType == actors.Cigar {
+		floorText = "CIGAR ON THE FLOOR"
 	}
 	g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
 

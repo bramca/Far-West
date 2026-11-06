@@ -225,7 +225,7 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64) {
 		p.drawMeleeSweep(screen, camX, camY)
 	}
 	weapon := p.GunBelt[p.CurrentWeapon].GunType
-	if p.MuzzleFlash > 0 && !p.Dead && weapon != Fists && weapon != Whisky {
+	if p.MuzzleFlash > 0 && !p.Dead && weapon != Fists && weapon != Whisky && weapon != Cigar {
 		drawMuzzleFlash(screen, p.X+p.W/2-camX, p.Y+p.H/2-camY, p.AimAngle)
 	}
 	p.Healthbar.Draw(screen, camX, camY)

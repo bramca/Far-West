@@ -1127,6 +1127,81 @@ func TestGunStatRowsWhisky(t *testing.T) {
 	}
 }
 
+// TestNewEnemyCigar makes sure a cigar drop has usable dead eye refill stats.
+func TestNewEnemyCigar(t *testing.T) {
+	game := NewGame()
+	cigar := game.newEnemyGun(actors.Cigar, actors.Legendary, 4)
+
+	if cigar.GunType != actors.Cigar || cigar.Tier != actors.Legendary {
+		t.Fatal("the cigar did not keep its type and tier")
+	}
+	if cigar.Damage < 4 || cigar.Ammo <= 0 || cigar.ShootCooldown <= 0 {
+		t.Fatal("the cigar has invalid stats")
+	}
+	if cigar.Sprite == nil {
+		t.Fatal("the cigar has no sprite")
+	}
+}
+
+// TestGunStatRowsCigar makes sure the comparison card shows the dead eye
+// refill of a cigar instead of combat stats.
+func TestGunStatRowsCigar(t *testing.T) {
+	current := &actors.Gun{GunType: actors.Cigar, Damage: 4, Ammo: 3, ShootCooldown: 32}
+	loot := &actors.Gun{GunType: actors.Cigar, Damage: 6, Ammo: 5, ShootCooldown: 24}
+
+	rows := gunStatRows(current, loot)
+	if len(rows) != 3 {
+		t.Fatalf("expected three cigar comparison rows, got %d", len(rows))
+	}
+	if rows[0].label != "DEAD EYE" || rows[0].now != 4 || rows[0].loot != 6 {
+		t.Fatal("the dead eye row does not compare both cigars")
+	}
+}
+
+// TestOpenCigarChestDropsCigar makes sure a cigar chest leaves a cigar on the
+// floor instead of gold or a gun.
+func TestOpenCigarChestDropsCigar(t *testing.T) {
+	game := NewGame()
+	lootBefore := len(game.loot)
+	chest := &world.Chest{
+		X:     100,
+		Y:     100,
+		W:     32,
+		H:     32,
+		Scale: 2,
+		State: world.Closed,
+		Type:  world.Cigar,
+	}
+
+	game.openChest(chest)
+
+	if chest.State != world.Open {
+		t.Fatal("the cigar chest did not open")
+	}
+	if len(game.loot) != lootBefore+1 {
+		t.Fatalf("expected one cigar drop, got %d new loot items", len(game.loot)-lootBefore)
+	}
+	if game.loot[len(game.loot)-1].Gun.GunType != actors.Cigar {
+		t.Fatal("the cigar chest did not drop a cigar")
+	}
+}
+
+// TestNewStoreCigar makes sure the store can offer cigars with random stats.
+func TestNewStoreCigar(t *testing.T) {
+	game := NewGame()
+	item := game.newStoreCigarItem()
+
+	if item.Kind != world.StoreCigar || item.Gun == nil {
+		t.Fatal("the store cigar item is incomplete")
+	}
+	if item.Gun.GunType != actors.Cigar || item.Gun.Sprite == nil {
+		t.Fatal("the store cigar has no usable gun")
+	}
+	if item.Amount <= 0 || item.Gun.Ammo != item.Amount || item.Price <= 0 {
+		t.Fatal("the store cigar has invalid stats or price")
+	}
+}
+
 func firstStoreItem(game *Game, kind world.StoreItemKind) *world.StoreItem {
 	for i := range game.store.Stock {
 		if game.store.Stock[i].Kind == kind {
@@ -1162,7 +1237,7 @@ func TestStoreStockGeneration(t *testing.T) {
 			if item.Amount <= 0 {
 				t.Fatalf("ammo item %q has no ammo", item.Name)
 			}
-		case world.StoreWeapon, world.StoreWhisky:
+		case world.StoreWeapon, world.StoreWhisky, world.StoreCigar:
 			if item.Gun == nil {
 				t.Fatalf("gun item %q has no gun", item.Name)
 			}
@@ -1177,8 +1252,8 @@ func TestStoreStockGeneration(t *testing.T) {
 	if counts[world.StoreAmmo] < storeAmmoOffersMin || counts[world.StoreAmmo] > storeAmmoOffersMax {
 		t.Fatalf("expected %d to %d ammo offers, got %d", storeAmmoOffersMin, storeAmmoOffersMax, counts[world.StoreAmmo])
 	}
-	if counts[world.StoreWeapon]+counts[world.StoreWhisky] != storeWeaponOffers {
-		t.Fatalf("expected %d weapon or whisky offers, got %d", storeWeaponOffers, counts[world.StoreWeapon]+counts[world.StoreWhisky])
+	if counts[world.StoreWeapon]+counts[world.StoreWhisky]+counts[world.StoreCigar] != storeWeaponOffers {
+		t.Fatalf("expected %d weapon or consumable offers, got %d", storeWeaponOffers, counts[world.StoreWeapon]+counts[world.StoreWhisky]+counts[world.StoreCigar])
 	}
 	if counts[world.StoreUpgrade] < storeUpgradeOffersMin || counts[world.StoreUpgrade] > storeUpgradeOffersMax {
 		t.Fatalf("expected %d to %d upgrade offers, got %d", storeUpgradeOffersMin, storeUpgradeOffersMax, counts[world.StoreUpgrade])
