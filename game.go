@@ -52,6 +52,14 @@ const (
 	storeUpgradeOffersMax = 2
 	storeInteractRadius   = 150.0
 
+	// jail and bounty
+	jailRadius         = 150.0
+	jailDistance       = 220.0
+	jailDistanceJitter = 70.0
+	jailInteractRadius = 190.0
+	// how long the bounty notification stays on screen
+	bountyNoticeDuration = 6 * 60
+
 	// boat and dock
 	boatScale          = 8.0
 	boatInteractRadius = 200.0
@@ -101,6 +109,25 @@ const (
 	commonKillGold    = 5
 	rareKillGold      = 10
 	legendaryKillGold = 20
+
+	// bounty rewards grow with the rarity of the target and the level it was
+	// posted on, the final price also gets a random addition.
+	commonBountyBase        = 80
+	rareBountyBase          = 170
+	legendaryBountyBase     = 320
+	commonBountyPerLevel    = 10
+	rareBountyPerLevel      = 20
+	legendaryBountyPerLevel = 35
+	// a bounty runs for the boat when his health drops below a third or
+	// when he has been on the hunt for this many frames
+	bountyFleeHealthDivisor = 4
+	bountyFleeAlertFrames   = 13 * 60
+	// bandits this close to a fleeing bounty rally to the chase
+	bountyFleeRallyRadius = 1200.0
+	// how close the bounty has to get to the shore before he boards the boat
+	bountyEscapeRadius = 60.0
+	// a dead bounty only pays a fraction of the price for bringing him in alive
+	bountyKillRewardDivisor = 5
 
 	// weapons
 	playerReloadDuration          = 60
@@ -267,16 +294,19 @@ type Game struct {
 	textDrawOptions *text.DrawOptions
 
 	// actors
-	player                *actors.Player
-	playerSprites         []*ebiten.Image
-	enemyCommonSprites    []*ebiten.Image
-	enemyRareSprites      []*ebiten.Image
-	enemyLegendarySprites []*ebiten.Image
-	gunSprites            []*ebiten.Image
-	bulletSprite          *ebiten.Image
-	enemies               []*actors.Enemy
-	particles             []actors.Particle
-	loot                  []*actors.Loot
+	player                 *actors.Player
+	playerSprites          []*ebiten.Image
+	enemyCommonSprites     []*ebiten.Image
+	enemyRareSprites       []*ebiten.Image
+	enemyLegendarySprites  []*ebiten.Image
+	bountyCommonSprites    []*ebiten.Image
+	bountyRareSprites      []*ebiten.Image
+	bountyLegendarySprites []*ebiten.Image
+	gunSprites             []*ebiten.Image
+	bulletSprite           *ebiten.Image
+	enemies                []*actors.Enemy
+	particles              []actors.Particle
+	loot                   []*actors.Loot
 
 	// hit feedback
 	// shakeFrames and shakeStrength control the decaying screen shake.
@@ -306,6 +336,20 @@ type Game struct {
 	storeHitbox    *actors.HitBox
 	storeOpen      bool
 	storeSelection int
+
+	jail       *world.Jail
+	jailSprite *ebiten.Image
+	jailHitbox *actors.HitBox
+
+	// bounty
+	bounty            *actors.Enemy
+	bountyReward      int
+	bountyAlertFrames int
+	bountyClaimed     bool
+	wantedPosterOpen  bool
+	noticeText        string
+	noticeLines       []string
+	noticeTimer       int
 
 	boat       *world.Boat
 	boatSprite *ebiten.Image
@@ -463,6 +507,33 @@ func NewGame() *Game {
 		"assets/sprites/enemy-legendary-dead.png",
 	}, 32, 32)
 
+	game.bountyCommonSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/bounty-common-no-gun.png",
+		"assets/sprites/bounty-common-whisky.png",
+		"assets/sprites/bounty-common-revolver.png",
+		"assets/sprites/bounty-common-shotgun.png",
+		"assets/sprites/bounty-common-machine-gun.png",
+		"assets/sprites/bounty-common-dead.png",
+	}, 32, 32)
+
+	game.bountyRareSprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/bounty-rare-no-gun.png",
+		"assets/sprites/bounty-rare-whisky.png",
+		"assets/sprites/bounty-rare-revolver.png",
+		"assets/sprites/bounty-rare-shotgun.png",
+		"assets/sprites/bounty-rare-machine-gun.png",
+		"assets/sprites/bounty-rare-dead.png",
+	}, 32, 32)
+
+	game.bountyLegendarySprites = helpers.LoadSprites(assets, []string{
+		"assets/sprites/bounty-legendary-no-gun.png",
+		"assets/sprites/bounty-legendary-whisky.png",
+		"assets/sprites/bounty-legendary-revolver.png",
+		"assets/sprites/bounty-legendary-shotgun.png",
+		"assets/sprites/bounty-legendary-machine-gun.png",
+		"assets/sprites/bounty-legendary-dead.png",
+	}, 32, 32)
+
 	game.bulletSprite = helpers.LoadSprites(assets, []string{
 		"assets/sprites/bullet.png",
 	}, 32, 32)[0]
@@ -475,6 +546,10 @@ func NewGame() *Game {
 
 	game.storeSprite = helpers.LoadSprites(assets, []string{
 		"assets/sprites/store.png",
+	}, 32, 32)[0]
+
+	game.jailSprite = helpers.LoadSprites(assets, []string{
+		"assets/sprites/jail.png",
 	}, 32, 32)[0]
 
 	game.boatSprite = helpers.LoadSprites(assets, []string{
@@ -507,6 +582,8 @@ func NewGame() *Game {
 	game.chestHitbox = helpers.InitializeChestHitbox()
 
 	game.storeHitbox = helpers.InitializeStoreHitbox()
+
+	game.jailHitbox = helpers.InitializeJailHitbox()
 
 	game.Initialize()
 
@@ -552,7 +629,6 @@ func (g *Game) startLevel(level int) {
 	g.player.DeadEyeCharge = g.player.DeadEyeMaxCharge
 	g.worldTimeAccumulator = 0
 	g.player.Dead = false
-	g.player.Health = g.player.MaxHealth
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
 	g.player.SavePosition()
@@ -561,6 +637,15 @@ func (g *Game) startLevel(level int) {
 
 	g.storeOpen = false
 	g.storeSelection = 0
+
+	g.bounty = nil
+	g.bountyReward = 0
+	g.bountyAlertFrames = 0
+	g.bountyClaimed = false
+	g.wantedPosterOpen = false
+	g.noticeText = ""
+	g.noticeLines = nil
+	g.noticeTimer = 0
 
 	g.camps = nil
 	g.tents = nil
@@ -573,6 +658,8 @@ func (g *Game) startLevel(level int) {
 
 	g.store = nil
 	g.spawnStore()
+	g.jail = nil
+	g.spawnJail()
 
 	g.enemies = nil
 	g.loot = nil
@@ -603,6 +690,8 @@ func (g *Game) spawnBoat() (float64, float64) {
 		DrawOptions: &ebiten.DrawImageOptions{},
 		Scale:       boatScale,
 		Side:        site.Side,
+		ShoreX:      site.X,
+		ShoreY:      site.Y,
 	}
 
 	switch site.Side {
@@ -714,16 +803,91 @@ func (g *Game) clearStoreArea() {
 
 	storeX := g.store.X + g.store.W*g.store.Scale/2
 	storeY := g.store.Y + g.store.H*g.store.Scale/2
+	g.clearPlantsAround(storeX, storeY, storeRadius)
+}
+
+// clearPlantsAround removes the plants that grew on top of a building so the
+// store and the jail have a little town square around them.
+func (g *Game) clearPlantsAround(x, y, radius float64) {
 	remaining := g.plants[:0]
 	for _, plant := range g.plants {
 		plantX := plant.X + plant.W*plant.Scale/2
 		plantY := plant.Y + plant.H*plant.Scale/2
-		if utils.DistanceBetweenPoints(storeX, storeY, plantX, plantY) < storeRadius {
+		if utils.DistanceBetweenPoints(x, y, plantX, plantY) < radius {
 			continue
 		}
 		remaining = append(remaining, plant)
 	}
 	g.plants = remaining
+}
+
+// spawnJail places the jail on a small ring around the store so the two
+// buildings form a town instead of standing on opposite sides of the island.
+func (g *Game) spawnJail() {
+	if g.store == nil {
+		return
+	}
+
+	storeX := g.store.X + g.store.W*g.store.Scale/2
+	storeY := g.store.Y + g.store.H*g.store.Scale/2
+	const spriteScale = 6.0
+
+	for range 600 {
+		angle := rand.Float64() * 2 * math.Pi
+		distance := jailDistance + (rand.Float64()*2-1)*jailDistanceJitter
+		jailX := storeX + math.Cos(angle)*distance
+		jailY := storeY + math.Sin(angle)*distance
+		jail := g.newJailAt(jailX, jailY, spriteScale)
+		if jail == nil {
+			continue
+		}
+
+		g.jail = jail
+		g.clearPlantsAround(jailX, jailY, jailRadius)
+
+		return
+	}
+
+	// a cramped island can leave no room next to the store, put the jail on
+	// any open spot so the bounty can still be collected
+	x, y, ok := g.island.RandomOpenLandPoint(jailRadius, 0, [2]float64{g.player.X, g.player.Y})
+	if !ok {
+		return
+	}
+	g.jail = g.newJailAt(x, y, spriteScale)
+	if g.jail != nil {
+		g.clearPlantsAround(x, y, jailRadius)
+	}
+}
+
+// newJailAt builds a jail centered on the given point when its hitbox fits on
+// walkable ground and does not overlap the other town buildings.
+func (g *Game) newJailAt(centerX, centerY, spriteScale float64) *world.Jail {
+	width := float64(g.jailSprite.Bounds().Dx())
+	height := float64(g.jailSprite.Bounds().Dy())
+	x := centerX - width*spriteScale/2
+	y := centerY - height*spriteScale/2
+	hitbox := g.jailHitbox
+	jail := &world.Jail{
+		X:           x,
+		Y:           y,
+		W:           width,
+		H:           height,
+		Sprite:      g.jailSprite,
+		DrawOptions: &ebiten.DrawImageOptions{},
+		Scale:       spriteScale,
+		Hitbox: &actors.HitBox{
+			X: float32(x + float64(hitbox.X*float32(spriteScale))),
+			Y: float32(y + float64(hitbox.Y*float32(spriteScale))),
+			W: hitbox.W * float32(spriteScale),
+			H: hitbox.H * float32(spriteScale),
+		},
+	}
+	if !g.canStandAt(jail.Hitbox) {
+		return nil
+	}
+
+	return jail
 }
 
 func (g *Game) spawnStoreStock() {
@@ -887,9 +1051,14 @@ func (g *Game) spawnLevel() {
 		return
 	}
 
-	for i := range g.levelEnemies {
+	// one less then the count for level
+	// the extra one will be the bounty
+	for i := range g.levelEnemies - 1 {
 		g.spawnEnemy(g.camps[i%len(g.camps)])
 	}
+
+	// bounty counts as one of the enemies
+	g.spawnBounty()
 }
 
 // enemyCountForLevel returns how many enemies the player has to beat in a
@@ -1198,6 +1367,71 @@ func enemyStatsForTier(tier actors.Tier) actors.EnemyTierStats {
 	}
 }
 
+// bountyBonusStatsForTier is added on top of the normal tier stats, a bounty
+// is meant to be a noticeably harder fight than the bandits around it.
+func bountyBonusStatsForTier(tier actors.Tier) actors.EnemyTierStats {
+	switch tier {
+	case actors.Legendary:
+		return actors.EnemyTierStats{Health: 48, Damage: 5, Speed: 1.2, FireRate: 6}
+	case actors.Rare:
+		return actors.EnemyTierStats{Health: 28, Damage: 3, Speed: 0.8, FireRate: 4}
+	default:
+		return actors.EnemyTierStats{Health: 14, Damage: 1, Speed: 0.4, FireRate: 2}
+	}
+}
+
+// rollBountyTier picks the rarity of the bounty posted for this level.
+func rollBountyTier(level int) actors.Tier {
+	return bountyTierForRoll(level, rand.Float64())
+}
+
+// bountyTierForRoll maps a roll in [0, 1) to a bounty tier, bounties use the
+// same rarity curve as the bandits that roam the camps.
+func bountyTierForRoll(level int, roll float64) actors.Tier {
+	return enemyTierForRoll(level, roll)
+}
+
+// bountyBaseReward is the starting price of a bounty before the level bonus
+// and the random addition are applied.
+func bountyBaseReward(tier actors.Tier) int {
+	switch tier {
+	case actors.Legendary:
+		return legendaryBountyBase
+	case actors.Rare:
+		return rareBountyBase
+	default:
+		return commonBountyBase
+	}
+}
+
+func bountyRewardPerLevel(tier actors.Tier) int {
+	switch tier {
+	case actors.Legendary:
+		return legendaryBountyPerLevel
+	case actors.Rare:
+		return rareBountyPerLevel
+	default:
+		return commonBountyPerLevel
+	}
+}
+
+// bountyRewardFor returns the price of a bounty: a base price, a bonus for the
+// current level and a random addition scaled by the rarity of the target.
+func bountyRewardFor(tier actors.Tier, level int, roll float64) int {
+	base := bountyBaseReward(tier)
+	levelBonus := 0
+	if level > 1 {
+		levelBonus = (level - 1) * bountyRewardPerLevel(tier)
+	}
+	randomBonus := int(roll * float64(base+levelBonus))
+
+	return base + levelBonus + randomBonus
+}
+
+func rollBountyReward(tier actors.Tier, level int) int {
+	return bountyRewardFor(tier, level, rand.Float64())
+}
+
 func (g *Game) enemySpritesForTier(tier actors.Tier) []*ebiten.Image {
 	switch tier {
 	case actors.Legendary:
@@ -1206,6 +1440,17 @@ func (g *Game) enemySpritesForTier(tier actors.Tier) []*ebiten.Image {
 		return g.enemyRareSprites
 	default:
 		return g.enemyCommonSprites
+	}
+}
+
+func (g *Game) bountySpritesForTier(tier actors.Tier) []*ebiten.Image {
+	switch tier {
+	case actors.Legendary:
+		return g.bountyLegendarySprites
+	case actors.Rare:
+		return g.bountyRareSprites
+	default:
+		return g.bountyCommonSprites
 	}
 }
 
@@ -1342,15 +1587,41 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 	return gun
 }
 
-func (g *Game) spawnEnemy(camp *world.BanditCamp) {
-	x, y, ok := g.enemySpawnPoint(camp)
-	if !ok {
-		return
+// campID returns the index of the camp in the game's camp list, enemies use
+// it to tell which camp they belong to without keeping a world reference.
+func (g *Game) campID(camp *world.BanditCamp) int {
+	for i, c := range g.camps {
+		if c == camp {
+			return i
+		}
 	}
 
-	tier := rollEnemyTier(g.level)
+	return -1
+}
+
+func (g *Game) spawnEnemy(camp *world.BanditCamp) {
+	g.spawnEnemyOfTier(camp, rollEnemyTier(g.level), false)
+}
+
+// spawnEnemyOfTier builds one enemy for the given camp. Bounties use their own
+// sprites and roll much tougher stats, but are not part of the camp enemy count
+// because they are an optional side target.
+func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty bool) *actors.Enemy {
+	x, y, ok := g.enemySpawnPoint(camp)
+	if !ok {
+		return nil
+	}
+
 	tierStats := enemyStatsForTier(tier)
 	sprites := g.enemySpritesForTier(tier)
+	if bounty {
+		bonus := bountyBonusStatsForTier(tier)
+		tierStats.Health += bonus.Health
+		tierStats.Damage += bonus.Damage
+		tierStats.Speed += bonus.Speed
+		tierStats.FireRate += bonus.FireRate
+		sprites = g.bountySpritesForTier(tier)
+	}
 
 	// the higher the level the tougher and deadlier the enemies get,
 	// the base damage is low because every bullet deals at least 1
@@ -1363,6 +1634,9 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 	}
 
 	fireRate := max(enemyFireRateFloor, 18+rand.IntN(11)-(g.level-1)-tierStats.FireRate)
+	if bounty {
+		fireRate = max(6, fireRate-4)
+	}
 
 	state := actors.PlayerRevolverLeft
 	switch gun.GunType {
@@ -1373,7 +1647,9 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 		fireRate = fireRate / 2
 	}
 	enemy := &actors.Enemy{
-		Tier: tier,
+		Tier:     tier,
+		IsBounty: bounty,
+		CampID:   g.campID(camp),
 		Player: &actors.Player{
 			X:              x,
 			Y:              y,
@@ -1413,7 +1689,7 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 				H: float32(g.enemyCommonSprites[state].Bounds().Dy()),
 			},
 		},
-		VisualDist: rand.IntN(350) + 400,
+		VisualDist: 200 + rand.IntN(300),
 		HomeX:      camp.X,
 		HomeY:      camp.Y,
 		HomeRadius: camp.Radius,
@@ -1435,18 +1711,183 @@ func (g *Game) spawnEnemy(camp *world.BanditCamp) {
 
 	g.enemies = append(g.enemies, enemy)
 	camp.AddEnemy(enemy)
+
+	return enemy
 }
 
-// aliveEnemies counts the enemies that are still a threat to the player.
+// spawnBounty posts one bounty target at a random camp. The target is not part
+// of the camp enemy count, wiping out the ordinary bandits still clears the
+// level while the bounty remains an optional risk for extra money.
+func (g *Game) spawnBounty() {
+	if len(g.camps) == 0 {
+		return
+	}
+
+	tier := rollBountyTier(g.level)
+	randCamp := rand.IntN(len(g.camps))
+	bounty := g.spawnEnemyOfTier(g.camps[randCamp], tier, true)
+	if bounty == nil {
+		return
+	}
+	g.bounty = bounty
+	g.bountyReward = rollBountyReward(tier, g.level)
+}
+
+// aliveEnemies counts the enemies that are still a threat to the player. The
+// bounty is tracked separately because it is an optional target.
 func (g *Game) aliveEnemies() int {
 	alive := 0
 	for _, enemy := range g.enemies {
-		if !enemy.Dead {
+		if !enemy.Dead && !enemy.KnockedOut {
 			alive++
 		}
 	}
 
 	return alive
+}
+
+// updateBountyFlee makes a wounded or long hunted bounty run for the boat and
+// checks whether he made it there before the player could stop him.
+func (g *Game) updateBountyFlee() {
+	bounty := g.bounty
+	if bounty == nil {
+		return
+	}
+	if bounty.Dead || bounty.KnockedOut || bounty.Escaped {
+		g.bountyAlertFrames = 0
+
+		return
+	}
+
+	if bounty.Alerted {
+		g.bountyAlertFrames++
+	} else {
+		g.bountyAlertFrames = 0
+	}
+
+	if !bounty.Fleeing {
+		lowHealth := bounty.MaxHealth > 0 && bounty.Health*bountyFleeHealthDivisor <= bounty.MaxHealth
+		if lowHealth || g.bountyAlertFrames >= bountyFleeAlertFrames {
+			g.startBountyFlee()
+		}
+	}
+
+	if !bounty.Fleeing || g.boat == nil {
+		return
+	}
+
+	bounty.FleeX, bounty.FleeY = g.boat.ShoreX, g.boat.ShoreY
+	dist := utils.DistanceBetweenPoints(bounty.X, bounty.Y, g.boat.ShoreX, g.boat.ShoreY)
+	if dist <= bountyEscapeRadius {
+		g.escapeBounty()
+	}
+}
+
+// startBountyFlee turns the bounty around and sends him to the boat. The
+// nearby bandits join the chase and spot the player from further away.
+func (g *Game) startBountyFlee() {
+	bounty := g.bounty
+	if bounty == nil || bounty.Fleeing || bounty.Dead || bounty.KnockedOut || bounty.Escaped || g.boat == nil {
+		return
+	}
+
+	bounty.Fleeing = true
+	bounty.FleeX, bounty.FleeY = g.boat.ShoreX, g.boat.ShoreY
+	if bounty.CurrentAction.Type == actors.Heal {
+		bounty.CurrentAction = actors.Action{}
+	}
+
+	for _, enemy := range g.enemies {
+		if enemy.Dead || enemy.IsBounty {
+			continue
+		}
+		enemy.Aggressive = true
+		if utils.DistanceBetweenPoints(enemy.X, enemy.Y, bounty.X, bounty.Y) <= bountyFleeRallyRadius {
+			enemy.Alert(g.player.X, g.player.Y)
+		}
+	}
+
+	g.showNotice("BOUNTY FLEEING!", "RUNNING FOR THE", "BOAT")
+}
+
+// stopBountyFlee ends the chase and lets the bandits calm down again.
+func (g *Game) stopBountyFlee() {
+	g.bountyAlertFrames = 0
+	if g.bounty != nil {
+		g.bounty.Fleeing = false
+	}
+	for _, enemy := range g.enemies {
+		enemy.Aggressive = false
+	}
+}
+
+// escapeBounty removes a bounty that reached the boat from the fight and
+// makes sure the player cannot collect his reward anymore.
+func (g *Game) escapeBounty() {
+	bounty := g.bounty
+	if bounty == nil || bounty.Escaped {
+		return
+	}
+
+	bounty.Escaped = true
+	bounty.KnockedOut = false
+	bounty.Dead = true
+	g.removeEnemyFromWorld(bounty)
+	g.stopBountyFlee()
+	g.showNotice("BOUNTY ESCAPED!", "REWARD LOST")
+}
+
+// removeEnemyFromWorld takes an enemy off the field without treating it as a
+// kill, used when a bounty boards the boat.
+func (g *Game) removeEnemyFromWorld(target *actors.Enemy) {
+	for i, enemy := range g.enemies {
+		if enemy == target {
+			g.enemies = append(g.enemies[:i], g.enemies[i+1:]...)
+
+			break
+		}
+	}
+	for _, camp := range g.camps {
+		camp.RemoveEnemy(target)
+	}
+}
+
+// alertCamp raises the alarm in the camp the enemy belongs to. Every bandit
+// in the same camp starts hunting the player at the position he was seen at.
+func (g *Game) alertCamp(source *actors.Enemy, x, y float64) {
+	if source.CampID < 0 {
+		source.Alert(x, y)
+
+		return
+	}
+
+	for _, enemy := range g.enemies {
+		if enemy.Dead || enemy.KnockedOut || enemy.CampID != source.CampID {
+			continue
+		}
+		enemy.Alert(x, y)
+	}
+}
+
+// updateEnemyAlerts lets bandits spot the player and warn their camp. A fresh
+// sighting rallies the whole camp, but after that only the bandits that keep
+// seeing the player stay locked on; the rest calm down if they lose him.
+func (g *Game) updateEnemyAlerts() {
+	for _, enemy := range g.enemies {
+		if enemy.Dead {
+			continue
+		}
+		if enemy.CanSee(g.player) {
+			if !enemy.Alerted {
+				g.alertCamp(enemy, g.player.X, g.player.Y)
+			} else {
+				enemy.Alert(g.player.X, g.player.Y)
+			}
+
+			continue
+		}
+		enemy.TickAlert()
+	}
 }
 
 // addShake triggers a screen shake that decays over the given frames, a
@@ -1639,11 +2080,16 @@ func (g *Game) performMeleeSweep(damage int) {
 
 		enemy.Health -= damage
 		enemy.HitFlash = 8
+		g.alertCamp(enemy, g.player.X, g.player.Y)
 		g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(damage), color.RGBA{255, 220, 120, 240})
 		enemy.UpdateHealhBar()
 		g.spawnHitSparks(ex, ey, 10, color.RGBA{255, 200, 100, 240})
 		if enemy.Health <= 0 {
-			g.killEnemy(enemy)
+			if enemy.IsBounty {
+				g.knockOutBounty(enemy)
+			} else {
+				g.killEnemy(enemy)
+			}
 		} else {
 			g.sounds.Play(soundHit, soundVolumeHit)
 			g.knockbackEnemyAway(enemy, angle, 9)
@@ -1707,6 +2153,7 @@ func (g *Game) checkBulletCollisions() {
 			}
 			enemy.Health -= bullet.Damage
 			enemy.HitFlash = 6
+			g.alertCamp(enemy, g.player.X, g.player.Y)
 			g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "-"+strconv.Itoa(bullet.Damage), color.RGBA{255, 255, 255, 240})
 			enemy.UpdateHealhBar()
 			g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 6, color.RGBA{255, 200, 100, 240})
@@ -1780,7 +2227,12 @@ func (g *Game) bulletBlocked(bullet *actors.Bullet) bool {
 		}
 	}
 
-	if bullet.Hitbox.CheckCollision(g.store.Hitbox) {
+	if g.store != nil && bullet.Hitbox.CheckCollision(g.store.Hitbox) {
+		g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
+		return true
+	}
+
+	if g.jail != nil && bullet.Hitbox.CheckCollision(g.jail.Hitbox) {
 		g.spawnHitSparks(bullet.Hitbox.CenterX(), bullet.Hitbox.CenterY(), 4, color.RGBA{160, 130, 70, 220})
 		return true
 	}
@@ -1862,7 +2314,11 @@ func (g *Game) canStandAt(hitbox *actors.HitBox) bool {
 		}
 	}
 
-	return !hitbox.CheckCollision(g.store.Hitbox)
+	if g.store != nil && hitbox.CheckCollision(g.store.Hitbox) {
+		return false
+	}
+
+	return g.jail == nil || !hitbox.CheckCollision(g.jail.Hitbox)
 }
 
 // checkActorCollisions stops actors from walking through each other.
@@ -1899,7 +2355,9 @@ func (g *Game) unstickEnemy(enemy *actors.Enemy) {
 	enemy.Blocked = false
 
 	targetX, targetY := enemy.HomeX, enemy.HomeY
-	if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
+	if enemy.Fleeing {
+		targetX, targetY = enemy.FleeX, enemy.FleeY
+	} else if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
 		targetX, targetY = g.player.X, g.player.Y
 	}
 
@@ -1933,6 +2391,7 @@ func (g *Game) unstickEnemy(enemy *actors.Enemy) {
 		LookDir:  bestDir,
 		Actor:    enemy.Player,
 	}
+	enemy.SteerTimer = enemy.CurrentAction.Duration
 }
 
 // enemyStepDistance returns how close a single step in the given direction
@@ -2023,13 +2482,40 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	enemy.UpdateCurrentState(actors.PlayerDead)
 	g.score += scorePerKill
 	gold := goldRewardForTier(enemy.Tier)
+	if enemy.IsBounty {
+		g.stopBountyFlee()
+	}
 	g.player.Gold += gold
 	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill)+" PTS +"+strconv.Itoa(gold)+" $", color.RGBA{255, 215, 0, 240})
+	if enemy.IsBounty {
+		g.showNotice("BOUNTY KILLED!", "RETURN TO JAIL")
+	}
 	g.addShake(5, 3)
 	g.freezeFrames = 3
 	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{220, 60, 50, 240})
 	g.sounds.Play(soundEnemyDeath, soundVolumeEnemyDeath)
 	g.dropEnemyGun(enemy)
+}
+
+// knockOutBounty takes a bounty out of the fight without killing him, so the
+// player can turn him in at the jail for the reward.
+func (g *Game) knockOutBounty(enemy *actors.Enemy) {
+	if enemy.Dead || !enemy.IsBounty {
+		return
+	}
+
+	enemy.Health = 0
+	enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
+	enemy.KnockedOut = true
+	enemy.Dead = true
+	enemy.UpdateCurrentState(actors.PlayerDead)
+	g.stopBountyFlee()
+	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "KNOCKED OUT!", color.RGBA{120, 220, 255, 240})
+	g.addShake(5, 3)
+	g.freezeFrames = 3
+	g.spawnHitSparks(enemy.X+enemy.W/2, enemy.Y+enemy.H/2, 12, color.RGBA{120, 200, 255, 240})
+	g.sounds.Play(soundEnemyDeath, soundVolumeEnemyDeath)
+	g.showNotice("BOUNTY CAPTURED!", "RETURN TO JAIL")
 }
 
 // dropEnemyGun leaves the gun of a dead enemy on the floor so the player can
@@ -2149,6 +2635,16 @@ func (g *Game) addHit(hits *[]actors.Hit, x, y float64, msg string, hitColor col
 	*hits = append(*hits, hit)
 }
 
+// showNotice displays a short lived notification with one or more lines.
+func (g *Game) showNotice(lines ...string) {
+	g.noticeLines = lines
+	g.noticeText = ""
+	if len(lines) > 0 {
+		g.noticeText = lines[0]
+	}
+	g.noticeTimer = bountyNoticeDuration
+}
+
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
@@ -2258,6 +2754,9 @@ func (g *Game) Update() error {
 		if g.levelClearNoticeTimer > 0 {
 			g.levelClearNoticeTimer--
 		}
+		if g.noticeTimer > 0 {
+			g.noticeTimer--
+		}
 		g.updateDeadEye()
 		g.removeCorpses()
 
@@ -2289,6 +2788,9 @@ func (g *Game) Update() error {
 
 		if g.storeOpen {
 			g.updateStoreInput()
+			g.player.Act(g.frameCount)
+		} else if g.wantedPosterOpen {
+			g.updateWantedPosterInput()
 			g.player.Act(g.frameCount)
 		} else {
 			// weapon switching
@@ -2391,6 +2893,8 @@ func (g *Game) Update() error {
 				g.openChest(chest)
 			} else if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
 				g.pickUpLoot(loot)
+			} else if g.nearestJail() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+				g.openWantedPoster()
 			} else if g.nearestStore() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
 				g.openStore()
 			}
@@ -2447,6 +2951,8 @@ func (g *Game) Update() error {
 			}
 		}
 
+		g.updateEnemyAlerts()
+
 		for _, enemy := range g.enemies {
 			if enemy.Dead {
 				continue
@@ -2456,6 +2962,7 @@ func (g *Game) Update() error {
 		}
 
 		g.CheckCollisions()
+		g.updateBountyFlee()
 
 		for range g.worldTimeSteps() {
 			g.updateParticles()
@@ -2472,14 +2979,15 @@ func (g *Game) Update() error {
 			g.closeStore()
 			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
 		}
-		if g.mode == ModeGame && !g.storeOpen && g.nearestBoat() != nil &&
+		if g.mode == ModeGame && !g.storeOpen && !g.wantedPosterOpen && g.nearestBoat() != nil &&
 			(inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
 			if g.trySailToNextLevel() {
 				return nil
 			}
 		}
 
-		if g.mode == ModeGame && (ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
+		if g.mode == ModeGame && !g.storeOpen && !g.wantedPosterOpen &&
+			(ebiten.IsKeyPressed(ebiten.KeyP) || buttonsJustPressed["FBR"]) {
 			g.mode = ModePause
 		}
 
@@ -2528,6 +3036,72 @@ func (g *Game) nearestStore() *world.Store {
 	}
 
 	return g.store
+}
+
+func (g *Game) nearestJail() *world.Jail {
+	if g.jail == nil || g.player.Dead || g.storeOpen {
+		return nil
+	}
+
+	px := g.player.X + g.player.W/2
+	py := g.player.Y + g.player.H/2
+	dist := utils.DistanceBetweenPoints(px, py, g.jail.Hitbox.CenterX(), g.jail.Hitbox.CenterY())
+	if dist > jailInteractRadius {
+		return nil
+	}
+
+	return g.jail
+}
+
+// claimBountyReward pays out a bounty that was knocked out and carried back to
+// the jail. A bounty that was killed is worth less.
+func (g *Game) claimBountyReward() {
+	if g.bounty != nil && ((!g.bounty.KnockedOut && !g.bounty.Dead) || g.bounty.Escaped || g.bountyClaimed) {
+		return
+	}
+
+	gold := g.bountyReward
+	if !g.bounty.KnockedOut {
+		gold /= bountyKillRewardDivisor
+	}
+	g.player.Gold += gold
+	g.bountyClaimed = true
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "+"+strconv.Itoa(gold)+" $", color.RGBA{245, 205, 55, 240})
+	g.showNotice("BOUNTY REWARD", "+"+strconv.Itoa(gold)+" $")
+	g.sounds.Play(soundPickup, soundVolumePickup)
+}
+
+func (g *Game) openWantedPoster() {
+	g.wantedPosterOpen = true
+	g.player.StopAnimation()
+	g.player.MoveDirs[actors.Up] = false
+	g.player.MoveDirs[actors.Down] = false
+	g.player.MoveDirs[actors.Right] = false
+	g.player.MoveDirs[actors.Left] = false
+}
+
+func (g *Game) closeWantedPoster() {
+	g.wantedPosterOpen = false
+}
+
+func (g *Game) updateWantedPosterInput() {
+	claim := inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]
+	close := inpututil.IsKeyJustPressed(ebiten.KeyEscape) || buttonsJustPressed["RR"]
+
+	if g.bounty != nil && (g.bounty.KnockedOut || g.bounty.Dead) && !g.bounty.Escaped && !g.bountyClaimed {
+		if claim {
+			g.claimBountyReward()
+			g.closeWantedPoster()
+		} else if close {
+			g.closeWantedPoster()
+		}
+
+		return
+	}
+
+	if claim || close {
+		g.closeWantedPoster()
+	}
 }
 
 func (g *Game) openStore() {
@@ -2744,6 +3318,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		} else if loot := g.comparingLoot(); loot != nil {
 			g.drawLootComparison(screen, loot)
 		}
+		if g.wantedPosterOpen {
+			g.drawWantedPoster(screen)
+		}
+		g.drawNotice(screen)
 		if g.levelComplete && g.levelClearNoticeTimer > 0 {
 			g.drawLevelCompleteOverlay(screen)
 		}
@@ -2801,8 +3379,11 @@ func (g *Game) drawWorld(screen *ebiten.Image) {
 		return
 	}
 
-	if !utils.OutOfScreen(g.store.X, g.store.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+	if g.store != nil && !utils.OutOfScreen(g.store.X, g.store.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
 		g.store.Draw(screen, g.camX, g.camY)
+	}
+	if g.jail != nil && !utils.OutOfScreen(g.jail.X, g.jail.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
+		g.jail.Draw(screen, g.camX, g.camY)
 	}
 	if !utils.OutOfScreen(g.boat.X, g.boat.Y, g.camX, g.camY, ScreenWidth, ScreenHeight) {
 		g.boat.Draw(screen, g.camX, g.camY)
@@ -2882,7 +3463,7 @@ func (g *Game) drawHud(screen *ebiten.Image) {
 
 // drawLootPrompt shows the controls of the gun lying next to the player.
 func (g *Game) drawLootPrompt(screen *ebiten.Image) {
-	if g.storeOpen {
+	if g.storeOpen || g.wantedPosterOpen {
 		return
 	}
 
@@ -2907,6 +3488,13 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 		return
 	}
 
+	if g.nearestJail() != nil {
+		msg := "E WANTED POSTER"
+		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
+		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
+		return
+	}
+
 	if g.nearestBoat() != nil {
 		msg := "N NEXT LEVEL"
 		if g.aliveEnemies() != 0 {
@@ -2916,6 +3504,144 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 		g.drawSmallText(screen, msg, float64(x), float64(ScreenHeight)-150, color.RGBA{240, 230, 190, 255})
 		return
 	}
+}
+
+// drawNotice shows the current notification in the same style as the level
+// complete summary, tucked below it when both are visible.
+func (g *Game) drawNotice(screen *ebiten.Image) {
+	lines := g.noticeLines
+	if len(lines) == 0 && g.noticeText != "" {
+		lines = []string{g.noticeText}
+	}
+	if g.noticeTimer <= 0 || len(lines) == 0 {
+		return
+	}
+
+	const (
+		panelW = 270.0
+		panelH = 100.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+	if g.levelComplete && g.levelClearNoticeTimer > 0 {
+		panelY += panelH + 12
+	}
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, color.RGBA{70, 140, 235, 240}, false)
+	for i, line := range lines {
+		if i >= 3 {
+			break
+		}
+		g.drawSmallText(screen, line, panelX+20, panelY+16+float64(i)*16, color.RGBA{235, 220, 170, 255})
+	}
+}
+
+// bountyPosterState picks the sprite the wanted poster shows, it uses the
+// weapon the bounty carries so the player knows what he is up against.
+func bountyPosterState(enemy *actors.Enemy) actors.PlayerState {
+	if enemy == nil || len(enemy.GunBelt) == 0 || enemy.GunBelt[0] == nil {
+		return actors.PlayerNoGunLeft
+	}
+
+	switch enemy.GunBelt[0].GunType {
+	case actors.Shotgun:
+		return actors.PlayerShotgunLeft
+	case actors.MachineGun:
+		return actors.PlayerMachineGunLeft
+	case actors.Revolver:
+		return actors.PlayerRevolverLeft
+	case actors.Whisky:
+		return actors.PlayerWhiskyLeft
+	default:
+		return actors.PlayerNoGunLeft
+	}
+}
+
+// drawWantedPoster renders the poster on the jail wall with the target, the
+// capture instructions and the reward.
+func (g *Game) drawWantedPoster(screen *ebiten.Image) {
+	if g.bounty == nil {
+		return
+	}
+
+	const (
+		panelW = 520.0
+		panelH = 420.0
+	)
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := (float64(ScreenHeight) - panelH) / 2
+	tierColor := actors.TierColor(g.bounty.Tier)
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{29, 23, 16, 248}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 3, tierColor, false)
+
+	centerX := panelX + panelW/2
+	title := "WANTED"
+	g.drawSmallText(screen, title, centerX-float64(len(title)*g.hudFontSize)/2, panelY+20, color.RGBA{245, 205, 55, 255})
+
+	subtitle := "DEAD OR ALIVE"
+	g.drawSmallText(screen, subtitle, centerX-float64(len(subtitle)*g.hudFontSize)/2, panelY+40, color.RGBA{190, 175, 140, 255})
+
+	iconState := bountyPosterState(g.bounty)
+	if int(iconState) >= len(g.bounty.Sprites) {
+		return
+	}
+	sprite := g.bounty.Sprites[iconState]
+	const iconScale = 3.0
+	iconWidth := float64(sprite.Bounds().Dx()) * iconScale
+	iconHeight := float64(sprite.Bounds().Dy()) * iconScale
+	iconCenterY := panelY + 140.0
+	drawOptions := &ebiten.DrawImageOptions{}
+	drawOptions.GeoM.Scale(iconScale, iconScale)
+	drawOptions.GeoM.Translate(centerX-iconWidth/2, iconCenterY-iconHeight/2)
+	screen.DrawImage(sprite, drawOptions)
+
+	tierText := g.bounty.Tier.String() + " BOUNTY"
+	g.drawSmallText(screen, tierText, centerX-float64(len(tierText)*g.hudFontSize)/2, iconCenterY+iconHeight/2+10, tierColor)
+
+	if len(g.bounty.GunBelt) > 0 && g.bounty.GunBelt[0] != nil {
+		weaponText := "ARMED WITH " + g.bounty.GunBelt[0].GunType.String()
+		g.drawSmallText(screen, weaponText, centerX-float64(len(weaponText)*g.hudFontSize)/2, iconCenterY+iconHeight/2+28, color.RGBA{205, 195, 170, 255})
+	}
+
+	instructions := []string{
+		"CAPTURE ALIVE:",
+		"KNOCK HIM OUT WITH YOUR FISTS",
+	}
+	for i, line := range instructions {
+		g.drawSmallText(screen, line, centerX-float64(len(line)*g.hudFontSize)/2, panelY+250+float64(i)*20, color.RGBA{230, 220, 195, 255})
+	}
+
+	reward := "REWARD"
+	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-104, color.RGBA{245, 205, 55, 255})
+	reward = "ALIVE: $" + strconv.Itoa(g.bountyReward) + " DEAD: $" + strconv.Itoa(g.bountyReward/bountyKillRewardDivisor)
+	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-72, color.RGBA{245, 205, 55, 255})
+
+	status := "HUNT THIS BANDIT AT THE BANDIT CAMPS"
+	statusColor := color.RGBA{190, 175, 140, 255}
+	hint := "E CLOSE"
+	switch {
+	case g.bounty.Escaped:
+		status = "BOUNTY ESCAPED - REWARD LOST"
+		statusColor = color.RGBA{235, 85, 75, 255}
+	case g.bountyClaimed:
+		status = "REWARD CLAIMED"
+		statusColor = color.RGBA{140, 135, 125, 255}
+	case g.bounty.KnockedOut:
+		status = "BOUNTY CAPTURED"
+		statusColor = color.RGBA{100, 225, 100, 255}
+		hint = "E COLLECT REWARD"
+	case g.bounty.Fleeing:
+		status = "BOUNTY IS RUNNING FOR THE BOAT"
+		statusColor = color.RGBA{235, 145, 60, 255}
+	case g.bounty.Dead:
+		status = "BOUNTY KILLED"
+		statusColor = color.RGBA{235, 145, 60, 255}
+		hint = "E COLLECT REWARD"
+	}
+	g.drawSmallText(screen, status, centerX-float64(len(status)*g.hudFontSize)/2, panelY+panelH-44, statusColor)
+	g.drawSmallText(screen, hint, centerX-float64(len(hint)*g.hudFontSize)/2, panelY+panelH-24, color.RGBA{190, 175, 140, 255})
 }
 
 // gunStatRow is one line of the gun comparison overlay.
@@ -3248,11 +3974,15 @@ func (g *Game) campPositions() [][2]float64 {
 }
 
 func (g *Game) storePositions() [][2]float64 {
-	if g.store == nil {
-		return nil
+	positions := make([][2]float64, 0, 2)
+	if g.store != nil {
+		positions = append(positions, [2]float64{g.store.X + g.store.W*g.store.Scale/2, g.store.Y + g.store.H*g.store.Scale/2})
+	}
+	if g.jail != nil {
+		positions = append(positions, [2]float64{g.jail.X + g.jail.W*g.jail.Scale/2, g.jail.Y + g.jail.H*g.jail.Scale/2})
 	}
 
-	return [][2]float64{{g.store.X + g.store.W*g.store.Scale/2, g.store.Y + g.store.H*g.store.Scale/2}}
+	return positions
 }
 
 func (g *Game) boatPositions() [][2]float64 {

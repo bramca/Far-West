@@ -15,6 +15,12 @@ const (
 	Move
 	MoveAndShoot
 	Heal
+	// Reposition is a short strafe between attack bursts. The enemy moves
+	// without firing, which gives the player a chance to shoot back.
+	Reposition
+	// Flee runs toward an escape point while optionally shooting over the
+	// actor's shoulder, used by a bounty that is running for the boat.
+	Flee
 )
 
 const (
@@ -24,6 +30,9 @@ const (
 	// enemyMaxLead caps how far ahead of the player the enemies may aim so
 	// the prediction never carries the shots out of the play field.
 	enemyMaxLead = 140.0
+	// engageRangeTolerance is how far an enemy may drift from the range its
+	// weapon prefers before it closes in or backs off.
+	engageRangeTolerance = 45.0
 )
 
 type Action struct {
@@ -32,10 +41,46 @@ type Action struct {
 	LookDir  Direction
 	Type     ActionType
 	Actor    *Player
+	// PreferredRange is the distance from the player the actor tries to keep
+	// while moving and shooting. Zero means the actor only strafes.
+	PreferredRange float64
+	// TargetOffsetX and TargetOffsetY shift the point the actor moves toward
+	// away from the player, so camp members can flank instead of stacking up.
+	TargetOffsetX float64
+	TargetOffsetY float64
+	// FleeX and FleeY are the escape point a fleeing actor runs toward.
+	FleeX float64
+	FleeY float64
+	// Fire makes a fleeing actor shoot at the player while he runs.
+	Fire bool
+}
+
+// directionTowardsPoint returns the cardinal direction that brings an actor
+// closer to the given point.
+func directionTowardsPoint(fromX, fromY, toX, toY float64) Direction {
+	xDelta := toX - fromX
+	yDelta := toY - fromY
+
+	if math.Abs(xDelta) > math.Abs(yDelta) {
+		if xDelta > 0 {
+			return Right
+		}
+
+		return Left
+	}
+
+	if yDelta > 0 {
+		return Down
+	}
+
+	return Up
 }
 
 func (a Action) PerformAction(player *Player, frameCount int) {
 	actionPerformed := false
+	if a.Actor == nil {
+		return
+	}
 	switch a.Type {
 	case Dodge:
 		if a.Actor.IsNpc {
@@ -83,50 +128,90 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			actionPerformed = true
 			a.Actor.Speed = oldSpeed
 		}
-	case Move:
+	case Move, Reposition:
 		a.Actor.Look(a.LookDir)
 		a.Actor.Move(a.MoveDir)
 		if frameCount%a.Actor.AnimationSpeed == 0 {
 			a.Actor.Animate()
 		}
 		actionPerformed = true
+	case Flee:
+		dir := directionTowardsPoint(a.Actor.X, a.Actor.Y, a.FleeX, a.FleeY)
+		a.Actor.Move(dir)
+
+		// a fleeing bounty does not stop fighting: while he can see the
+		// player he keeps aiming and firing over his shoulder
+		if a.Fire && a.Actor.IsNpc && !player.Dead {
+			a.Actor.AimAngle = utils.LeadAngle(
+				a.Actor.X, a.Actor.Y,
+				player.X, player.Y,
+				player.X-player.PrevX, player.Y-player.PrevY,
+				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
+			)
+			a.Actor.FaceFromAim()
+			if frameCount%a.Actor.FireRate == 0 {
+				a.Actor.X += 16
+				a.Actor.Y += 16
+				a.Actor.Shoot()
+				a.Actor.X -= 16
+				a.Actor.Y -= 16
+			}
+		} else {
+			a.Actor.Look(dir)
+		}
+
+		if frameCount%a.Actor.AnimationSpeed == 0 {
+			a.Actor.Animate()
+		}
+		actionPerformed = true
 	case MoveAndShoot:
-		angle := utils.AngleBetweenPoints(player.X, player.Y, a.Actor.X, a.Actor.Y)
+		focusX := player.X + a.TargetOffsetX
+		focusY := player.Y + a.TargetOffsetY
+		angle := utils.AngleBetweenPoints(focusX, focusY, a.Actor.X, a.Actor.Y)
 		if math.Abs(angle-3*math.Pi/2) < 0.1 || math.Abs(angle-math.Pi) < 0.1 || math.Abs(angle) < 0.1 || math.Abs(angle-math.Pi/2) < 0.1 {
 			a.Actor.StopAnimation()
 		}
 
-		xDelta := math.Abs(a.Actor.X - player.X)
-		yDelta := math.Abs(a.Actor.Y - player.Y)
-		moveX := false
-		moveY := false
-		if xDelta <= yDelta && angle >= 0 && angle <= math.Pi {
-			a.Actor.Look(Up)
-			moveX = true
-		}
-		if xDelta <= yDelta && angle <= 0 && angle >= -math.Pi {
-			a.Actor.Look(Down)
-			moveX = true
-		}
-		if yDelta <= xDelta && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
-			a.Actor.Look(Right)
-			moveY = true
-		}
-		if yDelta <= xDelta && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-			a.Actor.Look(Left)
-			moveY = true
-		}
-		if moveX && angle <= math.Pi/2 && angle >= -math.Pi/2 {
-			a.Actor.Move(Left)
-		}
-		if moveX && ((angle >= math.Pi/2 && angle <= 3*math.Pi/2) || (angle <= -math.Pi/2 && angle >= -3*math.Pi/2)) {
-			a.Actor.Move(Right)
-		}
-		if moveY && angle >= 0 && angle <= math.Pi {
-			a.Actor.Move(Up)
-		}
-		if moveY && angle <= 0 && angle >= -math.Pi {
-			a.Actor.Move(Down)
+		distance := utils.DistanceBetweenPoints(a.Actor.X, a.Actor.Y, focusX, focusY)
+		advance := a.PreferredRange > 0 && distance > a.PreferredRange+engageRangeTolerance
+
+		if advance {
+			dir := directionTowardsPoint(a.Actor.X, a.Actor.Y, focusX, focusY)
+			a.Actor.Look(dir)
+			a.Actor.Move(dir)
+		} else {
+			xDelta := math.Abs(a.Actor.X - focusX)
+			yDelta := math.Abs(a.Actor.Y - focusY)
+			moveX := false
+			moveY := false
+			if xDelta <= yDelta && angle >= 0 && angle <= math.Pi {
+				a.Actor.Look(Up)
+				moveX = true
+			}
+			if xDelta <= yDelta && angle <= 0 && angle >= -math.Pi {
+				a.Actor.Look(Down)
+				moveX = true
+			}
+			if yDelta <= xDelta && angle >= math.Pi/2 && angle <= 3*math.Pi/2 {
+				a.Actor.Look(Right)
+				moveY = true
+			}
+			if yDelta <= xDelta && angle <= math.Pi/2 && angle >= -math.Pi/2 {
+				a.Actor.Look(Left)
+				moveY = true
+			}
+			if moveX && angle <= math.Pi/2 && angle >= -math.Pi/2 {
+				a.Actor.Move(Left)
+			}
+			if moveX && ((angle >= math.Pi/2 && angle <= 3*math.Pi/2) || (angle <= -math.Pi/2 && angle >= -3*math.Pi/2)) {
+				a.Actor.Move(Right)
+			}
+			if moveY && angle >= 0 && angle <= math.Pi {
+				a.Actor.Move(Up)
+			}
+			if moveY && angle <= 0 && angle >= -math.Pi {
+				a.Actor.Move(Down)
+			}
 		}
 
 		// the enemy leads the running player so the bullets land where he

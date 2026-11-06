@@ -31,8 +31,20 @@ func (c *BanditCamp) Contains(x, y float64) bool {
 	return math.Hypot(x-c.X, y-c.Y) <= c.Radius
 }
 
-// AddEnemy makes the enemy part of the camp.
+// campRoles cycles the roles a camp hands out, so a fight has a mix of
+// bandits that pin, flank and rush the player instead of all doing the same.
+var campRoles = []actors.EnemyRole{actors.RolePin, actors.RoleFlank, actors.RoleRusher}
+
+// AddEnemy makes the enemy part of the camp and gives it a role in the fight.
 func (c *BanditCamp) AddEnemy(enemy *actors.Enemy) {
+	enemy.Role = campRoles[len(c.Enemies)%len(campRoles)]
+	if enemy.Role == actors.RoleFlank {
+		// split the flankers over both sides of the player
+		enemy.FlankAngle = math.Pi / 2
+		if len(c.Enemies)%2 == 0 {
+			enemy.FlankAngle = -math.Pi / 2
+		}
+	}
 	c.Enemies = append(c.Enemies, enemy)
 }
 

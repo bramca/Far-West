@@ -62,7 +62,7 @@ level you are on and pressing `Space` starts a fresh run from level 1.
 - [ ] island boss (with dynamite sticks as weapon)
 - [ ] town buildings
     - [X] store
-    - [ ] jail (with bounty poster: bounty needs to be knocked out by fists)
+    - [X] jail (with bounty poster: bounty needs to be knocked out by fists)
 - [X] bandit camps (tents, weapon chest, gold chest, ammo chest)
 - [ ] bounty post
 - [X] boat dock (with ticket to next island when camps are cleared)
