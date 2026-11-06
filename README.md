@@ -59,6 +59,10 @@ level you are on and pressing `Space` starts a fresh run from level 1.
 - [X] reload
 - [X] random island world with an ocean border
 - [X] level based progression with tougher enemies
+- [ ] dead eye refill
+    - [X] player cigar mechanics
+    - [ ] cigar as loot
+    - [ ] cigar in store
 - [ ] island boss (with dynamite sticks as weapon)
 - [ ] town buildings
     - [X] store

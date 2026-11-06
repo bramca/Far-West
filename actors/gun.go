@@ -52,6 +52,8 @@ func (w Weapon) String() string {
 		return "SHOTGUN"
 	case MachineGun:
 		return "MACHINE GUN"
+	case Cigar:
+		return "CIGAR"
 	default:
 		return "REVOLVER"
 	}

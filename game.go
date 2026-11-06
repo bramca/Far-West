@@ -157,6 +157,7 @@ const (
 	// sounds
 	soundDash            = "dash"
 	soundDrink           = "drink"
+	soundSmoke           = "smoke"
 	soundEmptyClick      = "empty-click"
 	soundEnemyDeath      = "enemy-death"
 	soundGameOver        = "game-over"
@@ -169,6 +170,7 @@ const (
 
 	soundVolumeDash          = 0.35
 	soundVolumeDrink         = 0.40
+	soundVolumeSmoke         = 0.40
 	soundVolumeEmptyClick    = 0.30
 	soundVolumeHit           = 0.45
 	soundVolumeEnemyDeath    = 0.55
@@ -200,6 +202,7 @@ var (
 	soundFiles = map[string]string{
 		soundDash:            "dash.wav",
 		soundDrink:           "drink.wav",
+		soundSmoke:           "smoke.wav",
 		soundEmptyClick:      "empty-click.wav",
 		soundEnemyDeath:      "enemy-death.wav",
 		soundGameOver:        "game-over.wav",
@@ -474,6 +477,7 @@ func NewGame() *Game {
 	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/sprites/player-no-gun.png",
 		"assets/sprites/player-whisky.png",
+		"assets/sprites/player-cigar.png",
 		"assets/sprites/player-revolver.png",
 		"assets/sprites/player-shotgun.png",
 		"assets/sprites/player-machine-gun.png",
@@ -565,11 +569,13 @@ func NewGame() *Game {
 		"assets/sprites/gun-chest.png",
 		"assets/sprites/ammo-chest.png",
 		"assets/sprites/whisky-chest.png",
+		"assets/sprites/cigar-chest.png",
 	}, 32, 32)
 
 	game.gunSprites = helpers.LoadSprites(assets, []string{
-		"assets/sprites/fist.png",
 		"assets/sprites/whisky.png",
+		"assets/sprites/cigar.png",
+		"assets/sprites/fist.png",
 		"assets/sprites/revolver.png",
 		"assets/sprites/shotgun.png",
 		"assets/sprites/machine-gun.png",
@@ -1086,6 +1092,18 @@ func (g *Game) newPlayer() *actors.Player {
 			ShootCooldown: 32,
 			Ammo:          5,
 			Scale:         2.0,
+			X:             ScreenWidth/2 - 160,
+			Y:             ScreenHeight - 64,
+			AmmoFace:      g.hitFace,
+		},
+		{
+			Damage:        10,
+			GunType:       actors.Cigar,
+			Sprite:        g.gunSprites[actors.Cigar],
+			DrawOptions:   &ebiten.DrawImageOptions{},
+			ShootCooldown: 32,
+			Ammo:          10,
+			Scale:         2.0,
 			X:             ScreenWidth/2 - 128,
 			Y:             ScreenHeight - 64,
 			AmmoFace:      g.hitFace,
@@ -1162,7 +1180,7 @@ func (g *Game) newPlayer() *actors.Player {
 		H:                float64(g.playerSprites[0].Bounds().Dy()),
 		Sprites:          g.playerSprites,
 		CurrentState:     actors.PlayerNoGunRight,
-		CurrentWeapon:    1,
+		CurrentWeapon:    int(actors.Fists),
 		Scale:            2,
 		Speed:            2.8,
 		Gold:             playerStartGold,
@@ -1176,6 +1194,7 @@ func (g *Game) newPlayer() *actors.Player {
 		GunBeltSize:      len(defaultGunBelt),
 		OnShoot:          g.playPlayerShootSound,
 		OnDrink:          g.playPlayerDrinkSound,
+		OnSmoke:          g.playPlayerSmokeSound,
 		OnMelee:          g.performMeleeSweep,
 		Health:           20,
 		MaxHealth:        20,
@@ -1693,6 +1712,57 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 		HomeX:      camp.X,
 		HomeY:      camp.Y,
 		HomeRadius: camp.Radius,
+		StateSpriteIndex: map[actors.PlayerState]int{
+			actors.PlayerNoGunRight:             0,
+			actors.PlayerNoGunLeft:              1,
+			actors.PlayerNoGunRunRight:          2,
+			actors.PlayerNoGunRunLeft:           3,
+			actors.PlayerWhiskyRight:            4,
+			actors.PlayerWhiskyRightUp:          5,
+			actors.PlayerWhiskyLeft:             6,
+			actors.PlayerWhiskyLeftUp:           7,
+			actors.PlayerWhiskyRunRight:         8,
+			actors.PlayerWhiskyRunRightUp:       9,
+			actors.PlayerWhiskyRunLeft:          10,
+			actors.PlayerWhiskyRunLeftUp:        11,
+			actors.PlayerRevolverRight:          12,
+			actors.PlayerRevolverRightUp:        13,
+			actors.PlayerRevolverRightDown:      14,
+			actors.PlayerRevolverLeft:           15,
+			actors.PlayerRevolverLeftUp:         16,
+			actors.PlayerRevolverLeftDown:       17,
+			actors.PlayerRevolverRunRight:       18,
+			actors.PlayerRevolverRunRightUp:     19,
+			actors.PlayerRevolverRunRightDown:   20,
+			actors.PlayerRevolverRunLeft:        21,
+			actors.PlayerRevolverRunLeftUp:      22,
+			actors.PlayerRevolverRunLeftDown:    23,
+			actors.PlayerShotgunRight:           24,
+			actors.PlayerShotgunRightUp:         25,
+			actors.PlayerShotgunRightDown:       26,
+			actors.PlayerShotgunLeft:            27,
+			actors.PlayerShotgunLeftUp:          28,
+			actors.PlayerShotgunLeftDown:        29,
+			actors.PlayerShotgunRunRight:        30,
+			actors.PlayerShotgunRunRightUp:      31,
+			actors.PlayerShotgunRunRightDown:    32,
+			actors.PlayerShotgunRunLeft:         33,
+			actors.PlayerShotgunRunLeftUp:       34,
+			actors.PlayerShotgunRunLeftDown:     35,
+			actors.PlayerMachineGunRight:        36,
+			actors.PlayerMachineGunRightUp:      37,
+			actors.PlayerMachineGunRightDown:    38,
+			actors.PlayerMachineGunLeft:         39,
+			actors.PlayerMachineGunLeftUp:       40,
+			actors.PlayerMachineGunLeftDown:     41,
+			actors.PlayerMachineGunRunRight:     42,
+			actors.PlayerMachineGunRunRightUp:   43,
+			actors.PlayerMachineGunRunRightDown: 44,
+			actors.PlayerMachineGunRunLeft:      45,
+			actors.PlayerMachineGunRunLeftUp:    46,
+			actors.PlayerMachineGunRunLeftDown:  47,
+			actors.PlayerDead:                   48,
+		},
 	}
 	enemy.Healthbar = &actors.HealthBar{
 		X:               enemy.X,
@@ -3587,7 +3657,7 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 	if int(iconState) >= len(g.bounty.Sprites) {
 		return
 	}
-	sprite := g.bounty.Sprites[iconState]
+	sprite := g.bounty.Sprites[g.bounty.StateSpriteIndex[iconState]]
 	const iconScale = 3.0
 	iconWidth := float64(sprite.Bounds().Dx()) * iconScale
 	iconHeight := float64(sprite.Bounds().Dy()) * iconScale
@@ -4026,12 +4096,20 @@ func (g *Game) playPlayerDrinkSound() {
 	g.playDrinkSound(1)
 }
 
+func (g *Game) playPlayerSmokeSound() {
+	g.playSmokeSound(1)
+}
+
 func (g *Game) playEnemyDrinkSound() {
 	g.playDrinkSound(0.6)
 }
 
 func (g *Game) playDrinkSound(volumeScale float64) {
 	g.sounds.Play(soundDrink, soundVolumeDrink*volumeScale)
+}
+
+func (g *Game) playSmokeSound(volumeScale float64) {
+	g.sounds.Play(soundSmoke, soundVolumeSmoke*volumeScale)
 }
 
 func (g *Game) playShootSound(weapon actors.Weapon, volumeScale float64) {

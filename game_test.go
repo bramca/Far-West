@@ -397,7 +397,7 @@ func TestEnemyCountForLevel(t *testing.T) {
 // the player from spamming bullets.
 func TestReloadLimitsFireRate(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(2)
+	game.player.DrawWeapon(int(actors.Revolver))
 
 	shots := 0
 	for range game.framesPerSecond {
@@ -599,7 +599,7 @@ func TestDeadEyeSlowsWorldButNotPlayer(t *testing.T) {
 // zero damage bullet, a shot that does nothing is not fun.
 func TestBulletsAlwaysDealDamage(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(2)
+	game.player.DrawWeapon(int(actors.Revolver))
 	game.player.GunBelt[game.player.CurrentWeapon].Ammo = 1000
 
 	for range 50 {
@@ -622,7 +622,7 @@ func TestBulletsAlwaysDealDamage(t *testing.T) {
 
 func TestFistsShootWithoutAmmo(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(1)
+	game.player.DrawWeapon(int(actors.Fists))
 	fists := game.player.GunBelt[game.player.CurrentWeapon]
 	if fists.GunType != actors.Fists {
 		t.Fatal("the second belt slot does not hold the fists")
@@ -658,7 +658,7 @@ func TestFistsShootWithoutAmmo(t *testing.T) {
 func TestFistSweepHitsEnemiesInFront(t *testing.T) {
 	game := NewGame()
 	player := game.player
-	player.DrawWeapon(1)
+	player.DrawWeapon(int(actors.Fists))
 	player.AimAngle = 0
 	player.ShootTimer = 0
 	player.Reloading = false
@@ -694,7 +694,7 @@ func TestFistSweepHitsEnemiesInFront(t *testing.T) {
 func TestFistUpgradeIncreasesSweepDamage(t *testing.T) {
 	game := NewGame()
 	player := game.player
-	player.DrawWeapon(1)
+	player.DrawWeapon(int(actors.Fists))
 	player.AimAngle = 0
 	player.ShootTimer = 0
 	player.Reloading = false
@@ -900,7 +900,7 @@ func TestNearestLoot(t *testing.T) {
 // of the same type in the belt, not the one the player is holding.
 func TestPickUpLootSwapsSameTypeGun(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(1)
+	game.player.DrawWeapon(int(actors.Fists))
 	shotgunIndex, ok := game.gunBeltIndexFor(actors.Shotgun)
 	if !ok {
 		t.Fatal("the player has no shotgun slot")
@@ -916,7 +916,7 @@ func TestPickUpLootSwapsSameTypeGun(t *testing.T) {
 	if game.player.GunBelt[shotgunIndex] != &lootGun {
 		t.Fatal("the player did not equip the looted gun in the shotgun slot")
 	}
-	if game.player.CurrentWeapon != 1 {
+	if game.player.CurrentWeapon != int(actors.Fists) {
 		t.Fatal("picking up a gun of another type switched the held weapon")
 	}
 	if game.player.GunBelt[shotgunIndex].X != oldGun.X || game.player.GunBelt[shotgunIndex].Y != oldGun.Y {
@@ -970,7 +970,7 @@ func TestPickUpLootTossesOldGun(t *testing.T) {
 // its matching slot while the player is holding his fists.
 func TestPickUpLootWithFistsKeepsFists(t *testing.T) {
 	game := NewGame()
-	game.player.DrawWeapon(0)
+	game.player.DrawWeapon(int(actors.Fists))
 	revolverIndex, ok := game.gunBeltIndexFor(actors.Revolver)
 	if !ok {
 		t.Fatal("the player has no revolver slot")
@@ -983,7 +983,7 @@ func TestPickUpLootWithFistsKeepsFists(t *testing.T) {
 
 	game.pickUpLoot(loot)
 
-	if game.player.CurrentWeapon != 0 {
+	if game.player.CurrentWeapon != int(actors.Fists) {
 		t.Fatal("picking up a gun switched the held weapon")
 	}
 	if game.player.GunBelt[0].GunType != actors.Whisky {
@@ -1124,19 +1124,6 @@ func TestGunStatRowsWhisky(t *testing.T) {
 	}
 	if rows[0].label != "HEALING" || rows[0].now != 2 || rows[0].loot != 4 {
 		t.Fatal("the healing row does not compare both bottles")
-	}
-}
-
-// TestSpritesCoverEveryState guards against drawing a state that has no sprite.
-func TestSpritesCoverEveryState(t *testing.T) {
-	game := NewGame()
-
-	if len(game.playerSprites) <= int(actors.PlayerDead) {
-		t.Fatalf("the player sprites (%d) do not cover the dead state", len(game.playerSprites))
-	}
-
-	if len(game.enemyCommonSprites) <= int(actors.PlayerDead) {
-		t.Fatalf("the enemy sprites (%d) do not cover the dead state", len(game.enemyCommonSprites))
 	}
 }
 

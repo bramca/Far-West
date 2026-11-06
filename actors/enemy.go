@@ -128,6 +128,8 @@ type Enemy struct {
 	SteerTimer int
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int
+	// StateSpriteIndex returns the index in the enemy sprite array for a certain state
+	StateSpriteIndex map[PlayerState]int
 	// actionTimerAccumulator keeps the action duration in sync with TimeScale.
 	actionTimerAccumulator float64
 }
@@ -142,7 +144,7 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 		e.DrawOptions.ColorScale.Scale(3, 3, 3, 1)
 		e.HitFlash--
 	}
-	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
+	screen.DrawImage(e.Sprites[e.StateSpriteIndex[e.CurrentState]], e.DrawOptions)
 	e.DrawOptions.ColorScale.Reset()
 	weapon := e.GunBelt[e.CurrentWeapon].GunType
 	if e.MuzzleFlash > 0 && !e.Dead && weapon != Fists && weapon != Whisky {

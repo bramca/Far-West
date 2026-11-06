@@ -29,8 +29,9 @@ const (
 )
 
 const (
-	Fists Weapon = iota
-	Whisky
+	Whisky Weapon = iota
+	Cigar
+	Fists
 	Revolver
 	Shotgun
 	MachineGun
@@ -55,6 +56,14 @@ const (
 	PlayerWhiskyRunRightUp
 	PlayerWhiskyRunLeft
 	PlayerWhiskyRunLeftUp
+	PlayerCigarRight
+	PlayerCigarRightUp
+	PlayerCigarLeft
+	PlayerCigarLeftUp
+	PlayerCigarRunRight
+	PlayerCigarRunRightUp
+	PlayerCigarRunLeft
+	PlayerCigarRunLeftUp
 	PlayerRevolverRight
 	PlayerRevolverRightUp
 	PlayerRevolverRightDown
@@ -149,6 +158,8 @@ type Player struct {
 	OnShoot func(Weapon)
 	// OnDrink is called when an actor starts drinking a whisky.
 	OnDrink func()
+	// OnSmoke is called when an actor starts smoking.
+	OnSmoke func()
 	OnMelee func(damage int)
 
 	// healing handling
@@ -157,6 +168,13 @@ type Player struct {
 	HealDuration int
 	HealTotal    int
 	HealApplied  int
+
+	// smoking handling
+	Smoking         bool
+	SmokingTimer    int
+	SmokingDuration int
+	SmokingTotal    int
+	SmokingApplied  int
 
 	// dodge handling
 	DodgeCooldown      int
@@ -353,6 +371,10 @@ func (p *Player) Shoot() {
 		p.drinkWhisky(gun)
 
 		return
+	case Cigar:
+		p.smokeCigar(gun)
+
+		return
 	}
 
 	if !p.CanShoot() {
@@ -414,6 +436,9 @@ func (p *Player) CanShoot() bool {
 	}
 	if gun.GunType == Whisky {
 		return !p.Reloading && !p.Healing && p.ShootTimer <= 0 && gun.Ammo > 0 && p.Health < p.MaxHealth
+	}
+	if gun.GunType == Cigar {
+		return !p.Reloading && !p.Smoking && p.ShootTimer <= 0 && gun.Ammo > 0 && p.DeadEyeCharge < p.DeadEyeMaxCharge
 	}
 
 	return !p.Reloading && gun.CurrentMagazineSize > 0 && p.ShootTimer <= 0 && gun.Ammo > 0
@@ -495,6 +520,10 @@ func (p *Player) updateWeapon() {
 	}
 	if p.Healing {
 		p.updateHealing()
+	}
+
+	if p.Smoking {
+		p.updateSmoking()
 	}
 
 	if !p.Reloading {
@@ -770,6 +799,42 @@ func (p *Player) ChangeVisualDirection(newDir Direction) {
 			}
 		}
 		p.UpdateDrinkingState()
+	case Cigar:
+		switch p.VisualDir {
+		case Left, LeftUp, LeftDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerCigarRunLeft)
+			} else {
+				p.UpdateCurrentState(PlayerCigarLeft)
+			}
+		case Right, RightUp, RightDown:
+			if p.Running {
+				p.UpdateCurrentState(PlayerCigarRunRight)
+			} else {
+				p.UpdateCurrentState(PlayerCigarRight)
+			}
+		}
+		p.UpdateSmokingState()
+	}
+}
+
+// UpdateSmokingState shows the drinking pose while the whisky is being
+// consumed, the up-facing frames hold the bottle to the player's mouth.
+func (p *Player) UpdateSmokingState() {
+	if !p.Smoking {
+		return
+	}
+
+	left := p.VisualDir == Left || p.VisualDir == LeftUp || p.VisualDir == LeftDown
+	switch {
+	case left && p.Running:
+		p.UpdateCurrentState(PlayerCigarRunLeftUp)
+	case left:
+		p.UpdateCurrentState(PlayerCigarLeftUp)
+	case p.Running:
+		p.UpdateCurrentState(PlayerCigarRunRightUp)
+	default:
+		p.UpdateCurrentState(PlayerCigarRightUp)
 	}
 }
 
@@ -873,6 +938,22 @@ func (p *Player) DrawWeapon(beltIndex int) {
 			p.UpdateCurrentState(PlayerWhiskyRight)
 		}
 		p.UpdateDrinkingState()
+	case Cigar:
+		switch p.VisualDir {
+		case Left:
+			p.UpdateCurrentState(PlayerCigarLeft)
+		case LeftUp:
+			p.UpdateCurrentState(PlayerCigarLeft)
+		case LeftDown:
+			p.UpdateCurrentState(PlayerCigarLeft)
+		case Right:
+			p.UpdateCurrentState(PlayerCigarRight)
+		case RightUp:
+			p.UpdateCurrentState(PlayerCigarRight)
+		case RightDown:
+			p.UpdateCurrentState(PlayerCigarRight)
+		}
+		p.UpdateSmokingState()
 	}
 }
 
@@ -913,6 +994,30 @@ func (p *Player) Animate() {
 		p.Running = false
 	case PlayerWhiskyRunLeftUp:
 		p.UpdateCurrentState(PlayerWhiskyLeftUp)
+		p.Running = false
+	case PlayerCigarRight:
+		p.UpdateCurrentState(PlayerCigarRunRight)
+		p.Running = true
+	case PlayerCigarLeft:
+		p.UpdateCurrentState(PlayerCigarRunLeft)
+		p.Running = true
+	case PlayerCigarRunRight:
+		p.UpdateCurrentState(PlayerCigarRight)
+		p.Running = false
+	case PlayerCigarRunLeft:
+		p.UpdateCurrentState(PlayerCigarLeft)
+		p.Running = false
+	case PlayerCigarRightUp:
+		p.UpdateCurrentState(PlayerCigarRunRightUp)
+		p.Running = true
+	case PlayerCigarLeftUp:
+		p.UpdateCurrentState(PlayerCigarRunLeftUp)
+		p.Running = true
+	case PlayerCigarRunRightUp:
+		p.UpdateCurrentState(PlayerCigarRightUp)
+		p.Running = false
+	case PlayerCigarRunLeftUp:
+		p.UpdateCurrentState(PlayerCigarLeftUp)
 		p.Running = false
 	case PlayerRevolverRight:
 		p.UpdateCurrentState(PlayerRevolverRunRight)
@@ -1052,6 +1157,14 @@ func (p *Player) StopAnimation() {
 		p.UpdateCurrentState(PlayerWhiskyRightUp)
 	case PlayerWhiskyRunLeftUp:
 		p.UpdateCurrentState(PlayerWhiskyLeftUp)
+	case PlayerCigarRunRight:
+		p.UpdateCurrentState(PlayerCigarRight)
+	case PlayerCigarRunLeft:
+		p.UpdateCurrentState(PlayerCigarLeft)
+	case PlayerCigarRunRightUp:
+		p.UpdateCurrentState(PlayerCigarRightUp)
+	case PlayerCigarRunLeftUp:
+		p.UpdateCurrentState(PlayerCigarLeftUp)
 	}
 }
 
@@ -1213,6 +1326,85 @@ func (p *Player) drinkWhisky(gun *Gun) {
 	if p.OnDrink != nil {
 		p.OnDrink()
 	}
+}
+
+// smokeCigar starts healing the player over the shoot cooldown, the damage of
+// the whisky is the amount of health it restores.
+func (p *Player) smokeCigar(gun *Gun) {
+	if !p.CanShoot() {
+		return
+	}
+
+	refill := min(gun.Damage, int(p.DeadEyeMaxCharge-p.DeadEyeCharge))
+	if refill <= 0 {
+		return
+	}
+
+	gun.Ammo -= 1
+	cooldown := p.shootCooldown(gun)
+	p.ShootTimer = cooldown
+	p.Smoking = true
+	p.SmokingTimer = cooldown
+	p.SmokingDuration = cooldown
+	p.SmokingTotal = refill
+	p.SmokingApplied = 0
+	p.UpdateSmokingState()
+	if p.OnSmoke != nil {
+		p.OnSmoke()
+	}
+}
+
+// updateSmoking spreads the dead eye refill gain evenly over the duration of the smoke
+// and shows the restored amount once the cooldown ran out.
+func (p *Player) updateSmoking() {
+	if p.SmokingDuration <= 0 {
+		p.finishSmoking()
+
+		return
+	}
+
+	if p.SmokingTimer > 0 {
+		p.SmokingTimer -= 1
+	}
+	elapsed := p.SmokingDuration - p.SmokingTimer
+
+	if elapsed >= p.SmokingDuration {
+		p.finishSmoking()
+	}
+}
+
+func (p *Player) finishSmoking() {
+	smoke := p.SmokingTotal
+	if smoke > 0 {
+		p.DeadEyeCharge += float64(smoke)
+		p.SmokingApplied += smoke
+	}
+	refilled := p.SmokingApplied
+	p.Smoking = false
+	p.SmokingTimer = 0
+	p.SmokingDuration = 0
+	p.SmokingTotal = 0
+	p.SmokingApplied = 0
+
+	if refilled <= 0 {
+		return
+	}
+
+	gun := p.GunBelt[p.CurrentWeapon]
+	if gun.AmmoFace == nil {
+		return
+	}
+	hit := Hit{
+		X: p.X,
+		Y: p.Y - p.H/2,
+		//#670404
+		Color:    color.RGBA{103, 4, 4, 240},
+		Msg:      "+" + strconv.Itoa(refilled),
+		TextFont: gun.AmmoFace,
+		Duration: 60,
+	}
+	hit.PrepareText()
+	p.Hits = append(p.Hits, hit)
 }
 
 // updateHealing spreads the health gain evenly over the duration of the drink

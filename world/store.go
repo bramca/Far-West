@@ -11,6 +11,7 @@ const (
 	StoreAmmo StoreItemKind = iota
 	StoreWeapon
 	StoreWhisky
+	StoreCigar
 	StoreUpgrade
 )
 
