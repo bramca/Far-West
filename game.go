@@ -127,7 +127,7 @@ const (
 	// how close the bounty has to get to the shore before he boards the boat
 	bountyEscapeRadius = 60.0
 	// a dead bounty only pays a fraction of the price for bringing him in alive
-	bountyKillRewardDivisor = 10
+	bountyKillRewardDivisor = 5
 
 	// weapons
 	playerReloadDuration          = 60
@@ -629,7 +629,6 @@ func (g *Game) startLevel(level int) {
 	g.player.DeadEyeCharge = g.player.DeadEyeMaxCharge
 	g.worldTimeAccumulator = 0
 	g.player.Dead = false
-	g.player.Health = g.player.MaxHealth
 	g.player.CurrentAction = actors.Action{}
 	g.player.UpdateHitbox()
 	g.player.SavePosition()
@@ -1808,7 +1807,7 @@ func (g *Game) startBountyFlee() {
 		}
 	}
 
-	g.showNotice("BOUNTY FLEEING!", "RUNNING TO", "THE BOAT")
+	g.showNotice("BOUNTY FLEEING!", "RUNNING FOR THE", "BOAT")
 }
 
 // stopBountyFlee ends the chase and lets the bandits calm down again.
@@ -3616,7 +3615,7 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 
 	reward := "REWARD"
 	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-104, color.RGBA{245, 205, 55, 255})
-	reward = "ALIVE: $" + strconv.Itoa(g.bountyReward) + " DEAD: $" + strconv.Itoa(g.bountyReward/10)
+	reward = "ALIVE: $" + strconv.Itoa(g.bountyReward) + " DEAD: $" + strconv.Itoa(g.bountyReward/bountyKillRewardDivisor)
 	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-72, color.RGBA{245, 205, 55, 255})
 
 	status := "HUNT THIS BANDIT AT THE BANDIT CAMPS"
