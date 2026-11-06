@@ -18,6 +18,9 @@ const (
 	// Reposition is a short strafe between attack bursts. The enemy moves
 	// without firing, which gives the player a chance to shoot back.
 	Reposition
+	// Flee runs toward an escape point while optionally shooting over the
+	// actor's shoulder, used by a bounty that is running for the boat.
+	Flee
 )
 
 const (
@@ -45,6 +48,11 @@ type Action struct {
 	// away from the player, so camp members can flank instead of stacking up.
 	TargetOffsetX float64
 	TargetOffsetY float64
+	// FleeX and FleeY are the escape point a fleeing actor runs toward.
+	FleeX float64
+	FleeY float64
+	// Fire makes a fleeing actor shoot at the player while he runs.
+	Fire bool
 }
 
 // directionTowardsPoint returns the cardinal direction that brings an actor
@@ -123,6 +131,35 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 	case Move, Reposition:
 		a.Actor.Look(a.LookDir)
 		a.Actor.Move(a.MoveDir)
+		if frameCount%a.Actor.AnimationSpeed == 0 {
+			a.Actor.Animate()
+		}
+		actionPerformed = true
+	case Flee:
+		dir := directionTowardsPoint(a.Actor.X, a.Actor.Y, a.FleeX, a.FleeY)
+		a.Actor.Move(dir)
+
+		// a fleeing bounty does not stop fighting: while he can see the
+		// player he keeps aiming and firing over his shoulder
+		if a.Fire && a.Actor.IsNpc && !player.Dead {
+			a.Actor.AimAngle = utils.LeadAngle(
+				a.Actor.X, a.Actor.Y,
+				player.X, player.Y,
+				player.X-player.PrevX, player.Y-player.PrevY,
+				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
+			)
+			a.Actor.FaceFromAim()
+			if frameCount%a.Actor.FireRate == 0 {
+				a.Actor.X += 16
+				a.Actor.Y += 16
+				a.Actor.Shoot()
+				a.Actor.X -= 16
+				a.Actor.Y -= 16
+			}
+		} else {
+			a.Actor.Look(dir)
+		}
+
 		if frameCount%a.Actor.AnimationSpeed == 0 {
 			a.Actor.Animate()
 		}

@@ -47,6 +47,9 @@ const (
 	// rusherEngageFraction scales the distance a rusher keeps, so it charges
 	// in while the pins hold the player at their weapon's range.
 	rusherEngageFraction = 0.5
+	// bountyFleeAggroRange widens the detection range of the bandits that
+	// chase the player while the bounty runs for the boat.
+	bountyFleeAggroRange = 1.75
 )
 
 // EnemyRole decides how a bandit approaches a fight.
@@ -80,6 +83,18 @@ type Enemy struct {
 	// KnockedOut marks a bounty that was defeated with fists and can be
 	// collected at the jail.
 	KnockedOut bool
+	// Fleeing is true while a bounty is running for the boat. A fleeing
+	// bounty keeps shooting at the player instead of only running.
+	Fleeing bool
+	// FleeX and FleeY are the point a fleeing bounty runs toward.
+	FleeX float64
+	FleeY float64
+	// Escaped is set when a fleeing bounty reached the boat, his reward is
+	// lost and he is no longer part of the fight.
+	Escaped bool
+	// Aggressive widens the detection range of the bandits that hunt the
+	// player while the bounty is running for the boat.
+	Aggressive bool
 
 	VisualDist int
 	// Alerted is true while the enemy is hunting the player. The whole camp
@@ -228,7 +243,7 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount i
 		e.CurrentAction = Action{}
 	}
 
-	if e.shouldHeal() && rand.Float64() > 0.99 {
+	if !e.Fleeing && e.shouldHeal() && rand.Float64() > 0.99 {
 		if index, ok := e.whiskyIndex(); ok {
 			e.switchWeapon(index)
 			e.CurrentAction = Action{
@@ -258,6 +273,14 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount i
 		e.Alert(player.X, player.Y)
 	}
 
+	if e.Fleeing {
+		e.flee(seesPlayer)
+		e.CurrentAction.PerformAction(player, frameCount)
+		e.UpdateHitboxOffset(16)
+
+		return
+	}
+
 	if e.Alerted {
 		if seesPlayer {
 			e.engage(player)
@@ -280,9 +303,16 @@ func (e *Enemy) ThinkAndAct(player *Player, playerBullets []Bullet, frameCount i
 	e.UpdateHitboxOffset(16)
 }
 
-// CanSee reports whether the enemy is close enough to spot the player.
+// CanSee reports whether the enemy is close enough to spot the player. While
+// the bounty runs for the boat the other bandits are on high alert and spot
+// the player from further away.
 func (e *Enemy) CanSee(player *Player) bool {
-	return !player.Dead && utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= float64(e.VisualDist)
+	visualDist := float64(e.VisualDist)
+	if e.Aggressive {
+		visualDist *= bountyFleeAggroRange
+	}
+
+	return !player.Dead && utils.DistanceBetweenPoints(player.X, player.Y, e.X, e.Y) <= visualDist
 }
 
 // Alert makes the enemy hunt the player at the given position. The whole camp
@@ -313,6 +343,34 @@ func (e *Enemy) CalmDown() {
 	e.AlertTimer = 0
 	if e.CurrentAction.Type == MoveAndShoot || e.CurrentAction.Type == Dodge || e.CurrentAction.Type == Reposition {
 		e.CurrentAction = Action{}
+	}
+}
+
+// flee makes the bounty run for his escape point. The action is refreshed
+// regularly so he keeps aiming and shooting at the player while he runs.
+func (e *Enemy) flee(seesPlayer bool) {
+	// a bounty that was reaching for his whisky has to put it away before
+	// he can shoot over his shoulder again
+	if e.CurrentWeapon >= 0 && e.CurrentWeapon < len(e.GunBelt) &&
+		e.GunBelt[e.CurrentWeapon] != nil && e.GunBelt[e.CurrentWeapon].GunType == Whisky {
+		e.switchWeapon(e.primaryWeaponIndex())
+	}
+
+	if e.CurrentAction.Type == Flee && e.CurrentAction.Duration > 0 {
+		e.CurrentAction.FleeX = e.FleeX
+		e.CurrentAction.FleeY = e.FleeY
+		e.CurrentAction.Fire = seesPlayer
+
+		return
+	}
+
+	e.CurrentAction = Action{
+		Duration: 30 + rand.IntN(15),
+		Type:     Flee,
+		FleeX:    e.FleeX,
+		FleeY:    e.FleeY,
+		Fire:     seesPlayer,
+		Actor:    e.Player,
 	}
 }
 

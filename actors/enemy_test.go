@@ -186,6 +186,29 @@ func TestFlankerMovesTowardsOffsetPoint(t *testing.T) {
 	}
 }
 
+func TestFleeingBountyKeepsFighting(t *testing.T) {
+	player := newCombatTestPlayer(310, 500)
+	enemy := &Enemy{
+		Player:     newCombatTestPlayer(300, 500),
+		Fleeing:    true,
+		FleeX:      0,
+		FleeY:      500,
+		VisualDist: 500,
+	}
+
+	enemy.ThinkAndAct(player, nil, 1)
+
+	if enemy.CurrentAction.Type != Flee {
+		t.Fatalf("the fleeing bounty picked action %d instead of fleeing", enemy.CurrentAction.Type)
+	}
+	if !enemy.CurrentAction.Fire {
+		t.Fatal("the fleeing bounty stopped fighting the player")
+	}
+	if enemy.X >= 300 {
+		t.Fatalf("the fleeing bounty did not run toward the boat, x is %f", enemy.X)
+	}
+}
+
 func newCombatTestPlayer(x, y float64) *Player {
 	return &Player{
 		X:              x,

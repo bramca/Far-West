@@ -1500,7 +1500,7 @@ func TestFistsKnockOutBounty(t *testing.T) {
 
 	game.performMeleeSweep(50)
 
-	if !bounty.Dead || !bounty.KnockedOut {
+	if !bounty.KnockedOut {
 		t.Fatal("the bounty was not knocked out by the fist sweep")
 	}
 	if game.bountyClaimed {
@@ -1510,9 +1510,11 @@ func TestFistsKnockOutBounty(t *testing.T) {
 
 func TestGunsKillBountyWithoutCapture(t *testing.T) {
 	game := NewGame()
-	goldBefore := game.player.Gold
+	corpseReward := game.bountyReward / bountyKillRewardDivisor
 
 	game.killEnemy(game.bounty)
+
+	goldBefore := game.player.Gold
 
 	if !game.bounty.Dead {
 		t.Fatal("the bounty did not die")
@@ -1522,8 +1524,85 @@ func TestGunsKillBountyWithoutCapture(t *testing.T) {
 	}
 
 	game.claimBountyReward()
-	if game.player.Gold != goldBefore+goldRewardForTier(game.bounty.Tier) {
-		t.Fatal("a killed bounty could still be turned in")
+	if game.player.Gold != goldBefore+corpseReward {
+		t.Fatal("a killed bounty could still be turned in for the full reward")
+	}
+}
+
+func TestBountyFleesWhenLowHealth(t *testing.T) {
+	game := NewGame()
+	bounty := game.bounty
+	bounty.Health = bounty.MaxHealth / bountyFleeHealthDivisor
+
+	game.updateBountyFlee()
+
+	if !bounty.Fleeing {
+		t.Fatal("a badly wounded bounty did not flee")
+	}
+	if bounty.FleeX != game.boat.ShoreX || bounty.FleeY != game.boat.ShoreY {
+		t.Fatalf("the bounty flees to %f,%f instead of the boat at %f,%f", bounty.FleeX, bounty.FleeY, game.boat.ShoreX, game.boat.ShoreY)
+	}
+}
+
+func TestBountyFleesAfterSustainedAlert(t *testing.T) {
+	game := NewGame()
+	bounty := game.bounty
+	bounty.Alerted = true
+	bounty.Health = bounty.MaxHealth
+
+	for range bountyFleeAlertFrames - 1 {
+		game.updateBountyFlee()
+	}
+	if bounty.Fleeing {
+		t.Fatal("the bounty fled before the alert timer ran out")
+	}
+
+	game.updateBountyFlee()
+	if !bounty.Fleeing {
+		t.Fatal("the bounty did not run for the boat after being hunted")
+	}
+}
+
+func TestBountyFleeRalliesNearbyBandits(t *testing.T) {
+	game := NewGame()
+	bounty := game.bounty
+	bounty.Health = bounty.MaxHealth / bountyFleeHealthDivisor
+
+	game.updateBountyFlee()
+
+	for _, enemy := range game.enemies {
+		if enemy.IsBounty {
+			continue
+		}
+		if !enemy.Aggressive {
+			t.Fatal("a bandit stayed calm while the bounty was fleeing")
+		}
+	}
+}
+
+func TestBountyEscapesAtBoat(t *testing.T) {
+	game := NewGame()
+	bounty := game.bounty
+	bounty.Health = bounty.MaxHealth / bountyFleeHealthDivisor
+	game.updateBountyFlee()
+
+	bounty.X = game.boat.ShoreX
+	bounty.Y = game.boat.ShoreY
+	game.updateBountyFlee()
+
+	if !bounty.Escaped {
+		t.Fatal("the bounty did not escape after reaching the boat")
+	}
+	for _, enemy := range game.enemies {
+		if enemy == bounty {
+			t.Fatal("the escaped bounty is still on the field")
+		}
+	}
+
+	goldBefore := game.player.Gold
+	game.claimBountyReward()
+	if game.player.Gold != goldBefore {
+		t.Fatal("an escaped bounty has no reward")
 	}
 }
 

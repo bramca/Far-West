@@ -18,6 +18,9 @@ type Boat struct {
 
 	DockX, DockY float64
 	DockW, DockH float64
+	// ShoreX and ShoreY are the landward end of the dock, where a fleeing
+	// bounty boards the boat.
+	ShoreX, ShoreY float64
 }
 
 // CenterX returns the horizontal center of the boat.

@@ -118,6 +118,16 @@ const (
 	commonBountyPerLevel    = 10
 	rareBountyPerLevel      = 20
 	legendaryBountyPerLevel = 35
+	// a bounty runs for the boat when his health drops below a third or
+	// when he has been on the hunt for this many frames
+	bountyFleeHealthDivisor = 4
+	bountyFleeAlertFrames   = 13 * 60
+	// bandits this close to a fleeing bounty rally to the chase
+	bountyFleeRallyRadius = 1200.0
+	// how close the bounty has to get to the shore before he boards the boat
+	bountyEscapeRadius = 60.0
+	// a dead bounty only pays a fraction of the price for bringing him in alive
+	bountyKillRewardDivisor = 10
 
 	// weapons
 	playerReloadDuration          = 60
@@ -332,13 +342,14 @@ type Game struct {
 	jailHitbox *actors.HitBox
 
 	// bounty
-	bounty           *actors.Enemy
-	bountyReward     int
-	bountyClaimed    bool
-	wantedPosterOpen bool
-	noticeText       string
-	noticeLines      []string
-	noticeTimer      int
+	bounty            *actors.Enemy
+	bountyReward      int
+	bountyAlertFrames int
+	bountyClaimed     bool
+	wantedPosterOpen  bool
+	noticeText        string
+	noticeLines       []string
+	noticeTimer       int
 
 	boat       *world.Boat
 	boatSprite *ebiten.Image
@@ -630,6 +641,7 @@ func (g *Game) startLevel(level int) {
 
 	g.bounty = nil
 	g.bountyReward = 0
+	g.bountyAlertFrames = 0
 	g.bountyClaimed = false
 	g.wantedPosterOpen = false
 	g.noticeText = ""
@@ -679,6 +691,8 @@ func (g *Game) spawnBoat() (float64, float64) {
 		DrawOptions: &ebiten.DrawImageOptions{},
 		Scale:       boatScale,
 		Side:        site.Side,
+		ShoreX:      site.X,
+		ShoreY:      site.Y,
 	}
 
 	switch site.Side {
@@ -1733,9 +1747,110 @@ func (g *Game) aliveEnemies() int {
 	return alive
 }
 
-// bountyKnockedOut reports whether the bounty can be collected at the jail.
-func (g *Game) bountyKnockedOut() bool {
-	return g.bounty != nil && g.bounty.KnockedOut && !g.bountyClaimed
+// updateBountyFlee makes a wounded or long hunted bounty run for the boat and
+// checks whether he made it there before the player could stop him.
+func (g *Game) updateBountyFlee() {
+	bounty := g.bounty
+	if bounty == nil {
+		return
+	}
+	if bounty.Dead || bounty.KnockedOut || bounty.Escaped {
+		g.bountyAlertFrames = 0
+
+		return
+	}
+
+	if bounty.Alerted {
+		g.bountyAlertFrames++
+	} else {
+		g.bountyAlertFrames = 0
+	}
+
+	if !bounty.Fleeing {
+		lowHealth := bounty.MaxHealth > 0 && bounty.Health*bountyFleeHealthDivisor <= bounty.MaxHealth
+		if lowHealth || g.bountyAlertFrames >= bountyFleeAlertFrames {
+			g.startBountyFlee()
+		}
+	}
+
+	if !bounty.Fleeing || g.boat == nil {
+		return
+	}
+
+	bounty.FleeX, bounty.FleeY = g.boat.ShoreX, g.boat.ShoreY
+	dist := utils.DistanceBetweenPoints(bounty.X, bounty.Y, g.boat.ShoreX, g.boat.ShoreY)
+	if dist <= bountyEscapeRadius {
+		g.escapeBounty()
+	}
+}
+
+// startBountyFlee turns the bounty around and sends him to the boat. The
+// nearby bandits join the chase and spot the player from further away.
+func (g *Game) startBountyFlee() {
+	bounty := g.bounty
+	if bounty == nil || bounty.Fleeing || bounty.Dead || bounty.KnockedOut || bounty.Escaped || g.boat == nil {
+		return
+	}
+
+	bounty.Fleeing = true
+	bounty.FleeX, bounty.FleeY = g.boat.ShoreX, g.boat.ShoreY
+	if bounty.CurrentAction.Type == actors.Heal {
+		bounty.CurrentAction = actors.Action{}
+	}
+
+	for _, enemy := range g.enemies {
+		if enemy.Dead || enemy.IsBounty {
+			continue
+		}
+		enemy.Aggressive = true
+		if utils.DistanceBetweenPoints(enemy.X, enemy.Y, bounty.X, bounty.Y) <= bountyFleeRallyRadius {
+			enemy.Alert(g.player.X, g.player.Y)
+		}
+	}
+
+	g.showNotice("BOUNTY FLEEING!", "RUNNING TO", "THE BOAT")
+}
+
+// stopBountyFlee ends the chase and lets the bandits calm down again.
+func (g *Game) stopBountyFlee() {
+	g.bountyAlertFrames = 0
+	if g.bounty != nil {
+		g.bounty.Fleeing = false
+	}
+	for _, enemy := range g.enemies {
+		enemy.Aggressive = false
+	}
+}
+
+// escapeBounty removes a bounty that reached the boat from the fight and
+// makes sure the player cannot collect his reward anymore.
+func (g *Game) escapeBounty() {
+	bounty := g.bounty
+	if bounty == nil || bounty.Escaped {
+		return
+	}
+
+	bounty.Escaped = true
+	bounty.KnockedOut = false
+	bounty.Dead = true
+	g.removeEnemyFromWorld(bounty)
+	g.stopBountyFlee()
+	g.showNotice("BOUNTY ESCAPED!", "REWARD LOST")
+}
+
+// removeEnemyFromWorld takes an enemy off the field without treating it as a
+// kill, used when a bounty boards the boat.
+func (g *Game) removeEnemyFromWorld(target *actors.Enemy) {
+	for i, enemy := range g.enemies {
+		if enemy == target {
+			g.enemies = append(g.enemies[:i], g.enemies[i+1:]...)
+
+			break
+		}
+	}
+	for _, camp := range g.camps {
+		camp.RemoveEnemy(target)
+	}
 }
 
 // alertCamp raises the alarm in the camp the enemy belongs to. Every bandit
@@ -2241,7 +2356,9 @@ func (g *Game) unstickEnemy(enemy *actors.Enemy) {
 	enemy.Blocked = false
 
 	targetX, targetY := enemy.HomeX, enemy.HomeY
-	if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
+	if enemy.Fleeing {
+		targetX, targetY = enemy.FleeX, enemy.FleeY
+	} else if !g.player.Dead && utils.DistanceBetweenPoints(enemy.X, enemy.Y, g.player.X, g.player.Y) <= float64(enemy.VisualDist) {
 		targetX, targetY = g.player.X, g.player.Y
 	}
 
@@ -2366,10 +2483,13 @@ func (g *Game) killEnemy(enemy *actors.Enemy) {
 	enemy.UpdateCurrentState(actors.PlayerDead)
 	g.score += scorePerKill
 	gold := goldRewardForTier(enemy.Tier)
+	if enemy.IsBounty {
+		g.stopBountyFlee()
+	}
 	g.player.Gold += gold
 	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "+"+strconv.Itoa(scorePerKill)+" PTS +"+strconv.Itoa(gold)+" $", color.RGBA{255, 215, 0, 240})
 	if enemy.IsBounty {
-		g.showNotice("BOUNTY KILLED!", "REWARD IS LOST")
+		g.showNotice("BOUNTY KILLED!", "RETURN TO JAIL")
 	}
 	g.addShake(5, 3)
 	g.freezeFrames = 3
@@ -2387,9 +2507,10 @@ func (g *Game) knockOutBounty(enemy *actors.Enemy) {
 
 	enemy.Health = 0
 	enemy.Healthbar.Update(enemy.Healthbar.X, enemy.Healthbar.Y, enemy.Health, enemy.MaxHealth)
-	enemy.Dead = true
 	enemy.KnockedOut = true
+	enemy.Dead = true
 	enemy.UpdateCurrentState(actors.PlayerDead)
+	g.stopBountyFlee()
 	g.addHit(&enemy.Hits, enemy.X, enemy.Y-enemy.H/2, "KNOCKED OUT!", color.RGBA{120, 220, 255, 240})
 	g.addShake(5, 3)
 	g.freezeFrames = 3
@@ -2842,6 +2963,7 @@ func (g *Game) Update() error {
 		}
 
 		g.CheckCollisions()
+		g.updateBountyFlee()
 
 		for range g.worldTimeSteps() {
 			g.updateParticles()
@@ -2933,16 +3055,20 @@ func (g *Game) nearestJail() *world.Jail {
 }
 
 // claimBountyReward pays out a bounty that was knocked out and carried back to
-// the jail. A bounty that was killed is worth nothing.
+// the jail. A bounty that was killed is worth less.
 func (g *Game) claimBountyReward() {
-	if !g.bountyKnockedOut() {
+	if g.bounty != nil && ((!g.bounty.KnockedOut && !g.bounty.Dead) || g.bounty.Escaped || g.bountyClaimed) {
 		return
 	}
 
-	g.player.Gold += g.bountyReward
+	gold := g.bountyReward
+	if !g.bounty.KnockedOut {
+		gold /= bountyKillRewardDivisor
+	}
+	g.player.Gold += gold
 	g.bountyClaimed = true
-	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "+"+strconv.Itoa(g.bountyReward)+" $", color.RGBA{245, 205, 55, 240})
-	g.showNotice("BOUNTY REWARD", "+"+strconv.Itoa(g.bountyReward)+" $")
+	g.addHit(&g.player.Hits, g.player.X, g.player.Y-g.player.H/2, "+"+strconv.Itoa(gold)+" $", color.RGBA{245, 205, 55, 240})
+	g.showNotice("BOUNTY REWARD", "+"+strconv.Itoa(gold)+" $")
 	g.sounds.Play(soundPickup, soundVolumePickup)
 }
 
@@ -2963,7 +3089,7 @@ func (g *Game) updateWantedPosterInput() {
 	claim := inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]
 	close := inpututil.IsKeyJustPressed(ebiten.KeyEscape) || buttonsJustPressed["RR"]
 
-	if g.bountyKnockedOut() {
+	if g.bounty != nil && (g.bounty.KnockedOut || g.bounty.Dead) && !g.bounty.Escaped && !g.bountyClaimed {
 		if claim {
 			g.claimBountyReward()
 			g.closeWantedPoster()
@@ -3455,7 +3581,7 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 	title := "WANTED"
 	g.drawSmallText(screen, title, centerX-float64(len(title)*g.hudFontSize)/2, panelY+20, color.RGBA{245, 205, 55, 255})
 
-	subtitle := "ALIVE"
+	subtitle := "DEAD OR ALIVE"
 	g.drawSmallText(screen, subtitle, centerX-float64(len(subtitle)*g.hudFontSize)/2, panelY+40, color.RGBA{190, 175, 140, 255})
 
 	iconState := bountyPosterState(g.bounty)
@@ -3488,13 +3614,18 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 		g.drawSmallText(screen, line, centerX-float64(len(line)*g.hudFontSize)/2, panelY+250+float64(i)*20, color.RGBA{230, 220, 195, 255})
 	}
 
-	reward := "REWARD  " + strconv.Itoa(g.bountyReward) + " $"
+	reward := "REWARD"
+	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-104, color.RGBA{245, 205, 55, 255})
+	reward = "ALIVE: $" + strconv.Itoa(g.bountyReward) + " DEAD: $" + strconv.Itoa(g.bountyReward/10)
 	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-72, color.RGBA{245, 205, 55, 255})
 
 	status := "HUNT THIS BANDIT AT THE BANDIT CAMPS"
 	statusColor := color.RGBA{190, 175, 140, 255}
 	hint := "E CLOSE"
 	switch {
+	case g.bounty.Escaped:
+		status = "BOUNTY ESCAPED - REWARD LOST"
+		statusColor = color.RGBA{235, 85, 75, 255}
 	case g.bountyClaimed:
 		status = "REWARD CLAIMED"
 		statusColor = color.RGBA{140, 135, 125, 255}
@@ -3502,9 +3633,13 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 		status = "BOUNTY CAPTURED"
 		statusColor = color.RGBA{100, 225, 100, 255}
 		hint = "E COLLECT REWARD"
+	case g.bounty.Fleeing:
+		status = "BOUNTY IS RUNNING FOR THE BOAT"
+		statusColor = color.RGBA{235, 145, 60, 255}
 	case g.bounty.Dead:
-		status = "BOUNTY KILLED - REWARD LOST"
-		statusColor = color.RGBA{235, 85, 75, 255}
+		status = "BOUNTY KILLED"
+		statusColor = color.RGBA{235, 145, 60, 255}
+		hint = "E COLLECT REWARD"
 	}
 	g.drawSmallText(screen, status, centerX-float64(len(status)*g.hudFontSize)/2, panelY+panelH-44, statusColor)
 	g.drawSmallText(screen, hint, centerX-float64(len(hint)*g.hudFontSize)/2, panelY+panelH-24, color.RGBA{190, 175, 140, 255})
