@@ -506,7 +506,7 @@ func (g *Game) drawTouchControls(screen *ebiten.Image) {
 }
 
 func (g *Game) drawTouchCircleButton(screen *ebiten.Image, cx, cy, radius float64, label string, fill, stroke color.RGBA) {
-	vector.DrawFilledCircle(screen, float32(cx), float32(cy), float32(radius), fill, true)
+	vector.FillCircle(screen, float32(cx), float32(cy), float32(radius), fill, true)
 	vector.StrokeCircle(screen, float32(cx), float32(cy), float32(radius), 2, stroke, true)
 
 	x := cx - float64(len(label)*g.hudFontSize)/2
@@ -557,10 +557,10 @@ func (g *Game) drawTouchStick(screen *ebiten.Image, label string, role touchRole
 	if active {
 		radius = touchStickRadius
 	}
-	vector.DrawFilledCircle(screen, float32(center.x), float32(center.y), radius, color.RGBA{220, 220, 210, baseAlpha}, true)
+	vector.FillCircle(screen, float32(center.x), float32(center.y), radius, color.RGBA{220, 220, 210, baseAlpha}, true)
 	vector.StrokeCircle(screen, float32(center.x), float32(center.y), radius, 2, color.RGBA{245, 205, 55, 40}, true)
 	if active {
-		vector.DrawFilledCircle(screen, float32(knob.x), float32(knob.y), 22, color.RGBA{245, 205, 55, knobAlpha}, true)
+		vector.FillCircle(screen, float32(knob.x), float32(knob.y), 22, color.RGBA{245, 205, 55, knobAlpha}, true)
 	}
 
 	labelY := center.y + float64(touchHintRadius) + float64(g.hudFontSize) + 2
