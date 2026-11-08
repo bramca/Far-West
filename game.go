@@ -128,7 +128,7 @@ const (
 	// how close the bounty has to get to the shore before he boards the boat
 	bountyEscapeRadius = 60.0
 	// a dead bounty only pays a fraction of the price for bringing him in alive
-	bountyKillRewardDivisor = 5
+	bountyKillRewardDivisor = 4
 
 	// weapons
 	playerReloadDuration          = 60

@@ -222,7 +222,7 @@ func (a *Action) PerformAction(player *Player, frameCount int) {
 		// a fleeing bounty does not stop fighting: while he can see the
 		// player he keeps aiming and firing over his shoulder
 		if a.Fire && a.Actor.IsNpc && !player.Dead {
-			if a.Windup > 0 {
+			if a.Windup > 4 {
 				a.Actor.AimAngle = utils.LeadAngle(
 					a.Actor.X, a.Actor.Y,
 					player.X, player.Y,
@@ -295,7 +295,7 @@ func (a *Action) PerformAction(player *Player, frameCount int) {
 		// the enemy leads the running player so the bullets land where he
 		// will be when they arrive, the player keeps aiming at the cursor
 		if a.Actor.IsNpc && !player.Dead {
-			if a.Windup > 0 {
+			if a.Windup > 4 {
 				a.Actor.AimAngle = utils.LeadAngle(
 					a.Actor.X, a.Actor.Y,
 					player.X, player.Y,
