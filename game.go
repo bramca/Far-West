@@ -140,8 +140,10 @@ const (
 	defaultMachineGunBulletSpread = 40 // lower number is more spread
 	defaultShotgunBulletCount     = 4
 
-	// dodge cooldown keeps the player from spamming the dodge button
-	playerDodgeCooldown = 30
+	// dodge cooldown keeps the player from spamming the dodge button, it is
+	// short enough to react to several telegraphed shots in a row
+	playerDodgeCooldown = 24
+	playerDodgeDuration = 18
 
 	// dead eye slows the world down while the player keeps moving and shooting
 	// at full speed. The gauge drains while it is active and only trickles
@@ -1041,7 +1043,7 @@ func (g *Game) newStoreWhiskyItem() world.StoreItem {
 }
 
 func (g *Game) newStoreCigarItem() world.StoreItem {
-	refill := 4 + g.level/2 + rand.IntN(4)
+	refill := 10 + g.level/2 + rand.IntN(5)
 	cigars := 2 + rand.IntN(4)
 	tier := rollStoreGunTier(g.level)
 	gun := g.newEnemyGun(actors.Cigar, tier, refill)
@@ -1230,7 +1232,7 @@ func (g *Game) newPlayer() *actors.Player {
 		Speed:            2.8,
 		Gold:             playerStartGold,
 		DodgeSpeed:       4.5,
-		DodgeDuration:    15,
+		DodgeDuration:    playerDodgeDuration,
 		AnimationSpeed:   11,
 		MeleeDuration:    actors.FistSweepDuration,
 		DrawOptions:      &ebiten.DrawImageOptions{},
@@ -1632,7 +1634,7 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.Sprite = g.gunSprites[actors.Whisky]
 	case actors.Cigar:
 		gun.ShootCooldown = playerShootCooldown * 2
-		gun.Ammo = 3 + rand.IntN(5)
+		gun.Ammo = 5 + rand.IntN(5)
 		gun.MuzzleFlash = 0
 		gun.Sprite = g.gunSprites[actors.Cigar]
 	}
@@ -3399,8 +3401,8 @@ func (g *Game) openChest(chest *world.Chest) {
 		g.loot = append(g.loot, actors.NewLoot(&gun, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	case world.Ammo:
 		// add ammo of a random type of gun from the players gunbelt
-		if len(g.player.GunBelt) > 2 {
-			idx := 2 + rand.IntN(len(g.player.GunBelt)-2)
+		if len(g.player.GunBelt) > int(actors.Revolver) {
+			idx := int(actors.Revolver) + rand.IntN(len(g.player.GunBelt)-int(actors.Revolver))
 			gun := g.player.GunBelt[idx]
 			if gun != nil {
 				ammo := 5 + rand.IntN(20)
@@ -3415,7 +3417,7 @@ func (g *Game) openChest(chest *world.Chest) {
 		whisky := g.newEnemyGun(actors.Whisky, actors.Common, 2+rand.IntN(3))
 		g.loot = append(g.loot, actors.NewLoot(&whisky, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	case world.Cigar:
-		cigar := g.newEnemyGun(actors.Cigar, rollGunTier(actors.Common), 5+rand.IntN(5))
+		cigar := g.newEnemyGun(actors.Cigar, rollGunTier(actors.Common), 10+rand.IntN(5))
 		g.loot = append(g.loot, actors.NewLoot(&cigar, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	}
 }

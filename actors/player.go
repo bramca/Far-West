@@ -451,7 +451,7 @@ func (p *Player) CanReload() bool {
 
 // CanDodge reports whether the player is ready to dodge again.
 func (p *Player) CanDodge() bool {
-	return !p.Dead && p.DodgeCooldownTimer <= 0
+	return !p.Dead && !p.IsDodging() && p.DodgeCooldownTimer <= 0
 }
 
 // IsDodging reports whether the actor is in the middle of a dodge roll,

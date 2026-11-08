@@ -440,6 +440,23 @@ func TestDodgeCooldownLimitsSpamming(t *testing.T) {
 	}
 }
 
+// TestCannotRestartDodgeMidRoll makes sure a short dodge cooldown cannot be
+// used to chain dodges and stay invulnerable forever.
+func TestCannotRestartDodgeMidRoll(t *testing.T) {
+	game := NewGame()
+	game.player.StartDodge()
+	game.player.DodgeCooldownTimer = 0
+	game.player.CurrentAction = actors.Action{
+		Duration: game.player.DodgeDuration,
+		Type:     actors.Dodge,
+		Actor:    game.player,
+	}
+
+	if game.player.CanDodge() {
+		t.Fatal("the player can restart a dodge while still rolling")
+	}
+}
+
 // TestDodgeGivesIFrames makes sure the player takes no damage while the
 // dodge roll lasts, that the bullet flies through him and that he can be
 // hit again once the roll is over.
