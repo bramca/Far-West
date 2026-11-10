@@ -3428,6 +3428,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	switch g.mode {
 	case ModeTitle:
 		g.drawWorld(screen)
+		g.drawControlsTable(screen)
 		g.drawCenteredTexts(screen, g.titleTexts, g.titleFace, g.titleFontSize, g.titleDrawOptions, g.titleGeoMatrix)
 
 	case ModeGameOver:
@@ -4190,6 +4191,57 @@ func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *tex
 		drawOptions.GeoM = geoMatrix
 	}
 	drawOptions.GeoM = geoMatrix
+}
+
+// titleControlRows is the controls table shown on the title screen, the
+// gamepad column uses the same button codes as the README.
+var titleControlRows = [...]struct {
+	action   string
+	keyboard string
+	gamepad  string
+}{
+	{"MOVE", "WASD/ZQSD", "L STICK"},
+	{"AIM", "MOUSE", "R STICK"},
+	{"SHOOT", "SPACE/LMB", "FTR"},
+	{"RELOAD", "R", "RR"},
+	{"DODGE", "SHIFT", "FTL"},
+	{"DEAD EYE", "X", "RB"},
+	{"WEAPON", "TAB/1-6", "LR"},
+	{"INTERACT", "E", "RT"},
+	{"PAUSE", "P", "FBR"},
+}
+
+// drawControlsTable renders a small keyboard/gamepad controls table centered
+// on the title screen below the title texts.
+func (g *Game) drawControlsTable(screen *ebiten.Image) {
+	const (
+		panelW = 340.0
+		rowH   = 17.0
+	)
+	panelH := 66.0 + float64(len(titleControlRows))*rowH
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := (float64(ScreenHeight) - panelH) / 2
+	borderColor := color.RGBA{245, 205, 55, 240}
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), 2, borderColor, false)
+
+	actionX := panelX + 14
+	keyboardX := panelX + 120
+	gamepadX := panelX + 236
+
+	g.drawSmallText(screen, "CONTROLS", actionX, panelY+16, color.RGBA{245, 205, 55, 255})
+	g.drawSmallText(screen, "KEYBOARD", keyboardX, panelY+16, color.RGBA{170, 160, 140, 255})
+	g.drawSmallText(screen, "GAMEPAD", gamepadX, panelY+16, color.RGBA{170, 160, 140, 255})
+
+	vector.StrokeLine(screen, float32(panelX+14), float32(panelY+36), float32(panelX+panelW-14), float32(panelY+36), 1, borderColor, false)
+
+	for i, row := range titleControlRows {
+		rowY := panelY + 54 + float64(i)*rowH
+		g.drawSmallText(screen, row.action, actionX, rowY, color.RGBA{235, 220, 170, 255})
+		g.drawSmallText(screen, row.keyboard, keyboardX, rowY, color.RGBA{240, 230, 190, 255})
+		g.drawSmallText(screen, row.gamepad, gamepadX, rowY, color.RGBA{240, 230, 190, 255})
+	}
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.

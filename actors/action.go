@@ -33,6 +33,9 @@ const (
 	// engageRangeTolerance is how far an enemy may drift from the range its
 	// weapon prefers before it closes in or backs off.
 	engageRangeTolerance = 45.0
+	// aimLockThreshold is the threshold on how many frames of the final steps
+	// of the windup the aim angle is locked
+	aimLockThreshold = 2
 )
 
 type Action struct {
@@ -222,7 +225,7 @@ func (a *Action) PerformAction(player *Player, frameCount int) {
 		// a fleeing bounty does not stop fighting: while he can see the
 		// player he keeps aiming and firing over his shoulder
 		if a.Fire && a.Actor.IsNpc && !player.Dead {
-			if a.Windup > 4 {
+			if a.Windup > aimLockThreshold {
 				a.Actor.AimAngle = utils.LeadAngle(
 					a.Actor.X, a.Actor.Y,
 					player.X, player.Y,
@@ -295,7 +298,7 @@ func (a *Action) PerformAction(player *Player, frameCount int) {
 		// the enemy leads the running player so the bullets land where he
 		// will be when they arrive, the player keeps aiming at the cursor
 		if a.Actor.IsNpc && !player.Dead {
-			if a.Windup > 4 {
+			if a.Windup > aimLockThreshold {
 				a.Actor.AimAngle = utils.LeadAngle(
 					a.Actor.X, a.Actor.Y,
 					player.X, player.Y,
