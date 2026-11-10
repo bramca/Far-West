@@ -259,7 +259,6 @@ type Game struct {
 	playerHealthBarFontSize int
 	enemyHealthBarFontSize  int
 	hitFontSize             int
-	titleFontColorScale     ebiten.ColorScale
 
 	titleArcadeFont     font.Face
 	arcadeFont          font.Face
@@ -281,20 +280,11 @@ type Game struct {
 	camX float64
 	camY float64
 
-	// text geo matrices
-	titleGeoMatrix    ebiten.GeoM
-	gameOverGeoMatrix ebiten.GeoM
-	pauseGeoMatrix    ebiten.GeoM
-
 	// text padding
 	newlinePadding int
 
 	framesPerSecond int
 
-	// draw options
-	titleDrawOptions    *text.DrawOptions
-	gameOverDrawOptions *text.DrawOptions
-	pauseDrawOptions    *text.DrawOptions
 	// textDrawOptions is a scratch value reused by the hud and prompt text so
 	// drawing a frame does not allocate a new DrawOptions for every line.
 	textDrawOptions *text.DrawOptions
@@ -466,8 +456,6 @@ func NewGame() *Game {
 		Hinting: font.HintingVertical,
 	})
 
-	game.titleFontColorScale.ScaleWithColor(color.White)
-
 	game.titleFace = text.NewGoXFace(game.titleArcadeFont)
 	game.arcadeFace = text.NewGoXFace(game.arcadeFont)
 	game.hudFace = text.NewGoXFace(game.hudFont)
@@ -475,29 +463,7 @@ func NewGame() *Game {
 	game.playerHealthBarFace = text.NewGoXFace(game.playerHealthBarFont)
 	game.enemyHealthBarFace = text.NewGoXFace(game.enemyHealthBarFont)
 
-	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
-	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
-	game.pauseGeoMatrix.Translate(float64((ScreenWidth-len(game.pauseTexts[0])*game.fontSize)/2), float64(8*game.fontSize))
-
-	// set text draw options
-	game.titleDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.titleGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
-	game.gameOverDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.gameOverGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
-	game.pauseDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.pauseGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
+	// textDrawOptions is a scratch value reused by the hud and prompt text
 	game.textDrawOptions = &text.DrawOptions{}
 
 	game.playerSprites = helpers.LoadSprites(assets, []string{
@@ -3437,7 +3403,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case ModeTitle:
 		g.drawWorld(screen)
 		g.drawControlsTable(screen)
-		g.drawCenteredTexts(screen, g.titleTexts, g.titleFace, g.titleFontSize, g.titleDrawOptions, g.titleGeoMatrix)
+		g.drawMenuTextPanel(screen, g.titleTexts, g.titleFontSize, g.titleFace, 90)
 
 	case ModeGameOver:
 		g.drawWorld(screen)
@@ -3448,12 +3414,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			"SCORE "+strconv.Itoa(g.score),
 			g.gameOverTexts[1],
 		)
-		g.drawCenteredTexts(screen, gameOverTexts, g.arcadeFace, g.fontSize, g.gameOverDrawOptions, g.gameOverGeoMatrix)
+		g.drawMenuTextPanel(screen, gameOverTexts, g.fontSize, g.arcadeFace, float64(ScreenHeight)/2)
 
 	case ModePause:
 		g.drawWorld(screen)
 		g.drawHud(screen)
-		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
+		g.drawMenuTextPanel(screen, g.pauseTexts, g.fontSize, g.arcadeFace, float64(ScreenHeight)/2)
 
 	case ModeGame:
 		g.drawWorld(screen)
@@ -3489,7 +3455,7 @@ func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
 
 	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
 	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, color.RGBA{70, 140, 235, 240}, false)
-	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{245, 205, 55, 255})
 	g.drawSmallText(screen, "GO TO THE BOAT", panelX+20, panelY+32, color.RGBA{235, 220, 170, 255})
 }
 
@@ -4250,21 +4216,6 @@ func (g *Game) boatPositions() [][2]float64 {
 	return [][2]float64{{g.boat.X + g.boat.W*g.boat.Scale/2, g.boat.Y + g.boat.H*g.boat.Scale/2}}
 }
 
-// drawCenteredTexts draws a block of horizontally centered lines of text, the
-// translation of the geo matrix already centers the first line.
-func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *text.GoXFace, fontSize int, drawOptions *text.DrawOptions, geoMatrix ebiten.GeoM) {
-	for i, line := range texts {
-		tx := 0
-		if i > 0 {
-			tx = (len(texts[0]) - len(line)) * fontSize / 2
-		}
-		drawOptions.GeoM.Translate(float64(tx), float64((i+1)*(fontSize+g.newlinePadding)))
-		text.Draw(screen, line, face, drawOptions)
-		drawOptions.GeoM = geoMatrix
-	}
-	drawOptions.GeoM = geoMatrix
-}
-
 // titleControlRows is the controls table shown on the title screen, the
 // gamepad column uses the same button codes as the README.
 var titleControlRows = [...]struct {
@@ -4313,6 +4264,47 @@ func (g *Game) drawControlsTable(screen *ebiten.Image) {
 		g.drawSmallText(screen, row.action, actionX, rowY, color.RGBA{235, 220, 170, 255})
 		g.drawSmallText(screen, row.keyboard, keyboardX, rowY, color.RGBA{240, 230, 190, 255})
 		g.drawSmallText(screen, row.gamepad, gamepadX, rowY, color.RGBA{240, 230, 190, 255})
+	}
+}
+
+// drawMenuTextPanel draws a block of centered text lines on a menu styled
+// panel, the first line is the gold headline and the other lines are cream
+// colored, matching the panels of the store and comparison cards. centerY
+// is the vertical center of the panel.
+func (g *Game) drawMenuTextPanel(screen *ebiten.Image, texts []string, fontSize int, face *text.GoXFace, centerY float64) {
+	if len(texts) == 0 {
+		return
+	}
+
+	widest := 0
+	for _, line := range texts {
+		widest = max(widest, len(line))
+	}
+
+	const (
+		padX = 36.0
+		padY = 26.0
+	)
+	lineStep := float64(fontSize + g.newlinePadding)
+	panelW := float64(widest*fontSize) + padX*2
+	panelH := float64(len(texts)-1)*lineStep + float64(fontSize) + padY*2
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := centerY - panelH/2
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), 2, color.RGBA{245, 205, 55, 240}, false)
+
+	for i, line := range texts {
+		clr := color.RGBA{235, 220, 170, 255}
+		if i == 0 {
+			clr = color.RGBA{245, 205, 55, 255}
+		}
+		drawOptions := g.textDrawOptions
+		drawOptions.GeoM.Reset()
+		drawOptions.ColorScale.Reset()
+		drawOptions.GeoM.Translate(panelX+(panelW-float64(len(line)*fontSize))/2, panelY+padY+float64(i)*lineStep)
+		drawOptions.ColorScale.ScaleWithColor(clr)
+		text.Draw(screen, line, face, drawOptions)
 	}
 }
 
