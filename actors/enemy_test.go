@@ -70,7 +70,8 @@ func TestMoveAndShootKeepsPreferredRange(t *testing.T) {
 
 	advancing := newCombatTestPlayer(100, 500)
 	advancingBefore := math.Hypot(advancing.X-target.X, advancing.Y-target.Y)
-	Action{Type: MoveAndShoot, Actor: advancing, PreferredRange: 200}.PerformAction(target, 1)
+	action := Action{Type: MoveAndShoot, Actor: advancing, PreferredRange: 200}
+	action.PerformAction(target, 1)
 	advancingAfter := math.Hypot(advancing.X-target.X, advancing.Y-target.Y)
 	if advancingAfter >= advancingBefore {
 		t.Fatalf("the enemy moved from %f to %f away from the player, it should close in", advancingBefore, advancingAfter)
@@ -82,7 +83,8 @@ func TestMoveAndShootDoesNotRetreat(t *testing.T) {
 	target := newCombatTestPlayer(500, 500)
 	enemy := newCombatTestPlayer(450, 500)
 
-	Action{Type: MoveAndShoot, Actor: enemy, PreferredRange: 200}.PerformAction(target, 1)
+	action := Action{Type: MoveAndShoot, Actor: enemy, PreferredRange: 200}
+	action.PerformAction(target, 1)
 
 	if enemy.X < 450 {
 		t.Fatalf("the enemy backed off to %f, it should hold its ground", enemy.X)
@@ -127,12 +129,13 @@ func TestRepositionDoesNotShoot(t *testing.T) {
 	enemy := newCombatTestPlayer(300, 500)
 	enemy.FireRate = 1
 
-	Action{
+	action := Action{
 		Type:    Reposition,
 		Actor:   enemy,
 		MoveDir: Up,
 		LookDir: Right,
-	}.PerformAction(target, 0)
+	}
+	action.PerformAction(target, 0)
 
 	if len(enemy.Bullets) != 0 {
 		t.Fatal("a repositioning enemy fired at the player")
@@ -174,12 +177,13 @@ func TestFlankerMovesTowardsOffsetPoint(t *testing.T) {
 	target := newCombatTestPlayer(500, 500)
 	enemy := newCombatTestPlayer(500, 300)
 
-	Action{
+	action := Action{
 		Type:           MoveAndShoot,
 		Actor:          enemy,
 		PreferredRange: 100,
 		TargetOffsetX:  300,
-	}.PerformAction(target, 1)
+	}
+	action.PerformAction(target, 1)
 
 	if enemy.X <= 500 {
 		t.Fatalf("the flanker moved to %f, it should head for the offset point to the right", enemy.X)
@@ -206,6 +210,105 @@ func TestFleeingBountyKeepsFighting(t *testing.T) {
 	}
 	if enemy.X >= 300 {
 		t.Fatalf("the fleeing bounty did not run toward the boat, x is %f", enemy.X)
+	}
+}
+
+func TestEnemyAttackProfileBurstsFollowWeapon(t *testing.T) {
+	tests := []struct {
+		weapon    Weapon
+		wantShots int
+		wantCone  bool
+	}{
+		{Shotgun, shotgunBurstShots, true},
+		{Revolver, revolverBurstShots, false},
+		{MachineGun, machineGunBurstShots, false},
+	}
+
+	for _, test := range tests {
+		enemy := &Enemy{Player: &Player{
+			CurrentWeapon: 0,
+			GunBelt:       []*Gun{{GunType: test.weapon}},
+		}}
+
+		profile := enemy.attackProfile()
+		if profile.windup <= 0 {
+			t.Fatalf("the %s attack has no windup", test.weapon)
+		}
+		if profile.shots != test.wantShots {
+			t.Fatalf("the %s bursts %d shots, want %d", test.weapon, profile.shots, test.wantShots)
+		}
+		if profile.interval <= 0 {
+			t.Fatalf("the %s burst has no interval between shots", test.weapon)
+		}
+
+		shape, halfAngle := telegraphForGun(enemy.GunBelt[0])
+		if test.wantCone && (shape != TelegraphCone || halfAngle <= 0) {
+			t.Fatalf("the %s should telegraph a cone", test.weapon)
+		}
+		if !test.wantCone && shape != TelegraphLine {
+			t.Fatalf("the %s should telegraph a straight line", test.weapon)
+		}
+	}
+}
+
+func TestEngageStartsWithATelegraphedAttack(t *testing.T) {
+	target := newCombatTestPlayer(500, 500)
+	enemy := &Enemy{Player: newCombatTestPlayer(300, 500)}
+	enemy.FireRate = 10
+
+	// the engage logic sometimes picks a dodge instead of an attack, try a
+	// few times until it picks the attack so the test stays deterministic
+	for range 100 {
+		enemy.CurrentAction = Action{}
+		enemy.engage(target)
+		if enemy.CurrentAction.Type == MoveAndShoot {
+			break
+		}
+	}
+
+	if enemy.CurrentAction.Type != MoveAndShoot {
+		t.Fatal("the enemy never picked an attack")
+	}
+	if enemy.CurrentAction.Windup <= 0 || enemy.CurrentAction.WindupFrames != enemy.CurrentAction.Windup {
+		t.Fatal("the attack started without a windup telegraph")
+	}
+	if enemy.CurrentAction.BurstShots <= 0 {
+		t.Fatal("the attack started without a burst")
+	}
+}
+
+func TestEnemyWaitsForWindupThenFiresBurst(t *testing.T) {
+	target := newCombatTestPlayer(500, 500)
+	enemy := newCombatTestPlayer(300, 500)
+	enemy.GunBelt[0] = &Gun{GunType: Fists, Damage: 1, ShootCooldown: 1}
+	shots := 0
+	enemy.OnMelee = func(int) { shots++ }
+
+	const windup = 20
+	action := Action{
+		Type:          MoveAndShoot,
+		Actor:         enemy,
+		Duration:      100,
+		Windup:        windup,
+		WindupFrames:  windup,
+		BurstShots:    3,
+		BurstInterval: 8,
+	}
+
+	for frame := range windup - 1 {
+		action.PerformAction(target, frame)
+		enemy.UpdateWeapon()
+	}
+	if shots != 0 {
+		t.Fatalf("the enemy fired %d shots during the windup", shots)
+	}
+
+	for frame := range 100 {
+		action.PerformAction(target, frame)
+		enemy.UpdateWeapon()
+	}
+	if shots != 3 {
+		t.Fatalf("the enemy fired %d shots, want a burst of 3", shots)
 	}
 }
 

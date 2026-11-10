@@ -14,6 +14,7 @@ const (
 	Gun
 	Ammo
 	Whisky
+	Cigar
 )
 
 const (

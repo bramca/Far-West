@@ -3,6 +3,7 @@ package farwest
 import (
 	"embed"
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"math/rand/v2"
@@ -127,7 +128,7 @@ const (
 	// how close the bounty has to get to the shore before he boards the boat
 	bountyEscapeRadius = 60.0
 	// a dead bounty only pays a fraction of the price for bringing him in alive
-	bountyKillRewardDivisor = 5
+	bountyKillRewardDivisor = 4
 
 	// weapons
 	playerReloadDuration          = 60
@@ -139,8 +140,10 @@ const (
 	defaultMachineGunBulletSpread = 40 // lower number is more spread
 	defaultShotgunBulletCount     = 4
 
-	// dodge cooldown keeps the player from spamming the dodge button
-	playerDodgeCooldown = 30
+	// dodge cooldown keeps the player from spamming the dodge button, it is
+	// short enough to react to several telegraphed shots in a row
+	playerDodgeCooldown = 24
+	playerDodgeDuration = 18
 
 	// dead eye slows the world down while the player keeps moving and shooting
 	// at full speed. The gauge drains while it is active and only trickles
@@ -157,6 +160,7 @@ const (
 	// sounds
 	soundDash            = "dash"
 	soundDrink           = "drink"
+	soundSmoke           = "smoke"
 	soundEmptyClick      = "empty-click"
 	soundEnemyDeath      = "enemy-death"
 	soundGameOver        = "game-over"
@@ -169,6 +173,7 @@ const (
 
 	soundVolumeDash          = 0.35
 	soundVolumeDrink         = 0.40
+	soundVolumeSmoke         = 0.40
 	soundVolumeEmptyClick    = 0.30
 	soundVolumeHit           = 0.45
 	soundVolumeEnemyDeath    = 0.55
@@ -200,6 +205,7 @@ var (
 	soundFiles = map[string]string{
 		soundDash:            "dash.wav",
 		soundDrink:           "drink.wav",
+		soundSmoke:           "smoke.wav",
 		soundEmptyClick:      "empty-click.wav",
 		soundEnemyDeath:      "enemy-death.wav",
 		soundGameOver:        "game-over.wav",
@@ -253,7 +259,6 @@ type Game struct {
 	playerHealthBarFontSize int
 	enemyHealthBarFontSize  int
 	hitFontSize             int
-	titleFontColorScale     ebiten.ColorScale
 
 	titleArcadeFont     font.Face
 	arcadeFont          font.Face
@@ -275,20 +280,11 @@ type Game struct {
 	camX float64
 	camY float64
 
-	// text geo matrices
-	titleGeoMatrix    ebiten.GeoM
-	gameOverGeoMatrix ebiten.GeoM
-	pauseGeoMatrix    ebiten.GeoM
-
 	// text padding
 	newlinePadding int
 
 	framesPerSecond int
 
-	// draw options
-	titleDrawOptions    *text.DrawOptions
-	gameOverDrawOptions *text.DrawOptions
-	pauseDrawOptions    *text.DrawOptions
 	// textDrawOptions is a scratch value reused by the hud and prompt text so
 	// drawing a frame does not allocate a new DrawOptions for every line.
 	textDrawOptions *text.DrawOptions
@@ -378,13 +374,34 @@ type Game struct {
 	xRightAxis     float64
 	yRightAxis     float64
 	buttonsPressed map[string]bool
+
+	// touch
+	touchIDs             []ebiten.TouchID
+	justTouchIDs         []ebiten.TouchID
+	touchRoles           map[ebiten.TouchID]touchRole
+	touchAnchors         map[ebiten.TouchID]touchPoint
+	usingTouch           bool
+	touchFireHeld        bool
+	touchFireJustPressed bool
+	touchAimActive       bool
+	touchMoveActive      bool
+	touchInteract        bool
+	touchSail            bool
+	touchDeadEye         bool
+	touchDodge           bool
+	touchReload          bool
+	touchCompareActive   bool
+	touchMoveAnchor      touchPoint
+	touchMoveKnob        touchPoint
+	touchAimAnchor       touchPoint
+	touchAimKnob         touchPoint
 }
 
 func NewGame() *Game {
 	game := &Game{
-		titleTexts:              []string{"FAR WEST", "PRESS SPACE KEY OR START BUTTON"},
-		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE KEY OR START BUTTON"},
-		pauseTexts:              []string{"PAUSED", "PRESS SPACE OR START BUTTON"},
+		titleTexts:              []string{"FAR WEST", "PRESS SPACE/START OR TAP TO START"},
+		gameOverTexts:           []string{"GAME OVER!", "PRESS SPACE/START OR TAP TO RESTART"},
+		pauseTexts:              []string{"PAUSED", "PRESS SPACE/START OR TAP TO RESUME"},
 		fontSize:                18,
 		titleFontSize:           13,
 		hudFontSize:             12,
@@ -402,6 +419,8 @@ func NewGame() *Game {
 		frameCount:              1,
 		maxFramCount:            60,
 		buttonsPressed:          map[string]bool{},
+		touchRoles:              map[ebiten.TouchID]touchRole{},
+		touchAnchors:            map[ebiten.TouchID]touchPoint{},
 	}
 
 	dpi := 72.0
@@ -437,8 +456,6 @@ func NewGame() *Game {
 		Hinting: font.HintingVertical,
 	})
 
-	game.titleFontColorScale.ScaleWithColor(color.White)
-
 	game.titleFace = text.NewGoXFace(game.titleArcadeFont)
 	game.arcadeFace = text.NewGoXFace(game.arcadeFont)
 	game.hudFace = text.NewGoXFace(game.hudFont)
@@ -446,34 +463,13 @@ func NewGame() *Game {
 	game.playerHealthBarFace = text.NewGoXFace(game.playerHealthBarFont)
 	game.enemyHealthBarFace = text.NewGoXFace(game.enemyHealthBarFont)
 
-	game.titleGeoMatrix.Translate(float64(ScreenWidth-len(game.titleTexts[0])*game.titleFontSize)/2, float64(4*game.titleFontSize))
-	game.gameOverGeoMatrix.Translate(float64(ScreenWidth-len(game.gameOverTexts[0])*game.fontSize)/2, float64(8*game.fontSize))
-	game.pauseGeoMatrix.Translate(float64((ScreenWidth-len(game.pauseTexts[0])*game.fontSize)/2), float64(8*game.fontSize))
-
-	// set text draw options
-	game.titleDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.titleGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
-	game.gameOverDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.gameOverGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
-	game.pauseDrawOptions = &text.DrawOptions{
-		DrawImageOptions: ebiten.DrawImageOptions{
-			GeoM:       game.pauseGeoMatrix,
-			ColorScale: game.titleFontColorScale,
-		},
-	}
+	// textDrawOptions is a scratch value reused by the hud and prompt text
 	game.textDrawOptions = &text.DrawOptions{}
 
 	game.playerSprites = helpers.LoadSprites(assets, []string{
 		"assets/sprites/player-no-gun.png",
 		"assets/sprites/player-whisky.png",
+		"assets/sprites/player-cigar.png",
 		"assets/sprites/player-revolver.png",
 		"assets/sprites/player-shotgun.png",
 		"assets/sprites/player-machine-gun.png",
@@ -565,11 +561,13 @@ func NewGame() *Game {
 		"assets/sprites/gun-chest.png",
 		"assets/sprites/ammo-chest.png",
 		"assets/sprites/whisky-chest.png",
+		"assets/sprites/cigar-chest.png",
 	}, 32, 32)
 
 	game.gunSprites = helpers.LoadSprites(assets, []string{
-		"assets/sprites/fist.png",
 		"assets/sprites/whisky.png",
+		"assets/sprites/cigar.png",
+		"assets/sprites/fist.png",
 		"assets/sprites/revolver.png",
 		"assets/sprites/shotgun.png",
 		"assets/sprites/machine-gun.png",
@@ -964,13 +962,19 @@ func scaledStorePrice(base, level int) int {
 }
 
 func (g *Game) newStoreWeaponItem() world.StoreItem {
-	if rand.Float64() < 0.30 {
+	roll := rand.Float64()
+	switch {
+	case roll < 0.25:
 		return g.newStoreWhiskyItem()
+	case roll < 0.45:
+		return g.newStoreCigarItem()
 	}
 
 	gunType := rollEnemyWeapon()
 	tier := rollStoreGunTier(g.level)
-	gun := g.newEnemyGun(gunType, tier, 3)
+	// the store guns roll the same level scaled base damage the enemies
+	// carry so they keep up with the drops of the current level
+	gun := g.newEnemyGun(gunType, tier, levelGunDamage(g.level))
 
 	return world.StoreItem{
 		Kind:   world.StoreWeapon,
@@ -1002,6 +1006,23 @@ func (g *Game) newStoreWhiskyItem() world.StoreItem {
 		Price:  scaledStorePrice(20+heal*3+bottles*5, g.level),
 		Amount: bottles,
 		Weapon: actors.Whisky,
+		Gun:    &gun,
+	}
+}
+
+func (g *Game) newStoreCigarItem() world.StoreItem {
+	refill := 10 + g.level/2 + rand.IntN(5)
+	cigars := 2 + rand.IntN(4)
+	tier := rollStoreGunTier(g.level)
+	gun := g.newEnemyGun(actors.Cigar, tier, refill)
+	gun.Ammo = cigars
+
+	return world.StoreItem{
+		Kind:   world.StoreCigar,
+		Name:   "CIGAR",
+		Price:  scaledStorePrice(16+refill*3+cigars*5, g.level),
+		Amount: cigars,
+		Weapon: actors.Cigar,
 		Gun:    &gun,
 	}
 }
@@ -1086,6 +1107,18 @@ func (g *Game) newPlayer() *actors.Player {
 			ShootCooldown: 32,
 			Ammo:          5,
 			Scale:         2.0,
+			X:             ScreenWidth/2 - 160,
+			Y:             ScreenHeight - 64,
+			AmmoFace:      g.hitFace,
+		},
+		{
+			Damage:        10,
+			GunType:       actors.Cigar,
+			Sprite:        g.gunSprites[actors.Cigar],
+			DrawOptions:   &ebiten.DrawImageOptions{},
+			ShootCooldown: 32,
+			Ammo:          10,
+			Scale:         2.0,
 			X:             ScreenWidth/2 - 128,
 			Y:             ScreenHeight - 64,
 			AmmoFace:      g.hitFace,
@@ -1162,12 +1195,12 @@ func (g *Game) newPlayer() *actors.Player {
 		H:                float64(g.playerSprites[0].Bounds().Dy()),
 		Sprites:          g.playerSprites,
 		CurrentState:     actors.PlayerNoGunRight,
-		CurrentWeapon:    1,
+		CurrentWeapon:    int(actors.Fists),
 		Scale:            2,
 		Speed:            2.8,
 		Gold:             playerStartGold,
 		DodgeSpeed:       4.5,
-		DodgeDuration:    15,
+		DodgeDuration:    playerDodgeDuration,
 		AnimationSpeed:   11,
 		MeleeDuration:    actors.FistSweepDuration,
 		DrawOptions:      &ebiten.DrawImageOptions{},
@@ -1176,6 +1209,7 @@ func (g *Game) newPlayer() *actors.Player {
 		GunBeltSize:      len(defaultGunBelt),
 		OnShoot:          g.playPlayerShootSound,
 		OnDrink:          g.playPlayerDrinkSound,
+		OnSmoke:          g.playPlayerSmokeSound,
 		OnMelee:          g.performMeleeSweep,
 		Health:           20,
 		MaxHealth:        20,
@@ -1524,6 +1558,12 @@ func rollGunTierStats(tier actors.Tier) actors.GunTierStats {
 	}
 }
 
+// levelGunDamage is the base gun damage that comes with the level, enemies
+// and the store both roll it so their guns stay comparable across levels.
+func levelGunDamage(level int) int {
+	return 2 + (level-1)/2*levelDamageBonus
+}
+
 // newEnemyGun builds the gun an enemy carries. The tier of the gun improves
 // its base stats and widens the random spread of those stats.
 func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) actors.Gun {
@@ -1566,12 +1606,17 @@ func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) 
 		gun.Ammo = 5 + rand.IntN(10)
 		gun.MuzzleFlash = 0
 		gun.Sprite = g.gunSprites[actors.Whisky]
+	case actors.Cigar:
+		gun.ShootCooldown = playerShootCooldown * 2
+		gun.Ammo = 5 + rand.IntN(5)
+		gun.MuzzleFlash = 0
+		gun.Sprite = g.gunSprites[actors.Cigar]
 	}
 
 	stats := rollGunTierStats(tier)
 	gun.Damage += stats.Damage
 	gun.ShootCooldown = max(1, gun.ShootCooldown+stats.ShootCoolAmmo)
-	if gunType == actors.Whisky {
+	if gunType == actors.Whisky || gunType == actors.Cigar {
 		gun.Ammo += min(stats.Ammo, 2)
 
 		return gun
@@ -1625,7 +1670,7 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 
 	// the higher the level the tougher and deadlier the enemies get,
 	// the base damage is low because every bullet deals at least 1
-	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.Damage
+	damage := levelGunDamage(g.level) + tierStats.Damage
 	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
 	gunBelt := []*actors.Gun{&gun}
 	if rollEnemyWhisky(tier) {
@@ -1693,6 +1738,57 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 		HomeX:      camp.X,
 		HomeY:      camp.Y,
 		HomeRadius: camp.Radius,
+		StateSpriteIndex: map[actors.PlayerState]int{
+			actors.PlayerNoGunRight:             0,
+			actors.PlayerNoGunLeft:              1,
+			actors.PlayerNoGunRunRight:          2,
+			actors.PlayerNoGunRunLeft:           3,
+			actors.PlayerWhiskyRight:            4,
+			actors.PlayerWhiskyRightUp:          5,
+			actors.PlayerWhiskyLeft:             6,
+			actors.PlayerWhiskyLeftUp:           7,
+			actors.PlayerWhiskyRunRight:         8,
+			actors.PlayerWhiskyRunRightUp:       9,
+			actors.PlayerWhiskyRunLeft:          10,
+			actors.PlayerWhiskyRunLeftUp:        11,
+			actors.PlayerRevolverRight:          12,
+			actors.PlayerRevolverRightUp:        13,
+			actors.PlayerRevolverRightDown:      14,
+			actors.PlayerRevolverLeft:           15,
+			actors.PlayerRevolverLeftUp:         16,
+			actors.PlayerRevolverLeftDown:       17,
+			actors.PlayerRevolverRunRight:       18,
+			actors.PlayerRevolverRunRightUp:     19,
+			actors.PlayerRevolverRunRightDown:   20,
+			actors.PlayerRevolverRunLeft:        21,
+			actors.PlayerRevolverRunLeftUp:      22,
+			actors.PlayerRevolverRunLeftDown:    23,
+			actors.PlayerShotgunRight:           24,
+			actors.PlayerShotgunRightUp:         25,
+			actors.PlayerShotgunRightDown:       26,
+			actors.PlayerShotgunLeft:            27,
+			actors.PlayerShotgunLeftUp:          28,
+			actors.PlayerShotgunLeftDown:        29,
+			actors.PlayerShotgunRunRight:        30,
+			actors.PlayerShotgunRunRightUp:      31,
+			actors.PlayerShotgunRunRightDown:    32,
+			actors.PlayerShotgunRunLeft:         33,
+			actors.PlayerShotgunRunLeftUp:       34,
+			actors.PlayerShotgunRunLeftDown:     35,
+			actors.PlayerMachineGunRight:        36,
+			actors.PlayerMachineGunRightUp:      37,
+			actors.PlayerMachineGunRightDown:    38,
+			actors.PlayerMachineGunLeft:         39,
+			actors.PlayerMachineGunLeftUp:       40,
+			actors.PlayerMachineGunLeftDown:     41,
+			actors.PlayerMachineGunRunRight:     42,
+			actors.PlayerMachineGunRunRightUp:   43,
+			actors.PlayerMachineGunRunRightDown: 44,
+			actors.PlayerMachineGunRunLeft:      45,
+			actors.PlayerMachineGunRunLeftUp:    46,
+			actors.PlayerMachineGunRunLeftDown:  47,
+			actors.PlayerDead:                   48,
+		},
 	}
 	enemy.Healthbar = &actors.HealthBar{
 		X:               enemy.X,
@@ -2570,7 +2666,7 @@ func (g *Game) nearestLoot() *actors.Loot {
 // comparingLoot returns the nearby gun on the floor while the compare input
 // is held.
 func (g *Game) comparingLoot() *actors.Loot {
-	if !ebiten.IsKeyPressed(ebiten.KeyQ) && !g.buttonsPressed["RL"] {
+	if !ebiten.IsKeyPressed(ebiten.KeyQ) && !g.buttonsPressed["RL"] && !g.touchCompareActive {
 		return nil
 	}
 
@@ -2600,6 +2696,7 @@ func (g *Game) pickUpLoot(loot *actors.Loot) {
 	}
 
 	g.removeLoot(loot)
+	g.touchCompareActive = false
 	g.sounds.Play(soundPickup, soundVolumePickup)
 
 	if oldGun.GunType == actors.Fists {
@@ -2652,6 +2749,12 @@ func (g *Game) Update() error {
 	for k := range buttonsJustPressed {
 		delete(buttonsJustPressed, k)
 	}
+
+	g.xLeftAxis, g.yLeftAxis = 0, 0
+	g.xRightAxis, g.yRightAxis = 0, 0
+
+	g.refreshTouches()
+	g.updateTouchMenus()
 
 	if g.gamepadIDs == nil {
 		g.gamepadIDs = map[ebiten.GamepadID]struct{}{}
@@ -2716,6 +2819,8 @@ func (g *Game) Update() error {
 		}
 
 	}
+
+	g.updateTouchGameplay()
 
 	// Calculate the position of the screen center based on the player's position
 	g.camX = g.player.X + g.player.W/2 - ScreenWidth/2
@@ -2794,6 +2899,10 @@ func (g *Game) Update() error {
 			g.player.Act(g.frameCount)
 		} else {
 			// weapon switching
+			if inpututil.IsKeyJustPressed(ebiten.Key6) && len(g.player.GunBelt) > 5 {
+				g.player.DrawWeapon(5)
+			}
+
 			if inpututil.IsKeyJustPressed(ebiten.Key5) && len(g.player.GunBelt) > 4 {
 				g.player.DrawWeapon(4)
 			}
@@ -2879,7 +2988,7 @@ func (g *Game) Update() error {
 				g.player.AimAngle = math.Atan2(g.yRightAxis, g.xRightAxis)
 			} else if lookDirX != 0 || lookDirY != 0 {
 				g.player.AimAngle = math.Atan2(lookDirY, lookDirX)
-			} else {
+			} else if !g.usingTouch {
 				mx, my := ebiten.CursorPosition()
 				worldX := float64(mx) + g.camX
 				worldY := float64(my) + g.camY
@@ -2889,17 +2998,18 @@ func (g *Game) Update() error {
 
 			// picking up a gun swaps it with the matching gun in the gunbelt and
 			// tosses the old one in the aim direction
-			if chest := g.nearestClosedChest(); chest != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			interact := inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"] || g.touchInteract
+			if chest := g.nearestClosedChest(); chest != nil && interact {
 				g.openChest(chest)
-			} else if loot := g.nearestLoot(); loot != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			} else if loot := g.nearestLoot(); loot != nil && interact {
 				g.pickUpLoot(loot)
-			} else if g.nearestJail() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			} else if g.nearestJail() != nil && interact {
 				g.openWantedPoster()
-			} else if g.nearestStore() != nil && (inpututil.IsKeyJustPressed(ebiten.KeyE) || buttonsJustPressed["RT"]) {
+			} else if g.nearestStore() != nil && interact {
 				g.openStore()
 			}
 
-			if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"]) && g.player.CanDodge() {
+			if (inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || buttonsJustPressed["FTL"] || g.touchDodge) && g.player.CanDodge() {
 				g.player.StartDodge()
 				g.player.CurrentAction = actors.Action{
 					Duration: g.player.DodgeDuration,
@@ -2924,12 +3034,12 @@ func (g *Game) Update() error {
 				g.player.StopAnimation()
 			}
 
-			firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"]
-			fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"]
+			firePressed := ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || g.buttonsPressed["FTR"] || g.touchFireHeld
+			fireJustPressed := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || buttonsJustPressed["FTR"] || g.touchFireJustPressed
 
 			if fireJustPressed && !g.player.Reloading && g.player.ShootTimer <= 0 && !g.player.CanShoot() {
 				gun := g.player.GunBelt[g.player.CurrentWeapon]
-				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky {
+				if gun.GunType != actors.Fists && gun.GunType != actors.Whisky && gun.GunType != actors.Cigar {
 					g.sounds.Play(soundEmptyClick, soundVolumeEmptyClick)
 				}
 			}
@@ -2942,11 +3052,11 @@ func (g *Game) Update() error {
 				}
 			}
 
-			if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] {
+			if inpututil.IsKeyJustPressed(ebiten.KeyR) || buttonsJustPressed["RR"] || g.touchReload {
 				g.player.Reload()
 			}
 
-			if inpututil.IsKeyJustPressed(ebiten.KeyX) || buttonsJustPressed["RB"] {
+			if inpututil.IsKeyJustPressed(ebiten.KeyX) || buttonsJustPressed["RB"] || g.touchDeadEye {
 				g.toggleDeadEye()
 			}
 		}
@@ -2980,7 +3090,7 @@ func (g *Game) Update() error {
 			g.sounds.Play(soundLevelComplete, soundVolumeLevelComplete)
 		}
 		if g.mode == ModeGame && !g.storeOpen && !g.wantedPosterOpen && g.nearestBoat() != nil &&
-			(inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"]) {
+			(inpututil.IsKeyJustPressed(ebiten.KeyN) || buttonsJustPressed["RB"] || g.touchSail) {
 			if g.trySailToNextLevel() {
 				return nil
 			}
@@ -3168,7 +3278,7 @@ func (g *Game) buyStoreItem(item *world.StoreItem) {
 			return
 		}
 		g.player.GunBelt[index].Ammo += item.Amount
-	case world.StoreWeapon, world.StoreWhisky:
+	case world.StoreWeapon, world.StoreWhisky, world.StoreCigar:
 		if !g.equipStoreGun(item.Gun) {
 			return
 		}
@@ -3265,8 +3375,8 @@ func (g *Game) openChest(chest *world.Chest) {
 		g.loot = append(g.loot, actors.NewLoot(&gun, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	case world.Ammo:
 		// add ammo of a random type of gun from the players gunbelt
-		if len(g.player.GunBelt) > 2 {
-			idx := 2 + rand.IntN(len(g.player.GunBelt)-2)
+		if len(g.player.GunBelt) > int(actors.Revolver) {
+			idx := int(actors.Revolver) + rand.IntN(len(g.player.GunBelt)-int(actors.Revolver))
 			gun := g.player.GunBelt[idx]
 			if gun != nil {
 				ammo := 5 + rand.IntN(20)
@@ -3280,6 +3390,9 @@ func (g *Game) openChest(chest *world.Chest) {
 	case world.Whisky:
 		whisky := g.newEnemyGun(actors.Whisky, actors.Common, 2+rand.IntN(3))
 		g.loot = append(g.loot, actors.NewLoot(&whisky, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
+	case world.Cigar:
+		cigar := g.newEnemyGun(actors.Cigar, rollGunTier(actors.Common), 10+rand.IntN(5))
+		g.loot = append(g.loot, actors.NewLoot(&cigar, chest.X+chest.W*chest.Scale/2, chest.Y+chest.H*chest.Scale/2))
 	}
 }
 
@@ -3289,7 +3402,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	switch g.mode {
 	case ModeTitle:
 		g.drawWorld(screen)
-		g.drawCenteredTexts(screen, g.titleTexts, g.titleFace, g.titleFontSize, g.titleDrawOptions, g.titleGeoMatrix)
+		g.drawControlsTable(screen)
+		g.drawMenuTextPanel(screen, g.titleTexts, g.titleFontSize, g.titleFace, 90)
 
 	case ModeGameOver:
 		g.drawWorld(screen)
@@ -3300,12 +3414,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			"SCORE "+strconv.Itoa(g.score),
 			g.gameOverTexts[1],
 		)
-		g.drawCenteredTexts(screen, gameOverTexts, g.arcadeFace, g.fontSize, g.gameOverDrawOptions, g.gameOverGeoMatrix)
+		g.drawMenuTextPanel(screen, gameOverTexts, g.fontSize, g.arcadeFace, float64(ScreenHeight)/2)
 
 	case ModePause:
 		g.drawWorld(screen)
 		g.drawHud(screen)
-		g.drawCenteredTexts(screen, g.pauseTexts, g.arcadeFace, g.fontSize, g.pauseDrawOptions, g.pauseGeoMatrix)
+		g.drawMenuTextPanel(screen, g.pauseTexts, g.fontSize, g.arcadeFace, float64(ScreenHeight)/2)
 
 	case ModeGame:
 		g.drawWorld(screen)
@@ -3313,6 +3427,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.drawDeadEyeOverlay(screen)
 		}
 		g.drawHud(screen)
+		g.drawTouchControls(screen)
 		if g.storeOpen {
 			g.drawStore(screen)
 		} else if loot := g.comparingLoot(); loot != nil {
@@ -3340,7 +3455,7 @@ func (g *Game) drawLevelCompleteOverlay(screen *ebiten.Image) {
 
 	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 238}, false)
 	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, color.RGBA{70, 140, 235, 240}, false)
-	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+	g.drawSmallText(screen, "LEVEL COMPLETE!", panelX+20, panelY+16, color.RGBA{245, 205, 55, 255})
 	g.drawSmallText(screen, "GO TO THE BOAT", panelX+20, panelY+32, color.RGBA{235, 220, 170, 255})
 }
 
@@ -3467,6 +3582,11 @@ func (g *Game) drawLootPrompt(screen *ebiten.Image) {
 		return
 	}
 
+	// Touch players get a tappable context button instead.
+	if g.usingTouch {
+		return
+	}
+
 	if chest := g.nearestClosedChest(); chest != nil {
 		msg := "E OPEN"
 		x := (ScreenWidth - len(msg)*g.hudFontSize) / 2
@@ -3565,18 +3685,18 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 		return
 	}
 
-	const (
-		panelW = 520.0
-		panelH = 420.0
-	)
-	panelX := (float64(ScreenWidth) - panelW) / 2
-	panelY := (float64(ScreenHeight) - panelH) / 2
+	panelX := (float64(ScreenWidth) - wantedPanelW) / 2
+	panelY := (float64(ScreenHeight) - wantedPanelH) / 2
 	tierColor := actors.TierColor(g.bounty.Tier)
 
-	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{29, 23, 16, 248}, false)
-	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 3, tierColor, false)
+	vector.FillRect(screen, float32(panelX), float32(panelY), wantedPanelW, wantedPanelH, color.RGBA{29, 23, 16, 248}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), wantedPanelW, wantedPanelH, 3, tierColor, false)
 
-	centerX := panelX + panelW/2
+	if g.usingTouch {
+		g.drawTouchCloseButton(screen, wantedCloseRect())
+	}
+
+	centerX := panelX + wantedPanelW/2
 	title := "WANTED"
 	g.drawSmallText(screen, title, centerX-float64(len(title)*g.hudFontSize)/2, panelY+20, color.RGBA{245, 205, 55, 255})
 
@@ -3587,7 +3707,7 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 	if int(iconState) >= len(g.bounty.Sprites) {
 		return
 	}
-	sprite := g.bounty.Sprites[iconState]
+	sprite := g.bounty.Sprites[g.bounty.StateSpriteIndex[iconState]]
 	const iconScale = 3.0
 	iconWidth := float64(sprite.Bounds().Dx()) * iconScale
 	iconHeight := float64(sprite.Bounds().Dy()) * iconScale
@@ -3614,9 +3734,9 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 	}
 
 	reward := "REWARD"
-	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-104, color.RGBA{245, 205, 55, 255})
+	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+wantedPanelH-104, color.RGBA{245, 205, 55, 255})
 	reward = "ALIVE: $" + strconv.Itoa(g.bountyReward) + " DEAD: $" + strconv.Itoa(g.bountyReward/bountyKillRewardDivisor)
-	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+panelH-72, color.RGBA{245, 205, 55, 255})
+	g.drawSmallText(screen, reward, centerX-float64(len(reward)*g.hudFontSize)/2, panelY+wantedPanelH-72, color.RGBA{245, 205, 55, 255})
 
 	status := "HUNT THIS BANDIT AT THE BANDIT CAMPS"
 	statusColor := color.RGBA{190, 175, 140, 255}
@@ -3640,8 +3760,26 @@ func (g *Game) drawWantedPoster(screen *ebiten.Image) {
 		statusColor = color.RGBA{235, 145, 60, 255}
 		hint = "E COLLECT REWARD"
 	}
-	g.drawSmallText(screen, status, centerX-float64(len(status)*g.hudFontSize)/2, panelY+panelH-44, statusColor)
-	g.drawSmallText(screen, hint, centerX-float64(len(hint)*g.hudFontSize)/2, panelY+panelH-24, color.RGBA{190, 175, 140, 255})
+	if g.usingTouch {
+		if g.bounty != nil && (g.bounty.KnockedOut || g.bounty.Dead) && !g.bounty.Escaped && !g.bountyClaimed {
+			hint = "TAP TO COLLECT REWARD"
+		} else {
+			hint = "TAP TO CLOSE"
+		}
+	}
+	g.drawSmallText(screen, status, centerX-float64(len(status)*g.hudFontSize)/2, panelY+wantedPanelH-44, statusColor)
+	g.drawSmallText(screen, hint, centerX-float64(len(hint)*g.hudFontSize)/2, panelY+wantedPanelH-24, color.RGBA{190, 175, 140, 255})
+}
+
+// drawTouchCloseButton renders the small X used by the touch store and wanted
+// poster overlays.
+func (g *Game) drawTouchCloseButton(screen *ebiten.Image, rect image.Rectangle) {
+	vector.FillRect(screen, float32(rect.Min.X), float32(rect.Min.Y), float32(rect.Dx()), float32(rect.Dy()), color.RGBA{40, 30, 20, 165}, false)
+	vector.StrokeRect(screen, float32(rect.Min.X), float32(rect.Min.Y), float32(rect.Dx()), float32(rect.Dy()), 2, color.RGBA{245, 205, 55, 165}, false)
+	label := "X"
+	x := float64(rect.Min.X) + (float64(rect.Dx())-float64(len(label)*g.hudFontSize))/2
+	y := float64(rect.Min.Y) + (float64(rect.Dy())-float64(g.hudFontSize))/2
+	g.drawSmallText(screen, label, x, y, color.RGBA{240, 230, 190, 225})
 }
 
 // gunStatRow is one line of the gun comparison overlay.
@@ -3658,6 +3796,13 @@ func gunStatRows(current, loot *actors.Gun) []gunStatRow {
 		return []gunStatRow{
 			{"HEALING", float64(current.Damage), float64(loot.Damage), true, 0},
 			{"AMMO", float64(current.Ammo), float64(loot.Ammo), true, 0},
+			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
+		}
+	}
+	if loot.GunType == actors.Cigar {
+		return []gunStatRow{
+			{"DEAD EYE", float64(current.Damage), float64(loot.Damage), true, 0},
+			{"CIGARS", float64(current.Ammo), float64(loot.Ammo), true, 0},
 			{"COOLDOWN", float64(current.ShootCooldown), float64(loot.ShootCooldown), false, 0},
 		}
 	}
@@ -3742,27 +3887,26 @@ func (g *Game) drawStore(screen *ebiten.Image) {
 		return
 	}
 
-	const (
-		panelW = 560.0
-		panelH = 440.0
-		rowH   = 40.0
-	)
-	panelX := (float64(ScreenWidth) - panelW) / 2
-	panelY := 80.0
+	panelX := (float64(ScreenWidth) - storePanelW) / 2
+	panelY := storePanelY
 	borderColor := color.RGBA{245, 205, 55, 240}
 
-	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
-	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, borderColor, false)
+	vector.FillRect(screen, float32(panelX), float32(panelY), storePanelW, storePanelH, color.RGBA{18, 16, 12, 242}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), storePanelW, storePanelH, 2, borderColor, false)
 
 	g.drawSmallText(screen, "GENERAL STORE", panelX+20, panelY+18, color.RGBA{245, 205, 55, 255})
 	goldText := "GOLD " + strconv.Itoa(g.player.Gold)
-	g.drawSmallText(screen, goldText, panelX+panelW-20-float64(len(goldText)*g.hudFontSize), panelY+18, color.RGBA{240, 230, 190, 255})
+	g.drawSmallText(screen, goldText, panelX+storePanelW-20-float64(len(goldText)*g.hudFontSize), panelY+18, color.RGBA{240, 230, 190, 255})
+
+	if g.usingTouch {
+		g.drawTouchCloseButton(screen, storeCloseRect())
+	}
 
 	for i, item := range g.store.Stock {
-		rowY := panelY + 60 + float64(i)*rowH
+		rowY := panelY + 60 + float64(i)*storeRowH
 		if i == g.storeSelection {
-			vector.FillRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, color.RGBA{70, 58, 30, 235}, false)
-			vector.StrokeRect(screen, float32(panelX+10), float32(rowY-6), panelW-20, rowH-4, 1, borderColor, false)
+			vector.FillRect(screen, float32(panelX+10), float32(rowY-6), storePanelW-20, storeRowH-4, color.RGBA{70, 58, 30, 235}, false)
+			vector.StrokeRect(screen, float32(panelX+10), float32(rowY-6), storePanelW-20, storeRowH-4, 1, borderColor, false)
 		}
 
 		nameColor := color.RGBA{230, 225, 210, 255}
@@ -3785,14 +3929,24 @@ func (g *Game) drawStore(screen *ebiten.Image) {
 		} else if g.player.Gold < item.Price {
 			priceColor = color.RGBA{235, 85, 75, 255}
 		}
-		g.drawSmallText(screen, price, panelX+panelW-22-float64(len(price)*g.hudFontSize), rowY, priceColor)
+		g.drawSmallText(screen, price, panelX+storePanelW-22-float64(len(price)*g.hudFontSize), rowY, priceColor)
 
 		detailColor := color.RGBA{170, 160, 140, 255}
 		g.drawSmallText(screen, storeItemDetail(item), panelX+22, rowY+18, detailColor)
 	}
 
 	footer := "UP/DOWN SELECT   E BUY   ESC CLOSE"
-	g.drawSmallText(screen, footer, panelX+panelW/2-float64(len(footer)*g.hudFontSize)/2, panelY+panelH-26, color.RGBA{235, 220, 170, 255})
+	if g.usingTouch {
+		footer = "TAP ITEM: SELECT   TAP AGAIN: BUY"
+	}
+	g.drawSmallText(screen, footer, panelX+storePanelW/2-float64(len(footer)*g.hudFontSize)/2, panelY+storePanelH-26, color.RGBA{235, 220, 170, 255})
+
+	// selecting a weapon offer shows its full stats next to the gun the
+	// player is holding so it is easier to decide whether to buy it
+	selected := g.store.Stock[g.storeSelection]
+	if selected.Kind == world.StoreWeapon || selected.Kind == world.StoreWhisky || selected.Kind == world.StoreCigar {
+		g.drawStoreItemComparison(screen, selected)
+	}
 }
 
 func storeItemDetail(item world.StoreItem) string {
@@ -3809,6 +3963,11 @@ func storeItemDetail(item world.StoreItem) string {
 			return ""
 		}
 		return "HEAL " + strconv.Itoa(item.Gun.Damage) + "  BOTTLES " + strconv.Itoa(item.Gun.Ammo)
+	case world.StoreCigar:
+		if item.Gun == nil {
+			return ""
+		}
+		return "DEAD EYE +" + strconv.Itoa(item.Gun.Damage) + "  CIGARS " + strconv.Itoa(item.Gun.Ammo)
 	case world.StoreUpgrade:
 		return item.Upgrade.Description()
 	default:
@@ -3840,6 +3999,9 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 	if loot.Gun.GunType == actors.Whisky {
 		floorText = "WHISKY ON THE FLOOR"
 	}
+	if loot.Gun.GunType == actors.Cigar {
+		floorText = "CIGAR ON THE FLOOR"
+	}
 	g.drawSmallText(screen, floorText, panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
 
 	iconX := panelX + panelW/2
@@ -3853,13 +4015,26 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
 
 	headerY := panelY + 150
+	g.drawGunStatTable(screen, beltGun, loot.Gun, "LOOT", panelX, headerY)
+
+	takeHint := "E TAKE"
+	if g.usingTouch {
+		takeHint = "TAP TAKE GUN"
+	}
+	g.drawSmallText(screen, takeHint, panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
+}
+
+// drawGunStatTable draws the stat rows of a gun comparison card, the gun the
+// player is holding next to another gun with the difference between them.
+// otherLabel heads the column with the other gun's values.
+func (g *Game) drawGunStatTable(screen *ebiten.Image, current, other *actors.Gun, otherLabel string, panelX, headerY float64) {
 	headerColor := color.RGBA{170, 160, 140, 255}
 	g.drawSmallText(screen, "STAT", panelX+20, headerY, headerColor)
 	g.drawSmallText(screen, "YOURS", panelX+170, headerY, headerColor)
-	g.drawSmallText(screen, "LOOT", panelX+240, headerY, headerColor)
+	g.drawSmallText(screen, otherLabel, panelX+240, headerY, headerColor)
 	g.drawSmallText(screen, "DIFF", panelX+310, headerY, headerColor)
 
-	for i, row := range gunStatRows(beltGun, loot.Gun) {
+	for i, row := range gunStatRows(current, other) {
 		y := headerY + 24 + float64(i)*22
 		g.drawSmallText(screen, row.label, panelX+20, y, color.RGBA{220, 215, 200, 255})
 		g.drawSmallText(screen, formatStatValue(row.now, row.decimals), panelX+170, y, color.RGBA{180, 175, 160, 255})
@@ -3875,8 +4050,56 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 		}
 		g.drawSmallText(screen, formatStatDelta(delta, row.decimals), panelX+310, y, diffColor)
 	}
+}
 
-	g.drawSmallText(screen, "E TAKE", panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
+// drawStoreItemComparison shows the full stats of the selected store offer
+// next to the stats of the matching gun the player is holding, it is drawn
+// whenever a weapon offer is selected in the store.
+func (g *Game) drawStoreItemComparison(screen *ebiten.Image, item world.StoreItem) {
+	if item.Gun == nil {
+		return
+	}
+	index, ok := g.gunBeltIndexFor(item.Gun.GunType)
+	if !ok {
+		return
+	}
+	beltGun := g.player.GunBelt[index]
+	tierColor := actors.TierColor(item.Gun.Tier)
+
+	const (
+		panelW = 370.0
+		panelH = 308.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
+
+	g.drawSmallText(screen, "STORE OFFER", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+
+	price := strconv.Itoa(item.Price) + " $"
+	priceColor := color.RGBA{240, 230, 190, 255}
+	if item.Sold {
+		price = "SOLD"
+		priceColor = color.RGBA{140, 135, 125, 255}
+	} else if g.player.Gold < item.Price {
+		priceColor = color.RGBA{235, 85, 75, 255}
+	}
+	g.drawSmallText(screen, price, panelX+panelW-20-float64(len(price)*g.hudFontSize), panelY+16, priceColor)
+
+	icon := actors.Loot{Gun: item.Gun}
+	iconX := panelX + panelW/2
+	iconY := panelY + 66
+	icon.DrawIcon(screen, iconX, iconY, 2.0)
+
+	tierText := item.Gun.Tier.String()
+	g.drawSmallText(screen, tierText, iconX-float64(len(tierText)*g.hudFontSize)/2, iconY+40, tierColor)
+
+	nameText := item.Gun.GunType.String()
+	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
+
+	g.drawGunStatTable(screen, beltGun, item.Gun, "STORE", panelX, panelY+150)
 }
 
 // drawAmmo shows the bullets left in the magazine and the reload progress.
@@ -3993,19 +4216,96 @@ func (g *Game) boatPositions() [][2]float64 {
 	return [][2]float64{{g.boat.X + g.boat.W*g.boat.Scale/2, g.boat.Y + g.boat.H*g.boat.Scale/2}}
 }
 
-// drawCenteredTexts draws a block of horizontally centered lines of text, the
-// translation of the geo matrix already centers the first line.
-func (g *Game) drawCenteredTexts(screen *ebiten.Image, texts []string, face *text.GoXFace, fontSize int, drawOptions *text.DrawOptions, geoMatrix ebiten.GeoM) {
-	for i, line := range texts {
-		tx := 0
-		if i > 0 {
-			tx = (len(texts[0]) - len(line)) * fontSize / 2
-		}
-		drawOptions.GeoM.Translate(float64(tx), float64((i+1)*(fontSize+g.newlinePadding)))
-		text.Draw(screen, line, face, drawOptions)
-		drawOptions.GeoM = geoMatrix
+// titleControlRows is the controls table shown on the title screen, the
+// gamepad column uses the same button codes as the README.
+var titleControlRows = [...]struct {
+	action   string
+	keyboard string
+	gamepad  string
+}{
+	{"MOVE", "WASD/ZQSD", "L STICK"},
+	{"AIM", "MOUSE", "R STICK"},
+	{"SHOOT", "SPACE/LMB", "FTR"},
+	{"RELOAD", "R", "RR"},
+	{"DODGE", "SHIFT", "FTL"},
+	{"DEAD EYE", "X", "RB"},
+	{"WEAPON", "TAB/1-6", "LR"},
+	{"INTERACT", "E", "RT"},
+	{"PAUSE", "P", "FBR"},
+}
+
+// drawControlsTable renders a small keyboard/gamepad controls table centered
+// on the title screen below the title texts.
+func (g *Game) drawControlsTable(screen *ebiten.Image) {
+	const (
+		panelW = 340.0
+		rowH   = 17.0
+	)
+	panelH := 66.0 + float64(len(titleControlRows))*rowH
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := (float64(ScreenHeight) - panelH) / 2
+	borderColor := color.RGBA{245, 205, 55, 240}
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), 2, borderColor, false)
+
+	actionX := panelX + 14
+	keyboardX := panelX + 120
+	gamepadX := panelX + 236
+
+	g.drawSmallText(screen, "CONTROLS", actionX, panelY+16, color.RGBA{245, 205, 55, 255})
+	g.drawSmallText(screen, "KEYBOARD", keyboardX, panelY+16, color.RGBA{170, 160, 140, 255})
+	g.drawSmallText(screen, "GAMEPAD", gamepadX, panelY+16, color.RGBA{170, 160, 140, 255})
+
+	vector.StrokeLine(screen, float32(panelX+14), float32(panelY+36), float32(panelX+panelW-14), float32(panelY+36), 1, borderColor, false)
+
+	for i, row := range titleControlRows {
+		rowY := panelY + 54 + float64(i)*rowH
+		g.drawSmallText(screen, row.action, actionX, rowY, color.RGBA{235, 220, 170, 255})
+		g.drawSmallText(screen, row.keyboard, keyboardX, rowY, color.RGBA{240, 230, 190, 255})
+		g.drawSmallText(screen, row.gamepad, gamepadX, rowY, color.RGBA{240, 230, 190, 255})
 	}
-	drawOptions.GeoM = geoMatrix
+}
+
+// drawMenuTextPanel draws a block of centered text lines on a menu styled
+// panel, the first line is the gold headline and the other lines are cream
+// colored, matching the panels of the store and comparison cards. centerY
+// is the vertical center of the panel.
+func (g *Game) drawMenuTextPanel(screen *ebiten.Image, texts []string, fontSize int, face *text.GoXFace, centerY float64) {
+	if len(texts) == 0 {
+		return
+	}
+
+	widest := 0
+	for _, line := range texts {
+		widest = max(widest, len(line))
+	}
+
+	const (
+		padX = 36.0
+		padY = 26.0
+	)
+	lineStep := float64(fontSize + g.newlinePadding)
+	panelW := float64(widest*fontSize) + padX*2
+	panelH := float64(len(texts)-1)*lineStep + float64(fontSize) + padY*2
+	panelX := (float64(ScreenWidth) - panelW) / 2
+	panelY := centerY - panelH/2
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{18, 16, 12, 238}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), 2, color.RGBA{245, 205, 55, 240}, false)
+
+	for i, line := range texts {
+		clr := color.RGBA{235, 220, 170, 255}
+		if i == 0 {
+			clr = color.RGBA{245, 205, 55, 255}
+		}
+		drawOptions := g.textDrawOptions
+		drawOptions.GeoM.Reset()
+		drawOptions.ColorScale.Reset()
+		drawOptions.GeoM.Translate(panelX+(panelW-float64(len(line)*fontSize))/2, panelY+padY+float64(i)*lineStep)
+		drawOptions.ColorScale.ScaleWithColor(clr)
+		text.Draw(screen, line, face, drawOptions)
+	}
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
@@ -4026,12 +4326,20 @@ func (g *Game) playPlayerDrinkSound() {
 	g.playDrinkSound(1)
 }
 
+func (g *Game) playPlayerSmokeSound() {
+	g.playSmokeSound(1)
+}
+
 func (g *Game) playEnemyDrinkSound() {
 	g.playDrinkSound(0.6)
 }
 
 func (g *Game) playDrinkSound(volumeScale float64) {
 	g.sounds.Play(soundDrink, soundVolumeDrink*volumeScale)
+}
+
+func (g *Game) playSmokeSound(volumeScale float64) {
+	g.sounds.Play(soundSmoke, soundVolumeSmoke*volumeScale)
 }
 
 func (g *Game) playShootSound(weapon actors.Weapon, volumeScale float64) {

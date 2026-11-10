@@ -33,6 +33,9 @@ const (
 	// engageRangeTolerance is how far an enemy may drift from the range its
 	// weapon prefers before it closes in or backs off.
 	engageRangeTolerance = 45.0
+	// aimLockThreshold is the threshold on how many frames of the final steps
+	// of the windup the aim angle is locked
+	aimLockThreshold = 2
 )
 
 type Action struct {
@@ -53,6 +56,86 @@ type Action struct {
 	FleeY float64
 	// Fire makes a fleeing actor shoot at the player while he runs.
 	Fire bool
+
+	// Windup counts down the frames an actor spends aiming before it opens
+	// fire. While it runs the shot is telegraphed so the player can dodge.
+	Windup int
+	// WindupFrames is the full length of the windup, used to draw how far it
+	// has progressed.
+	WindupFrames int
+	// BurstShots is the number of shots left in the current burst.
+	BurstShots int
+	// BurstInterval is the number of frames between the shots of a burst.
+	BurstInterval int
+	// ShotTimer counts down to the next shot of a burst.
+	ShotTimer int
+	// attackTimerAccumulator keeps the burst timers in sync with TimeScale.
+	attackTimerAccumulator float64
+}
+
+// isTelegraphing reports whether the action is still winding up an attack.
+func (a *Action) isTelegraphing() bool {
+	if a.WindupFrames <= 0 || a.Windup <= 0 {
+		return false
+	}
+
+	// a fleeing bounty only telegraphs while he can actually see the player
+	return a.Type != Flee || a.Fire
+}
+
+// telegraphProgress returns how much of the windup has played, from 0 to 1.
+func (a *Action) telegraphProgress() float64 {
+	if a.WindupFrames <= 0 {
+		return 1
+	}
+
+	progress := 1 - float64(a.Windup)/float64(a.WindupFrames)
+
+	return min(1, max(0, progress))
+}
+
+// advanceAttack ticks the windup and fires the shots of the current burst. It
+// only advances once per simulation step so dead eye actually slows the
+// enemies down instead of letting them fire every frame.
+func (a *Action) advanceAttack() {
+	if a.Actor == nil {
+		return
+	}
+
+	if a.Windup > 0 {
+		a.Windup -= 1
+
+		return
+	}
+
+	if a.BurstShots <= 0 {
+		return
+	}
+
+	if a.ShotTimer > 0 {
+		a.ShotTimer -= 1
+	}
+
+	if a.ShotTimer > 0 {
+		return
+	}
+
+	// the offset makes the bullet leave from the barrel instead of the
+	// middle of the enemy sprite
+	if a.Actor.IsNpc {
+		a.Actor.X += 16
+		a.Actor.Y += 16
+	}
+
+	a.Actor.Shoot()
+
+	if a.Actor.IsNpc {
+		a.Actor.X -= 16
+		a.Actor.Y -= 16
+	}
+
+	a.BurstShots -= 1
+	a.ShotTimer = a.BurstInterval
 }
 
 // directionTowardsPoint returns the cardinal direction that brings an actor
@@ -76,7 +159,7 @@ func directionTowardsPoint(fromX, fromY, toX, toY float64) Direction {
 	return Up
 }
 
-func (a Action) PerformAction(player *Player, frameCount int) {
+func (a *Action) PerformAction(player *Player, frameCount int) {
 	actionPerformed := false
 	if a.Actor == nil {
 		return
@@ -142,19 +225,17 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 		// a fleeing bounty does not stop fighting: while he can see the
 		// player he keeps aiming and firing over his shoulder
 		if a.Fire && a.Actor.IsNpc && !player.Dead {
-			a.Actor.AimAngle = utils.LeadAngle(
-				a.Actor.X, a.Actor.Y,
-				player.X, player.Y,
-				player.X-player.PrevX, player.Y-player.PrevY,
-				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
-			)
-			a.Actor.FaceFromAim()
-			if frameCount%a.Actor.FireRate == 0 {
-				a.Actor.X += 16
-				a.Actor.Y += 16
-				a.Actor.Shoot()
-				a.Actor.X -= 16
-				a.Actor.Y -= 16
+			if a.Windup > aimLockThreshold {
+				a.Actor.AimAngle = utils.LeadAngle(
+					a.Actor.X, a.Actor.Y,
+					player.X, player.Y,
+					player.X-player.PrevX, player.Y-player.PrevY,
+					a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
+				)
+				a.Actor.FaceFromAim()
+			}
+			for range a.Actor.consumeTime(&a.attackTimerAccumulator) {
+				a.advanceAttack()
 			}
 		} else {
 			a.Actor.Look(dir)
@@ -217,12 +298,17 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 		// the enemy leads the running player so the bullets land where he
 		// will be when they arrive, the player keeps aiming at the cursor
 		if a.Actor.IsNpc && !player.Dead {
-			a.Actor.AimAngle = utils.LeadAngle(
-				a.Actor.X, a.Actor.Y,
-				player.X, player.Y,
-				player.X-player.PrevX, player.Y-player.PrevY,
-				a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
-			)
+			if a.Windup > aimLockThreshold {
+				a.Actor.AimAngle = utils.LeadAngle(
+					a.Actor.X, a.Actor.Y,
+					player.X, player.Y,
+					player.X-player.PrevX, player.Y-player.PrevY,
+					a.Actor.GunBelt[0].BulletSpeed, enemyLeadFactor, enemyMaxLead,
+				)
+			}
+			for range a.Actor.consumeTime(&a.attackTimerAccumulator) {
+				a.advanceAttack()
+			}
 		} else {
 			a.Actor.AimAngle = utils.AngleBetweenPoints(a.Actor.X, a.Actor.Y, player.X, player.Y)
 		}
@@ -249,21 +335,6 @@ func (a Action) PerformAction(player *Player, frameCount int) {
 			a.Actor.Animate()
 		}
 
-		if frameCount%a.Actor.FireRate == 0 {
-			// the addition and substraction here
-			// are for adding the correct offset to the bullet
-			if a.Actor.IsNpc {
-				a.Actor.X += 16
-				a.Actor.Y += 16
-			}
-
-			a.Actor.Shoot()
-
-			if a.Actor.IsNpc {
-				a.Actor.X -= 16
-				a.Actor.Y -= 16
-			}
-		}
 		actionPerformed = true
 	case Heal:
 		a.Actor.Shoot()

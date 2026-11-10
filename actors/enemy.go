@@ -32,8 +32,8 @@ const (
 	// enemyRepositionMinDuration and enemyRepositionMaxDuration bound the
 	// short strafe an enemy takes between attack bursts. It does not fire
 	// during this window.
-	enemyRepositionMinDuration = 1 * 60
-	enemyRepositionMaxDuration = 3 * 60
+	enemyRepositionMinDuration = 30
+	enemyRepositionMaxDuration = 75
 	// engage ranges keep the different guns in their own niche: shotguns
 	// close in, revolvers hold the middle and machine guns keep their
 	// distance.
@@ -63,6 +63,37 @@ const (
 	// RoleRusher charges in close.
 	RoleRusher
 )
+
+const (
+	// the windup is the part of the attack the player sees telegraphed, it is
+	// long enough to react to but short enough to keep the fight moving
+	shotgunWindupFrames    = 45
+	revolverWindupFrames   = 35
+	machineGunWindupFrames = 25
+	fistsWindupFrames      = 22
+	// every attack is a short burst followed by a reposition, so the player
+	// gets a clear window to dodge and shoot back
+	shotgunBurstShots    = 1
+	revolverBurstShots   = 2
+	machineGunBurstShots = 5
+)
+
+// attackProfile describes the windup and burst of one enemy attack.
+type attackProfile struct {
+	windup   int
+	shots    int
+	interval int
+}
+
+// duration returns how many frames the attack action takes, including a small
+// tail after the last shot so the action does not cut the burst off.
+func (p attackProfile) duration() int {
+	if p.shots <= 0 {
+		return p.windup + 1
+	}
+
+	return p.windup + 1 + (p.shots-1)*p.interval + 1
+}
 
 // EnemyTierStats holds the extra stats an enemy gets from its tier on top of
 // the level scaling. Tougher tiers are deadlier, faster and shoot more often.
@@ -128,6 +159,8 @@ type Enemy struct {
 	SteerTimer int
 	// CorpseTimer counts the frames since the enemy died.
 	CorpseTimer int
+	// StateSpriteIndex returns the index in the enemy sprite array for a certain state
+	StateSpriteIndex map[PlayerState]int
 	// actionTimerAccumulator keeps the action duration in sync with TimeScale.
 	actionTimerAccumulator float64
 }
@@ -142,8 +175,11 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 		e.DrawOptions.ColorScale.Scale(3, 3, 3, 1)
 		e.HitFlash--
 	}
-	screen.DrawImage(e.Sprites[e.CurrentState], e.DrawOptions)
+	screen.DrawImage(e.Sprites[e.StateSpriteIndex[e.CurrentState]], e.DrawOptions)
 	e.DrawOptions.ColorScale.Reset()
+	if !e.Dead && e.CurrentAction.isTelegraphing() {
+		e.drawTelegraph(screen, camX, camY)
+	}
 	weapon := e.GunBelt[e.CurrentWeapon].GunType
 	if e.MuzzleFlash > 0 && !e.Dead && weapon != Fists && weapon != Whisky {
 		drawMuzzleFlash(screen, e.X+e.W-camX, e.Y+e.H-camY, e.AimAngle)
@@ -165,6 +201,32 @@ func (e *Enemy) Draw(screen *ebiten.Image, camX float64, camY float64) {
 func (e *Enemy) UpdateHitboxOffset(offset int) {
 	e.Hitbox.X = float32(e.X) + float32(offset)
 	e.Hitbox.Y = float32(e.Y) + float32(offset)
+}
+
+// drawTelegraph paints the area the enemy is about to shoot at. Shotguns show
+// a cone, every other gun shows a straight line toward the locked-in target.
+func (e *Enemy) drawTelegraph(screen *ebiten.Image, camX, camY float64) {
+	index := e.CurrentWeapon
+	if index < 0 || index >= len(e.GunBelt) || e.GunBelt[index] == nil {
+		return
+	}
+
+	gun := e.GunBelt[index]
+	shape, halfAngle := telegraphForGun(gun)
+	length := gun.BulletSpeed * float64(gun.BulletDuration)
+	if length <= 0 {
+		length = 420
+	}
+	// the telegraph is an aim hint, not a full range indicator: keep it short
+	// enough that it does not dominate the screen
+	length = min(length*0.6, 280)
+	// the sprite is drawn scaled from its top-left, so use its real bounds to
+	// start the telegraph at the visual center of the enemy
+	sprite := e.Sprites[e.StateSpriteIndex[e.CurrentState]]
+	cx := e.X + float64(sprite.Bounds().Dx())*e.Scale/2 - camX
+	cy := e.Y + float64(sprite.Bounds().Dy())*e.Scale/2 - camY
+
+	drawTelegraph(screen, cx, cy, e.AimAngle, e.CurrentAction.telegraphProgress(), shape, halfAngle, length)
 }
 
 func (e *Enemy) Move(d Direction) {
@@ -364,13 +426,22 @@ func (e *Enemy) flee(seesPlayer bool) {
 		return
 	}
 
+	profile := e.attackProfile()
+	duration := 30 + rand.IntN(15)
+	if seesPlayer {
+		duration = max(duration, profile.duration())
+	}
 	e.CurrentAction = Action{
-		Duration: 30 + rand.IntN(15),
-		Type:     Flee,
-		FleeX:    e.FleeX,
-		FleeY:    e.FleeY,
-		Fire:     seesPlayer,
-		Actor:    e.Player,
+		Duration:      duration,
+		Type:          Flee,
+		FleeX:         e.FleeX,
+		FleeY:         e.FleeY,
+		Fire:          seesPlayer,
+		Actor:         e.Player,
+		Windup:        profile.windup,
+		WindupFrames:  profile.windup,
+		BurstShots:    profile.shots,
+		BurstInterval: profile.interval,
 	}
 }
 
@@ -405,7 +476,8 @@ func (e *Enemy) engage(player *Player) {
 	}
 
 	actionType := MoveAndShoot
-	duration := 85 + rand.IntN(170)
+	profile := e.attackProfile()
+	duration := profile.duration()
 	if rand.Float64() < enemyCombatDodgeChance {
 		actionType = Dodge
 		duration = enemyCombatDodgeMinDuration + rand.IntN(enemyCombatDodgeMaxDuration-enemyCombatDodgeMinDuration+1)
@@ -419,6 +491,12 @@ func (e *Enemy) engage(player *Player) {
 		PreferredRange: e.engageRange(),
 		TargetOffsetX:  offsetX,
 		TargetOffsetY:  offsetY,
+	}
+	if actionType == MoveAndShoot {
+		e.CurrentAction.Windup = profile.windup
+		e.CurrentAction.WindupFrames = profile.windup
+		e.CurrentAction.BurstShots = profile.shots
+		e.CurrentAction.BurstInterval = profile.interval
 	}
 }
 
@@ -529,6 +607,46 @@ func (e *Enemy) engageRange() float64 {
 	}
 
 	return engageRange
+}
+
+// attackProfile returns the windup and burst the enemy's current gun uses and tier.
+func (e *Enemy) attackProfile() attackProfile {
+	index := e.CurrentWeapon
+	if index < 0 || index >= len(e.GunBelt) || e.GunBelt[index] == nil || e.GunBelt[index].GunType == Whisky {
+		index = e.primaryWeaponIndex()
+	}
+	if index < 0 || index >= len(e.GunBelt) || e.GunBelt[index] == nil {
+		return attackProfile{windup: revolverWindupFrames, shots: revolverBurstShots, interval: max(8, e.FireRate)}
+	}
+
+	windupFrames := revolverWindupFrames
+	interval := max(8, e.FireRate)
+	shots := revolverBurstShots
+	switch e.GunBelt[index].GunType {
+	case Shotgun:
+		windupFrames = shotgunWindupFrames
+		shots = shotgunBurstShots
+		interval = 1
+	case MachineGun:
+		windupFrames = machineGunWindupFrames
+		shots = machineGunBurstShots
+		interval = max(5, e.FireRate)
+	case Fists:
+		windupFrames = fistsWindupFrames
+		shots = 1
+		interval = 1
+	}
+
+	switch e.Tier {
+	case Rare:
+		windupFrames -= 5 + rand.IntN(10)
+		shots += rand.IntN(shots)
+	case Legendary:
+		windupFrames -= 10 + rand.IntN(10)
+		shots += rand.IntN(shots)
+	}
+
+	return attackProfile{windup: windupFrames, shots: shots, interval: interval}
 }
 
 // wanderDirection picks a direction for an idle bandit. Once he is far enough
