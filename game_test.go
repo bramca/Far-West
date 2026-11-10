@@ -1219,6 +1219,44 @@ func TestNewStoreCigar(t *testing.T) {
 	}
 }
 
+// TestLevelGunDamage makes sure the gun base damage shared by enemies and
+// the store grows with the level.
+func TestLevelGunDamage(t *testing.T) {
+	if got := levelGunDamage(1); got != 2 {
+		t.Fatalf("level 1 should roll base damage 2, got %d", got)
+	}
+	for level := 1; level < 30; level++ {
+		if levelGunDamage(level+1) < levelGunDamage(level) {
+			t.Fatalf("gun base damage should not go down at level %d", level+1)
+		}
+	}
+	if got := levelGunDamage(25); got != 14 {
+		t.Fatalf("level 25 should roll base damage 14, got %d", got)
+	}
+}
+
+// TestStoreGunDamageScalesWithLevel makes sure store guns roll the level
+// scaled base damage instead of a flat damage that falls behind the enemies.
+func TestStoreGunDamageScalesWithLevel(t *testing.T) {
+	game := NewGame()
+	game.level = 25
+
+	found := false
+	for range 20 {
+		item := game.newStoreWeaponItem()
+		if item.Kind != world.StoreWeapon {
+			continue
+		}
+		found = true
+		if item.Gun.Damage < levelGunDamage(game.level) {
+			t.Fatalf("store gun damage %d is below the level base %d", item.Gun.Damage, levelGunDamage(game.level))
+		}
+	}
+	if !found {
+		t.Fatal("no gun offer was generated")
+	}
+}
+
 func firstStoreItem(game *Game, kind world.StoreItemKind) *world.StoreItem {
 	for i := range game.store.Stock {
 		if game.store.Stock[i].Kind == kind {

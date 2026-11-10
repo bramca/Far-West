@@ -1006,7 +1006,9 @@ func (g *Game) newStoreWeaponItem() world.StoreItem {
 
 	gunType := rollEnemyWeapon()
 	tier := rollStoreGunTier(g.level)
-	gun := g.newEnemyGun(gunType, tier, 3)
+	// the store guns roll the same level scaled base damage the enemies
+	// carry so they keep up with the drops of the current level
+	gun := g.newEnemyGun(gunType, tier, levelGunDamage(g.level))
 
 	return world.StoreItem{
 		Kind:   world.StoreWeapon,
@@ -1590,6 +1592,12 @@ func rollGunTierStats(tier actors.Tier) actors.GunTierStats {
 	}
 }
 
+// levelGunDamage is the base gun damage that comes with the level, enemies
+// and the store both roll it so their guns stay comparable across levels.
+func levelGunDamage(level int) int {
+	return 2 + (level-1)/2*levelDamageBonus
+}
+
 // newEnemyGun builds the gun an enemy carries. The tier of the gun improves
 // its base stats and widens the random spread of those stats.
 func (g *Game) newEnemyGun(gunType actors.Weapon, tier actors.Tier, damage int) actors.Gun {
@@ -1696,7 +1704,7 @@ func (g *Game) spawnEnemyOfTier(camp *world.BanditCamp, tier actors.Tier, bounty
 
 	// the higher the level the tougher and deadlier the enemies get,
 	// the base damage is low because every bullet deals at least 1
-	damage := 2 + (g.level-1)/2*levelDamageBonus + tierStats.Damage
+	damage := levelGunDamage(g.level) + tierStats.Damage
 	gun := g.newEnemyGun(rollEnemyWeapon(), rollGunTier(tier), damage)
 	gunBelt := []*actors.Gun{&gun}
 	if rollEnemyWhisky(tier) {
@@ -3966,6 +3974,13 @@ func (g *Game) drawStore(screen *ebiten.Image) {
 		footer = "TAP ITEM: SELECT   TAP AGAIN: BUY"
 	}
 	g.drawSmallText(screen, footer, panelX+storePanelW/2-float64(len(footer)*g.hudFontSize)/2, panelY+storePanelH-26, color.RGBA{235, 220, 170, 255})
+
+	// selecting a weapon offer shows its full stats next to the gun the
+	// player is holding so it is easier to decide whether to buy it
+	selected := g.store.Stock[g.storeSelection]
+	if selected.Kind == world.StoreWeapon || selected.Kind == world.StoreWhisky || selected.Kind == world.StoreCigar {
+		g.drawStoreItemComparison(screen, selected)
+	}
 }
 
 func storeItemDetail(item world.StoreItem) string {
@@ -4034,13 +4049,26 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
 
 	headerY := panelY + 150
+	g.drawGunStatTable(screen, beltGun, loot.Gun, "LOOT", panelX, headerY)
+
+	takeHint := "E TAKE"
+	if g.usingTouch {
+		takeHint = "TAP TAKE GUN"
+	}
+	g.drawSmallText(screen, takeHint, panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
+}
+
+// drawGunStatTable draws the stat rows of a gun comparison card, the gun the
+// player is holding next to another gun with the difference between them.
+// otherLabel heads the column with the other gun's values.
+func (g *Game) drawGunStatTable(screen *ebiten.Image, current, other *actors.Gun, otherLabel string, panelX, headerY float64) {
 	headerColor := color.RGBA{170, 160, 140, 255}
 	g.drawSmallText(screen, "STAT", panelX+20, headerY, headerColor)
 	g.drawSmallText(screen, "YOURS", panelX+170, headerY, headerColor)
-	g.drawSmallText(screen, "LOOT", panelX+240, headerY, headerColor)
+	g.drawSmallText(screen, otherLabel, panelX+240, headerY, headerColor)
 	g.drawSmallText(screen, "DIFF", panelX+310, headerY, headerColor)
 
-	for i, row := range gunStatRows(beltGun, loot.Gun) {
+	for i, row := range gunStatRows(current, other) {
 		y := headerY + 24 + float64(i)*22
 		g.drawSmallText(screen, row.label, panelX+20, y, color.RGBA{220, 215, 200, 255})
 		g.drawSmallText(screen, formatStatValue(row.now, row.decimals), panelX+170, y, color.RGBA{180, 175, 160, 255})
@@ -4056,12 +4084,56 @@ func (g *Game) drawLootComparison(screen *ebiten.Image, loot *actors.Loot) {
 		}
 		g.drawSmallText(screen, formatStatDelta(delta, row.decimals), panelX+310, y, diffColor)
 	}
+}
 
-	takeHint := "E TAKE"
-	if g.usingTouch {
-		takeHint = "TAP TAKE GUN"
+// drawStoreItemComparison shows the full stats of the selected store offer
+// next to the stats of the matching gun the player is holding, it is drawn
+// whenever a weapon offer is selected in the store.
+func (g *Game) drawStoreItemComparison(screen *ebiten.Image, item world.StoreItem) {
+	if item.Gun == nil {
+		return
 	}
-	g.drawSmallText(screen, takeHint, panelX+20, panelY+panelH-28, color.RGBA{235, 220, 170, 255})
+	index, ok := g.gunBeltIndexFor(item.Gun.GunType)
+	if !ok {
+		return
+	}
+	beltGun := g.player.GunBelt[index]
+	tierColor := actors.TierColor(item.Gun.Tier)
+
+	const (
+		panelW = 370.0
+		panelH = 308.0
+	)
+	panelX := float64(ScreenWidth) - panelW - 20
+	panelY := 160.0
+
+	vector.FillRect(screen, float32(panelX), float32(panelY), panelW, panelH, color.RGBA{18, 16, 12, 242}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), panelW, panelH, 2, tierColor, false)
+
+	g.drawSmallText(screen, "STORE OFFER", panelX+20, panelY+16, color.RGBA{235, 220, 170, 255})
+
+	price := strconv.Itoa(item.Price) + " $"
+	priceColor := color.RGBA{240, 230, 190, 255}
+	if item.Sold {
+		price = "SOLD"
+		priceColor = color.RGBA{140, 135, 125, 255}
+	} else if g.player.Gold < item.Price {
+		priceColor = color.RGBA{235, 85, 75, 255}
+	}
+	g.drawSmallText(screen, price, panelX+panelW-20-float64(len(price)*g.hudFontSize), panelY+16, priceColor)
+
+	icon := actors.Loot{Gun: item.Gun}
+	iconX := panelX + panelW/2
+	iconY := panelY + 66
+	icon.DrawIcon(screen, iconX, iconY, 2.0)
+
+	tierText := item.Gun.Tier.String()
+	g.drawSmallText(screen, tierText, iconX-float64(len(tierText)*g.hudFontSize)/2, iconY+40, tierColor)
+
+	nameText := item.Gun.GunType.String()
+	g.drawSmallText(screen, nameText, iconX-float64(len(nameText)*g.hudFontSize)/2, iconY+56, color.RGBA{230, 225, 210, 255})
+
+	g.drawGunStatTable(screen, beltGun, item.Gun, "STORE", panelX, panelY+150)
 }
 
 // drawAmmo shows the bullets left in the magazine and the reload progress.
